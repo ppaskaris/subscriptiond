@@ -1,0 +1,28 @@
+﻿@model youtubed.Models.ListModel
+
+@{
+    ViewData["Title"] = "View List";
+}
+
+<h1>List</h1>
+<p>
+    This is a <strong>secret list</strong> that is only visible to someone with
+    a copy of @(Html.ActionLink("this link", "view", new { Model.Id, Model.Token })).
+    Consider bookmarking it as it cannot be recovered if you lose it.
+</p>
+
+<h2>Details</h2>
+<dl class="dl-horizontal">
+    <dt>
+        @Html.DisplayNameFor(model => model.Id)
+    </dt>
+    <dd>
+        @Html.DisplayFor(model => model.Id)
+    </dd>
+    <dt>
+        @Html.DisplayNameFor(model => model.Token)
+    </dt>
+    <dd>
+        @Html.DisplayFor(model => model.Token)
+    </dd>
+</dl>

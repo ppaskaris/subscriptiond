@@ -13,9 +13,18 @@ namespace youtubed
 {
     public class Startup
     {
-        public Startup(IConfiguration configuration)
+        public Startup(IHostingEnvironment env)
         {
-            Configuration = configuration;
+            var builder = new ConfigurationBuilder()
+                .SetBasePath(env.ContentRootPath)
+                .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true); ;
+
+            if (env.IsDevelopment())
+            {
+                builder.AddUserSecrets<Startup>();
+            }
+
+            Configuration = builder.Build();
         }
 
         public IConfiguration Configuration { get; }
@@ -24,15 +33,19 @@ namespace youtubed
         // services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
+            services.AddOptions();
             services.AddRouting(options =>
             {
                 options.LowercaseUrls = true;
             });
             services.AddMvc();
-            services.AddSingleton<IConnectionFactory>(
-                new ConnectionStringConnectionFactory(
-                    Configuration.GetConnectionString("Main")));
-            services.AddScoped<IListService, ListService>();
+
+            services.Configure<YoutubeOptions>(Configuration.GetSection("Youtube"));
+
+            services.AddSingleton<IChannelService, ChannelService>();
+            services.AddSingleton<IConnectionFactory>(new ConnectionStringConnectionFactory(Configuration.GetConnectionString("Main")));
+            services.AddSingleton<IListService, ListService>();
+            services.AddSingleton<IYoutubeService, YoutubeService>();
         }
 
         // This method gets called by the runtime. Use this method to configure

@@ -11,10 +11,14 @@ namespace youtubed.Controllers
     public class ListController : Controller
     {
         private readonly IListService _listService;
+        private readonly IChannelService _channelService;
 
-        public ListController(IListService listService)
+        public ListController(
+            IListService listService,
+            IChannelService channelService)
         {
             _listService = listService;
+            _channelService = channelService;
         }
 
         [HttpGet]
@@ -85,7 +89,15 @@ namespace youtubed.Controllers
             {
                 return View(model);
             }
-            return Json("u wot m8");
+
+            var channel = await _channelService.CreateChannelAsync(model.Url);
+            if (channel == null)
+            {
+                ModelState.AddModelError("Url", "Cannot find channel on YouTube.");
+                return View(model);
+            }
+
+            return View("ChannelInfo", channel);
         }
     }
 }

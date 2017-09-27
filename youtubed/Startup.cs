@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using youtubed.Services;
+using youtubed.Data;
 
 namespace youtubed
 {
@@ -19,14 +20,19 @@ namespace youtubed
 
         public IConfiguration Configuration { get; }
 
-        // This method gets called by the runtime. Use this method to add services to the container.
+        // This method gets called by the runtime. Use this method to add
+        // services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddMvc();
-            services.AddScoped<IListService, FakeListService>();
+            services.AddSingleton<IConnectionFactory>(
+                new ConnectionStringConnectionFactory(
+                    Configuration.GetConnectionString("Main")));
+            services.AddScoped<IListService, ListService>();
         }
 
-        // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
+        // This method gets called by the runtime. Use this method to configure
+        // the HTTP request pipeline.
         public void Configure(IApplicationBuilder app, IHostingEnvironment env)
         {
             if (env.IsDevelopment())
@@ -40,6 +46,7 @@ namespace youtubed
             }
 
             app.UseStaticFiles();
+            app.UseStatusCodePages();
 
             app.UseMvc(routes =>
             {

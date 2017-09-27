@@ -17,7 +17,7 @@ namespace youtubed.Controllers
         }
 
         [HttpGet]
-        public IActionResult View(Guid? id, string token)
+        public async Task<IActionResult> View(Guid? id, string token)
         {
             if (id == null)
             {
@@ -28,12 +28,12 @@ namespace youtubed.Controllers
                 return BadRequest();
             }
 
-            var list = _listService.GetListById(id.Value);
+            var list = await _listService.GetListAsync(id.Value);
             if (list == null)
             {
                 return NotFound();
             }
-            if (token != list.Token)
+            if (token != list.TokenString)
             {
                 return NotFound();
             }
@@ -42,10 +42,10 @@ namespace youtubed.Controllers
         }
 
         [HttpPost]
-        public IActionResult Create()
+        public async Task<IActionResult> Create()
         {
-            var list = _listService.CreateList();
-            return RedirectToAction("View", new { list.Id, list.Token });
+            var list = await _listService.CreateListAsync();
+            return RedirectToAction("View", new { list.Id, Token = list.TokenString });
         }
     }
 }

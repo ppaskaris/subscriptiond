@@ -8,7 +8,7 @@ namespace youtubed.Services
 {
     public interface IListService
     {
-        ListModel GetListById(Guid id);
-        ListModel CreateList();
+        Task<ListModel> CreateListAsync();
+        Task<ListModel> GetListAsync(Guid id);
     }
 }

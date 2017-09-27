@@ -24,6 +24,10 @@ namespace youtubed
         // services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
+            services.AddRouting(options =>
+            {
+                options.LowercaseUrls = true;
+            });
             services.AddMvc();
             services.AddSingleton<IConnectionFactory>(
                 new ConnectionStringConnectionFactory(

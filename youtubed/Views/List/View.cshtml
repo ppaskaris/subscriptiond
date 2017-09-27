@@ -7,39 +7,15 @@
 <h1>List</h1>
 <p>
     This is a <strong>secret list</strong> that is only visible to someone with
-    a copy of @(Html.ActionLink("this link", "view", new { Model.Id, Model.Token })).
+    a copy of <a asp-action="View" asp-route-id="@Model.Id" asp-route-token="@Model.TokenString">this link</a>.
     Consider bookmarking it as it cannot be recovered if you lose it.
 </p>
-
-<h2>Details</h2>
-<dl class="dl-horizontal">
-    <dt>
-        @Html.DisplayNameFor(model => model.Id)
-    </dt>
-    <dd>
-        @Html.DisplayFor(model => model.Id)
-    </dd>
-    <dt>
-        @Html.DisplayNameFor(model => model.Token)
-    </dt>
-    <dd>
-        @Html.DisplayFor(model => model.TokenString)
-    </dd>
-</dl>
 
 <h2>Videos</h2>
 <p>
     <em>There are no new videos in this list.</em>
 </p>
 
-<h3>Add Channel</h3>
-<form role="form" method="post" asp-action="AddChannel">
-    <div class="form-group">
-        <label class="control-label" for="video-url">Channel URL</label>
-        <input type="text" class="form-control" id="video-url" aria-labelledby="video-url-help" name="Video" placeholder="https://www.youtube.com/user/PewDiePie">
-        <span id="video-url-help" class="help-block">Copy the text in your browser's <a href="https://en.wikipedia.org/wiki/Address_bar" rel="nofollow noreferrer">address bar</a> while on the channel page.</span>
-    </div>
-    <input type="hidden" name="Id" value="@Model.Id" />
-    <input type="hidden" name="Token" value="@Model.TokenString" />
-    <button type="submit" class="btn btn-default">Add Channel</button>
-</form>
+<div>
+    <a asp-action="AddChannel" asp-route-id="@Model.Id" asp-route-token="@Model.TokenString">Add New Channel</a>
+</div>

@@ -28,7 +28,7 @@ namespace youtubed.Services
             using (var connection = _connectionFactory.CreateConnection())
             {
                 await connection.ExecuteAsync(
-                    @"INSERT INTO List (Id, Token) VALUES (@Id, @Token)",
+                    @"INSERT INTO List (Id, Token) VALUES (@Id, @Token);",
                     list);
             }
             return list;
@@ -40,7 +40,7 @@ namespace youtubed.Services
             using (var connection = _connectionFactory.CreateConnection())
             {
                 list = await connection.QueryFirstOrDefaultAsync<ListModel>(
-                    @"SELECT Id, Token FROM list WHERE Id = @id",
+                    @"SELECT Id, Token FROM list WHERE Id = @id;",
                     new { id });
             }
             return list;

@@ -27,7 +27,10 @@ namespace youtubed.Services
             using (var connection = _connectionFactory.CreateConnection())
             {
                 model = await connection.QueryFirstOrDefaultAsync<ChannelModel>(
-                    @"SELECT Id, Title, Description, Thumbnail FROM Channel WHERE Id = @id",
+                    @"
+                        SELECT Id, Url, Title, Description, Thumbnail
+                        FROM Channel WHERE Id = @id;
+                    ",
                     new { id = url });
             }
 
@@ -46,6 +49,24 @@ namespace youtubed.Services
                     Description = channel.Description,
                     Thumbnail = channel.Thumbnail
                 };
+            }
+
+            using (var connection = _connectionFactory.CreateConnection())
+            {
+                await connection.ExecuteAsync(
+                    @"
+                        MERGE INTO Channel source
+                        USING (
+                            SELECT @Id as Id,
+                                   @Title as Title,
+                                   @Description as Description,
+                                   @Thumbnail as Thumbnail
+                        ) target ON target.Id = source.Id
+                        WHEN NOT MATCHED THEN 
+                            INSERT (Id, Title, Description, Thumbnail)
+                            VALUES (@Id, @Title, @Description, @Thumbnail);
+                    ",
+                    model);
             }
 
             return model;

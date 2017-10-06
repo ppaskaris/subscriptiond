@@ -1,0 +1,14 @@
+﻿IF OBJECT_ID('Channel', 'U') IS NOT NULL 
+	DROP TABLE Channel; 
+
+CREATE TABLE Channel (
+	Id NVARCHAR (50) NOT NULL,
+	Url NVARCHAR (256) NOT NULL, 
+	Title NVARCHAR (256) NOT NULL,
+	Description NVARCHAR (1024) NOT NULL,
+	Thumbnail NVARCHAR (2048) NOT NULL,
+
+	CONSTRAINT Channel_Url UNIQUE (Url),
+
+	PRIMARY KEY (Id)
+);

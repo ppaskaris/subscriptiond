@@ -28,7 +28,10 @@ namespace youtubed.Services
             using (var connection = _connectionFactory.CreateConnection())
             {
                 await connection.ExecuteAsync(
-                    @"INSERT INTO List (Id, Token) VALUES (@Id, @Token);",
+                    @"
+                    INSERT INTO List (Id, Token)
+                    VALUES (@Id, @Token);
+                    ",
                     list);
             }
             return list;
@@ -44,6 +47,19 @@ namespace youtubed.Services
                     new { id });
             }
             return list;
+        }
+
+        public async Task AddChannelAsync(Guid listId, string channelId)
+        {
+            using (var connection = _connectionFactory.CreateConnection())
+            {
+                await connection.ExecuteAsync(
+                    @"
+                    INSERT INTO ListChannel (ListId, ChannelId)
+                    VALUES (@listId, @channelId);
+                    ",
+                    new { listId, channelId });
+            }
         }
 
         private byte[] CreateToken()

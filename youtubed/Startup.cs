@@ -34,10 +34,6 @@ namespace youtubed
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddOptions();
-            services.AddRouting(options =>
-            {
-                options.LowercaseUrls = true;
-            });
             services.AddMvc();
 
             services.Configure<YoutubeOptions>(Configuration.GetSection("Youtube"));

@@ -8,6 +8,6 @@ namespace youtubed.Services
 {
     public interface IChannelService
     {
-        Task<ChannelModel> CreateChannelAsync(string url);
+        Task<ChannelModel> GetOrCreateChannel(string url);
     }
 }

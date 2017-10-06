@@ -26,7 +26,7 @@ namespace youtubed.Controllers
         {
             if (id == null)
             {
-                return NotFound();
+                return BadRequest();
             }
             if (token == null)
             {
@@ -50,7 +50,11 @@ namespace youtubed.Controllers
         public async Task<IActionResult> Create()
         {
             var list = await _listService.CreateListAsync();
-            return RedirectToAction("View", new { id = list.Id, token = list.TokenString });
+            return RedirectToAction("View", new
+            {
+                Id = list.Id,
+                Token = list.TokenString
+            });
         }
 
         [HttpGet]
@@ -90,14 +94,30 @@ namespace youtubed.Controllers
                 return View(model);
             }
 
-            var channel = await _channelService.CreateChannelAsync(model.Url);
+            var list = await _listService.GetListAsync(model.Id.Value);
+            if (list == null)
+            {
+                return BadRequest();
+            }
+            if (model.Token != list.TokenString)
+            {
+                return BadRequest();
+            }
+
+            var channel = await _channelService.GetOrCreateChannel(model.Url);
             if (channel == null)
             {
                 ModelState.AddModelError("Url", "Cannot find channel on YouTube.");
                 return View(model);
             }
 
-            return View("ChannelInfo", channel);
+            await _listService.AddChannelAsync(list.Id, channel.Id);
+
+            return RedirectToAction("View", new
+            {
+                Id = list.Id,
+                Token = list.TokenString
+            });
         }
     }
 }

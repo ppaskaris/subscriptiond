@@ -21,17 +21,17 @@ namespace youtubed.Services
             _youtubeService = youtubeService;
         }
 
-        public async Task<ChannelModel> CreateChannelAsync(string url)
+        public async Task<ChannelModel> GetOrCreateChannel(string url)
         {
             ChannelModel model;
             using (var connection = _connectionFactory.CreateConnection())
             {
                 model = await connection.QueryFirstOrDefaultAsync<ChannelModel>(
                     @"
-                        SELECT Id, Url, Title, Description, Thumbnail
-                        FROM Channel WHERE Id = @id;
+                    SELECT Id, Url, Title, Description, Thumbnail
+                    FROM Channel WHERE Url = @url;
                     ",
-                    new { id = url });
+                    new { url });
             }
 
             if (model != null)
@@ -45,6 +45,7 @@ namespace youtubed.Services
                 model = new ChannelModel
                 {
                     Id = channel.Id,
+                    Url = url,
                     Title = channel.Title,
                     Description = channel.Description,
                     Thumbnail = channel.Thumbnail
@@ -55,16 +56,17 @@ namespace youtubed.Services
             {
                 await connection.ExecuteAsync(
                     @"
-                        MERGE INTO Channel source
-                        USING (
-                            SELECT @Id as Id,
-                                   @Title as Title,
-                                   @Description as Description,
-                                   @Thumbnail as Thumbnail
-                        ) target ON target.Id = source.Id
-                        WHEN NOT MATCHED THEN 
-                            INSERT (Id, Title, Description, Thumbnail)
-                            VALUES (@Id, @Title, @Description, @Thumbnail);
+                    MERGE INTO Channel source
+                    USING (
+                        SELECT @Id as Id,
+                                @Url as Url,
+                                @Title as Title,
+                                @Description as Description,
+                                @Thumbnail as Thumbnail
+                    ) target ON target.Url = source.Url
+                    WHEN NOT MATCHED THEN 
+                        INSERT (Id, Url, Title, Description, Thumbnail)
+                        VALUES (@Id, @Url, @Title, @Description, @Thumbnail);
                     ",
                     model);
             }

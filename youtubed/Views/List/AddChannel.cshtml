@@ -1,10 +1,10 @@
 ﻿@model youtubed.Models.AddChannelModel
 
 @{
-    ViewData["Title"] = "Add New Channel";
+    ViewData["Title"] = "Add new channel";
 }
 
-<h1>Add Channel</h1>
+<h1>@ViewData["Title"]</h1>
 <form asp-action="AddChannel">
     <div asp-validation-summary="ModelOnly" class="text-danger"></div>
     <div class="form-group">
@@ -13,17 +13,15 @@
         <span asp-validation-for="Url" class="text-danger"></span>
         <span id="UrlHelp" class="help-block">Copy the text in your browser's <a href="https://en.wikipedia.org/wiki/Address_bar#Address_bar_implementations" rel="nofollow noreferrer" target="_blank">address bar</a> while on the channel page.</span>
     </div>
-    <input asp-for="Id" />
-    <input asp-for="Token" />
     @Html.HiddenFor(model => model.Id)
     @Html.HiddenFor(model => model.Token)
     <div class="form-group">
-        <input type="submit" value="Create" class="btn btn-default" />
+        <input type="submit" value="Add channel" class="btn btn-default" />
     </div>
 </form>
 
 <div>
-    <a asp-action="View" asp-route-id="@Model.Id" asp-route-token="@Model.Token">Back to List</a>
+    <a asp-action="View" asp-route-Id="@Model.Id" asp-route-Token="@Model.Token">Back to List</a>
 </div>
 
 @section Scripts {

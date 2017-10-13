@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using youtubed.Services;
 using youtubed.Data;
 using Microsoft.Extensions.Hosting;
+using Dapper;
 
 namespace youtubed
 {
@@ -45,6 +46,8 @@ namespace youtubed
             services.AddSingleton<IHostedService, ChannelUpdaterHostedService>();
             services.AddSingleton<IListService, ListService>();
             services.AddSingleton<IYoutubeService, YoutubeService>();
+
+            SqlMapper.AddTypeHandler(new TimeSpanTypeHandler());
         }
 
         // This method gets called by the runtime. Use this method to configure

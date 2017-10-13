@@ -33,17 +33,17 @@ namespace youtubed.Controllers
                 return BadRequest();
             }
 
-            var list = await _listService.GetListAsync(id.Value);
-            if (list == null)
+            var listView = await _listService.GetListViewAsync(id.Value);
+            if (listView == null)
             {
                 return NotFound();
             }
-            if (token != list.TokenString)
+            if (token != listView.Token)
             {
                 return NotFound();
             }
 
-            return View(list);
+            return View(listView);
         }
 
         [HttpPost]

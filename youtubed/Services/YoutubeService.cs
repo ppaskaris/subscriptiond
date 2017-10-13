@@ -1,5 +1,6 @@
 ﻿using Google.Apis.Services;
 using Google.Apis.YouTube.v3;
+using Google.Apis.YouTube.v3.Data;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.PlatformAbstractions;
 using System;
@@ -58,7 +59,7 @@ namespace youtubed.Services
             {
                 Id = item.Id,
                 Title = item.Snippet.Title,
-                Thumbnail = item.Snippet.Thumbnails.Default__?.Url
+                Thumbnail = PickThumbnail(item.Snippet.Thumbnails)
             };
         }
 
@@ -97,13 +98,22 @@ namespace youtubed.Services
                         Title = item.Snippet.Title,
                         Duration = TimeSpan.FromMinutes(5),
                         PublishedAt = new DateTimeOffset(item.Snippet.PublishedAt.Value),
-                        Thumbnail = item.Snippet.Thumbnails.Default__?.Url
+                        Thumbnail = PickThumbnail(item.Snippet.Thumbnails)
                     };
                     results.Add(result);
                 }
             } while (nextPageToken != null);
 
             return results;
+        }
+
+        private string PickThumbnail(ThumbnailDetails thumbnailDetails)
+        {
+            var thumbnail =
+                thumbnailDetails.Medium ??
+                thumbnailDetails.High ??
+                thumbnailDetails.Default__;
+            return thumbnail?.Url;
         }
 
         private YouTubeService CreateService()

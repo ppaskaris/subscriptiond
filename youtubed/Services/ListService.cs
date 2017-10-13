@@ -49,6 +49,42 @@ namespace youtubed.Services
             return list;
         }
 
+        public async Task<ListViewModel> GetListViewAsync(Guid id)
+        {
+            ListViewModel listView;
+            using (var connection = _connectionFactory.CreateConnection())
+            using (var query = await connection.QueryMultipleAsync(
+                @"
+                SELECT Id, Token FROM List WHERE Id = @id;
+
+                SELECT Channel.Id AS ChannelId,
+                       Channel.Title AS ChannelTitle,
+                       ChannelVideo.Id AS VideoId,
+                       ChannelVideo.Title AS VideoTitle,
+                       ChannelVideo.Duration AS VideoDuration,
+                       ChannelVideo.PublishedAt AS VideoPublishedAt,
+                       ChannelVideo.Thumbnail AS VideoThumbnail
+                FROM ListChannel
+                    INNER JOIN Channel ON Channel.Id = ListChannel.ChannelId
+                    INNER JOIN ChannelVideo ON ChannelVideo.ChannelId = Channel.Id
+                WHERE ListChannel.ListId = @id
+                ORDER BY ChannelVideo.PublishedAt DESC,
+                         ChannelVideo.Id ASC;
+                ",
+                new { id }))
+            {
+                var list = await query.ReadSingleAsync<ListModel>();
+                var videos = await query.ReadAsync<VideoViewModel>();
+                listView = new ListViewModel
+                {
+                    Id = list.Id,
+                    Token = list.TokenString,
+                    Videos = videos
+                };
+            }
+            return listView;
+        }
+
         public async Task AddChannelAsync(Guid listId, string channelId)
         {
             using (var connection = _connectionFactory.CreateConnection())

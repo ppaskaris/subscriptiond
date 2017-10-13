@@ -49,6 +49,8 @@
     font-size: 13px;
     font-weight: bold;
     margin: 8px 0;
+    max-height: 38px;
+    overflow: hidden;
 }
 
 .channel-title, .video-published-at {

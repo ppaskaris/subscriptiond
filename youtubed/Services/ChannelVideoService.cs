@@ -42,6 +42,11 @@ namespace youtubed.Services
                         USING @videoTable source
                             ON source.Id = target.Id
                            AND source.ChannelId = target.ChannelId
+                        WHEN MATCHED THEN
+                            UPDATE SET Title = source.Title,
+                                       Duration = source.Duration,
+                                       PublishedAt = source.PublishedAt,
+                                       Thumbnail = source.Thumbnail
                         WHEN NOT MATCHED BY TARGET THEN
                             INSERT (ChannelId, Id, Title, Duration, PublishedAt, Thumbnail)
                             VALUES (

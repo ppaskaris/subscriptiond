@@ -21,15 +21,16 @@ namespace youtubed.Services
             _youtubeService = youtubeService;
         }
 
-        public async Task<ChannelModel> GetOrCreateChannel(string url)
+        public async Task<ChannelModel> GetOrCreateChannelAsync(string url)
         {
             ChannelModel model;
             using (var connection = _connectionFactory.CreateConnection())
             {
                 model = await connection.QueryFirstOrDefaultAsync<ChannelModel>(
                     @"
-                    SELECT Id, Url, Title, Description, Thumbnail
-                    FROM Channel WHERE Url = @url;
+                    SELECT Id, Url, Title, Thumbnail
+                    FROM Channel
+                    WHERE Url = @url;
                     ",
                     new { url });
             }
@@ -47,31 +48,59 @@ namespace youtubed.Services
                     Id = channel.Id,
                     Url = url,
                     Title = channel.Title,
-                    Description = channel.Description,
                     Thumbnail = channel.Thumbnail
                 };
             }
 
             using (var connection = _connectionFactory.CreateConnection())
             {
+                var now = DateTimeOffset.Now;
                 await connection.ExecuteAsync(
                     @"
-                    MERGE INTO Channel source
+                    MERGE INTO Channel target
                     USING (
-                        SELECT @Id as Id,
-                                @Url as Url,
-                                @Title as Title,
-                                @Description as Description,
-                                @Thumbnail as Thumbnail
-                    ) target ON target.Url = source.Url
-                    WHEN NOT MATCHED THEN 
-                        INSERT (Id, Url, Title, Description, Thumbnail)
-                        VALUES (@Id, @Url, @Title, @Description, @Thumbnail);
+                        SELECT @id as Id,
+                               @url as Url,
+                               @title as Title,
+                               @thumbnail as Thumbnail,
+                               @now as StaleAfter,
+                               @now as VisibleAfter
+                    ) source ON source.Url = target.Url
+                    WHEN NOT MATCHED THEN
+                        INSERT (Id, Url, Title, Thumbnail, StaleAfter, VisibleAfter)
+                        VALUES (@id, @url, @title, @thumbnail, @now, @now);
                     ",
-                    model);
+                    new
+                    {
+                        id = model.Id,
+                        url = model.Url,
+                        title = model.Title,
+                        thumbnail = model.Thumbnail,
+                        now
+                    });
             }
 
             return model;
+        }
+
+        public async Task<string> GetNextStaleIdOrDefaultAsync()
+        {
+            string id;
+            using (var connection = _connectionFactory.CreateConnection())
+            {
+                var now = DateTimeOffset.Now;
+                var visibleAfter = now.Add(Constants.VisibilityTimeout);
+                id = await connection.ExecuteScalarAsync<string>(
+                    @"
+                    UPDATE TOP (1) Channel
+                    SET VisibleAfter = @visibleAfter
+                    OUTPUT inserted.Id
+                    WHERE StaleAfter <= @now
+                      AND VisibleAfter <= @now;
+                    ",
+                    new { now, visibleAfter });
+            }
+            return id;
         }
     }
 }

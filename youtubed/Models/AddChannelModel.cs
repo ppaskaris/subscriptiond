@@ -9,10 +9,10 @@ namespace youtubed.Models
 {
     public class AddChannelModel
     {
-        [Required, HiddenInput]
+        [Required]
         public Guid? Id { get; set; }
 
-        [Required, HiddenInput]
+        [Required]
         public string Token { get; set; }
 
         [Required, Url]

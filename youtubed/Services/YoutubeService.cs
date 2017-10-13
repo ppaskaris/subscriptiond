@@ -57,10 +57,53 @@ namespace youtubed.Services
             return new YoutubeChannel
             {
                 Id = item.Id,
-                Title = item.Snippet?.Title,
-                Description = item.Snippet?.Description,
-                Thumbnail = item.Snippet?.Thumbnails?.Default__?.Url
+                Title = item.Snippet.Title,
+                Thumbnail = item.Snippet.Thumbnails.Default__?.Url
             };
+        }
+
+        public async Task<IEnumerable<YoutubeVideo>> GetVideosAsync(string channelId)
+        {
+            string nextPageToken = null;
+            var results = new List<YoutubeVideo>();
+
+            do
+            {
+                var request = Service.Search.List("snippet");
+                request.ChannelId = channelId;
+                request.MaxResults = 50;
+                request.Order = SearchResource.ListRequest.OrderEnum.Date;
+                request.PublishedAfter = DateTimeOffset.Now.AddDays(-30).UtcDateTime;
+                request.SafeSearch = SearchResource.ListRequest.SafeSearchEnum.None;
+                request.Type = "video";
+                if (nextPageToken != null)
+                {
+                    request.PageToken = nextPageToken;
+                }
+
+                var response = await request.ExecuteAsync();
+                nextPageToken = response.NextPageToken;
+                foreach (var item in response.Items)
+                {
+                    if (item.Id.Kind != "youtube#video")
+                    {
+                        continue;
+                    }
+
+                    var result = new YoutubeVideo
+                    {
+                        ChannelId = item.Snippet.ChannelId,
+                        Id = item.Id.VideoId,
+                        Title = item.Snippet.Title,
+                        Duration = TimeSpan.FromMinutes(5),
+                        PublishedAt = new DateTimeOffset(item.Snippet.PublishedAt.Value),
+                        Thumbnail = item.Snippet.Thumbnails.Default__?.Url
+                    };
+                    results.Add(result);
+                }
+            } while (nextPageToken != null);
+
+            return results;
         }
 
         private YouTubeService CreateService()

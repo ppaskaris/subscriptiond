@@ -1,0 +1,11 @@
+﻿IF TYPE_ID('ChannelVideoType') IS NOT NULL
+	DROP TYPE ChannelVideoType;
+
+CREATE TYPE ChannelVideoType AS TABLE (
+	ChannelId NVARCHAR (50) NOT NULL,
+	Id NVARCHAR (50) NOT NULL,
+	Title NVARCHAR (100) NOT NULL,
+	Duration BIGINT NOT NULL,
+	PublishedAt DATETIMEOFFSET NOT NULL,
+	Thumbnail NVARCHAR(2000) NULL
+);

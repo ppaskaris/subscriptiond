@@ -16,14 +16,6 @@
     <em>There are no new videos in this list.</em>
 </p>
 
-<form asp-action="CheckForNewVideos">
-    @Html.HiddenFor(model => model.Id)
-    @Html.HiddenFor(model => model.Token)
-    <div class="form-group">
-        <input type="submit" value="Check for new videos" class="btn btn-default" />
-    </div>
-</form>
-
 <div>
     <a asp-action="AddChannel" asp-route-Id="@Model.Id" asp-route-Token="@Model.TokenString">Add new channel</a>
 </div>

@@ -8,6 +8,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using youtubed.Services;
 using youtubed.Data;
+using Microsoft.Extensions.Hosting;
 
 namespace youtubed
 {
@@ -39,7 +40,9 @@ namespace youtubed
             services.Configure<YoutubeOptions>(Configuration.GetSection("Youtube"));
 
             services.AddSingleton<IChannelService, ChannelService>();
+            services.AddSingleton<IChannelVideoService, ChannelVideoService>();
             services.AddSingleton<IConnectionFactory>(new ConnectionStringConnectionFactory(Configuration.GetConnectionString("Main")));
+            services.AddSingleton<IHostedService, ChannelUpdaterHostedService>();
             services.AddSingleton<IListService, ListService>();
             services.AddSingleton<IYoutubeService, YoutubeService>();
         }

@@ -10,5 +10,8 @@ namespace youtubed
     {
         public const string YoutubePattern = @"^https:\/\/www\.youtube\.com\/(user|channel)\/([a-zA-Z0-9_]+)$";
         public static readonly Regex YoutubeExpression = new Regex(YoutubePattern);
+        public static readonly TimeSpan UpdateFrequency = TimeSpan.FromSeconds(10);
+        public static readonly TimeSpan UpdateMaxAge = TimeSpan.FromMinutes(10);
+        public static readonly TimeSpan VisibilityTimeout = TimeSpan.FromSeconds(30);
     }
 }

@@ -5,10 +5,13 @@ using System.Threading.Tasks;
 
 namespace youtubed.Services
 {
-    public class YoutubeChannel
+    public class YoutubeVideo
     {
         public string Id { get; set; }
         public string Title { get; set; }
+        public TimeSpan Duration { get; set; }
+        public DateTimeOffset PublishedAt { get; set; }
         public string Thumbnail { get; set; }
+        public string ChannelId { get; internal set; }
     }
 }

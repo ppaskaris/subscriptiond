@@ -104,7 +104,7 @@ namespace youtubed.Controllers
                 return BadRequest();
             }
 
-            var channel = await _channelService.GetOrCreateChannel(model.Url);
+            var channel = await _channelService.GetOrCreateChannelAsync(model.Url);
             if (channel == null)
             {
                 ModelState.AddModelError("Url", "Cannot find channel on YouTube.");

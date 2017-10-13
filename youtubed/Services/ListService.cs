@@ -43,7 +43,11 @@ namespace youtubed.Services
             using (var connection = _connectionFactory.CreateConnection())
             {
                 list = await connection.QueryFirstOrDefaultAsync<ListModel>(
-                    @"SELECT Id, Token FROM list WHERE Id = @id;",
+                    @"
+                    SELECT Id, Token
+                    FROM list
+                    WHERE Id = @id;
+                    ",
                     new { id });
             }
             return list;
@@ -91,8 +95,15 @@ namespace youtubed.Services
             {
                 await connection.ExecuteAsync(
                     @"
-                    INSERT INTO ListChannel (ListId, ChannelId)
-                    VALUES (@listId, @channelId);
+                    MERGE INTO ListChannel target
+                    USING (
+                        SELECT @listId AS ListId,
+                               @channelId AS ChannelId
+                    ) source ON source.ListId = target.ListId
+                            AND source.ChannelId = target.ChannelId
+                    WHEN NOT MATCHED THEN
+                        INSERT (ListId, ChannelId)
+                        VALUES (@listId, @channelId);
                     ",
                     new { listId, channelId });
             }

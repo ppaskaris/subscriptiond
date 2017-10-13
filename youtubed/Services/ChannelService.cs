@@ -54,21 +54,18 @@ namespace youtubed.Services
 
             using (var connection = _connectionFactory.CreateConnection())
             {
-                var now = DateTimeOffset.Now;
+                var manyYearsAgo = DateTimeOffset.MinValue;
                 await connection.ExecuteAsync(
                     @"
                     MERGE INTO Channel target
                     USING (
-                        SELECT @id as Id,
-                               @url as Url,
-                               @title as Title,
-                               @thumbnail as Thumbnail,
-                               @now as StaleAfter,
-                               @now as VisibleAfter
+                        SELECT @url as Url
                     ) source ON source.Url = target.Url
+                    WHEN MATCHED THEN
+                        UPDATE SET StaleAfter = @manyYearsAgo
                     WHEN NOT MATCHED THEN
                         INSERT (Id, Url, Title, Thumbnail, StaleAfter, VisibleAfter)
-                        VALUES (@id, @url, @title, @thumbnail, @now, @now);
+                        VALUES (@id, @url, @title, @thumbnail, @manyYearsAgo, @manyYearsAgo);
                     ",
                     new
                     {
@@ -76,7 +73,7 @@ namespace youtubed.Services
                         url = model.Url,
                         title = model.Title,
                         thumbnail = model.Thumbnail,
-                        now
+                        manyYearsAgo
                     });
             }
 

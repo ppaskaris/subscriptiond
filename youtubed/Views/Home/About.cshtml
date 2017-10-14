@@ -11,15 +11,15 @@
 
 <h2>Usage</h2>
 <ol>
-    <li>Create a new secret list from the <a asp-action="Index">home page</a>.</li>
+    <li><a asp-action="CreateList">Create a new list</a>.</li>
     <li>Add channels from YouTube to your secret list.</li>
     <li>Bookmark your secret list and check back for new videos.</li>
 </ol>
 
 <h2>How it works</h2>
 <p>
-    youtubed periodically queries channels that have been added to secret lists
-    for new videos. It does this <em>communally</em> and <em>anonymously</em>
+    youtubed periodically queries channels that have been added to lists for
+    new videos. It does this <em>communally</em> and <em>anonymously</em>
     using randomized delays. When new videos are available, youtubed downloads
     their details and presents them to you when you view your secret list.
 </p>
@@ -29,10 +29,12 @@
     youtubed stores the following usage information:
 </p>
 <ul>
-    <li>Channels that you add to your secret list.</li>
     <li>When you last viewed your secret list (with noise added).</li>
     <li>Web server logs for 7 days.</li>
 </ul>
+<p>
+    youtubed does not track or store any other information about your usage.
+</p>
 <p>
     youtubed attempts to execute the following programs in your browser on some
     pages:
@@ -49,14 +51,13 @@
     "no-referrer".
 </p>
 <p>
-    youtubed does not track or store any other information about your usage.
     No attempt is made for any third-party resources other than those listed
     above. Additionally, youtubed automatically deletes:
 </p>
 <ul>
-    <li>Metadata for channels that are not used in any secret lists.</li>
+    <li>Lists that have not been accessed within @Constants.ListMaxAgeMin.Humanize().</li>
     <li>Metadata for videos published more than @Constants.VideoMaxAge.Humanize() ago.</li>
-    <li>Secret lists last viewed more than @Constants.ListMaxAgeMin.Humanize() ago.</li>
+    <li>Metadata for channels that are not used in any lists.</li>
 </ul>
 
 <h2>Contact</h2>

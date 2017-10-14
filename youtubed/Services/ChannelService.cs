@@ -58,7 +58,7 @@ namespace youtubed.Services
                         @"
                         MERGE INTO Channel target
                         USING (
-                            SELECT @url as Url
+                            SELECT @id as Url
                         ) source ON source.Url = target.Url
                         WHEN MATCHED THEN
                             UPDATE SET StaleAfter = @manyYearsAgo

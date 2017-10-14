@@ -25,10 +25,21 @@ namespace youtubed.Controllers
             return View();
         }
 
-        [HttpPost, Route("create-list")]
-        public async Task<IActionResult> CreateList()
+        [HttpGet, Route("create-list")]
+        public IActionResult CreateList()
         {
-            var list = await _listService.CreateListAsync();
+            return View(new CreateListModel());
+        }
+
+        [HttpPost, Route("create-list")]
+        public async Task<IActionResult> CreateList(CreateListModel model)
+        {
+            if (!ModelState.IsValid)
+            {
+                return View(model);
+            }
+
+            var list = await _listService.CreateListAsync(model.Title);
             return RedirectToAction("Index", "List", new
             {
                 id = list.Id,
@@ -47,7 +58,7 @@ namespace youtubed.Controllers
         {
             return View(new ErrorViewModel
             {
-                StatusCode = statusCode.HasValue ? statusCode.Value : 500,
+                StatusCode = statusCode ?? 500,
                 RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier
             });
         }

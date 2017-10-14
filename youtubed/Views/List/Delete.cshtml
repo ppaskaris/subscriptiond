@@ -1,0 +1,17 @@
+﻿@model youtubed.Models.ListModel
+
+@{
+    ViewData["Title"] = "Delete List";
+}
+
+<h2>@ViewData["Title"]</h2>
+<p>
+    Your list named "@Model.Title" will be deleted immediately and will not be
+    recoverable.
+</p>
+<p>Are you sure you want to delete your list?</p>
+<form asp-action="Delete">
+    <input type="hidden" name="Confirm" value="true" />
+    <input type="submit" value="Delete List" class="btn btn-danger" />
+    <a asp-action="Index" class="btn btn-default">Cancel</a>
+</form>

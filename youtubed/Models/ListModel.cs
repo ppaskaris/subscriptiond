@@ -10,6 +10,7 @@ namespace youtubed.Models
     {
         public Guid Id { get; set; }
         public byte[] Token { get; set; }
+        public string Title { get; set; }
         public DateTimeOffset ExpiredAfter { get; set; }
 
         public string TokenString => Base64UrlEncoder.Encode(Token);

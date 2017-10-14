@@ -7,7 +7,6 @@ namespace youtubed.Models
 {
     public class VideoViewModel
     {
-        public string ChannelId { get; set; }
         public string ChannelTitle { get; set; }
         public string ChannelUrl{ get; set; }
         public string VideoId { get; set; }

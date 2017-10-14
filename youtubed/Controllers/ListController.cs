@@ -69,29 +69,35 @@ namespace youtubed.Controllers
                 return NotFound();
             }
 
-            return View(new AddChannelModel
-            {
-                Id = list.Id,
-                Token = list.TokenString
-            });
+            return View(new AddChannelModel());
         }
 
         [HttpPost, Route("add-channel")]
-        public async Task<IActionResult> AddChannel(AddChannelModel model)
+        public async Task<IActionResult> AddChannel(
+            Guid? id, string token, AddChannelModel model)
         {
-            if (!ModelState.IsValid)
+            if (id == null)
             {
-                return View(model);
+                return BadRequest();
+            }
+            if (token == null)
+            {
+                return BadRequest();
             }
 
-            var list = await _listService.GetListAsync(model.Id.Value);
+            var list = await _listService.GetListAsync(id.Value);
             if (list == null)
             {
                 return BadRequest();
             }
-            if (model.Token != list.TokenString)
+            if (token != list.TokenString)
             {
                 return BadRequest();
+            }
+
+            if (!ModelState.IsValid)
+            {
+                return View(model);
             }
 
             var channel = await _channelService.GetOrCreateChannelAsync(model.Url);
@@ -103,11 +109,159 @@ namespace youtubed.Controllers
 
             await _listService.AddChannelAsync(list.Id, channel.Id);
 
-            return RedirectToAction("Index", new
+            return RedirectToAction("Index");
+        }
+
+        [HttpGet, Route("edit")]
+        public async Task<IActionResult> Edit(Guid? id, string token)
+        {
+            if (id == null)
             {
-                id = list.Id,
-                token = list.TokenString
+                return BadRequest();
+            }
+            if (token == null)
+            {
+                return BadRequest();
+            }
+
+            var list = await _listService.GetListAsync(id.Value);
+            if (list == null)
+            {
+                return NotFound();
+            }
+            if (token != list.TokenString)
+            {
+                return NotFound();
+            }
+
+            return View(new EditListModel
+            {
+                Title = list.Title
             });
+        }
+
+        [HttpPost, Route("edit")]
+        public async Task<IActionResult> Edit(Guid? id, string token, EditListModel model)
+        {
+            if (id == null)
+            {
+                return BadRequest();
+            }
+            if (token == null)
+            {
+                return BadRequest();
+            }
+
+            if (!ModelState.IsValid)
+            {
+                return View(model);
+            }
+
+            var list = await _listService.GetListAsync(id.Value);
+            if (list == null)
+            {
+                return NotFound();
+            }
+            if (token != list.TokenString)
+            {
+                return NotFound();
+            }
+
+            if (list.Title != model.Title)
+            {
+                await _listService.RenameListAsync(list.Id, model.Title);
+            }
+
+            return RedirectToAction("Index");
+        }
+
+        [HttpGet, Route("delete")]
+        public async Task<IActionResult> Delete(Guid? id, string token)
+        {
+            if (id == null)
+            {
+                return BadRequest();
+            }
+            if (token == null)
+            {
+                return BadRequest();
+            }
+
+            var list = await _listService.GetListAsync(id.Value);
+            if (list == null)
+            {
+                return NotFound();
+            }
+            if (token != list.TokenString)
+            {
+                return NotFound();
+            }
+
+            return View(list);
+        }
+
+        [HttpPost, Route("delete")]
+        public async Task<IActionResult> Delete(Guid? id, string token, DeleteListModel model)
+        {
+            if (id == null)
+            {
+                return BadRequest();
+            }
+            if (token == null)
+            {
+                return BadRequest();
+            }
+
+            if (!ModelState.IsValid)
+            {
+                return View(model);
+            }
+
+            var list = await _listService.GetListAsync(id.Value);
+            if (list == null)
+            {
+                return NotFound();
+            }
+            if (token != list.TokenString)
+            {
+                return NotFound();
+            }
+
+            await _listService.DeleteListAsync(list.Id);
+
+            return RedirectToAction("Index", "Home");
+        }
+
+        [HttpPost, Route("remove-channel")]
+        public async Task<IActionResult> RemoveChannel(Guid? id, string token, RemoveChannelModel model)
+        {
+            if (id == null)
+            {
+                return BadRequest();
+            }
+            if (token == null)
+            {
+                return BadRequest();
+            }
+
+            if (!ModelState.IsValid)
+            {
+                return View(model);
+            }
+
+            var list = await _listService.GetListAsync(id.Value);
+            if (list == null)
+            {
+                return NotFound();
+            }
+            if (token != list.TokenString)
+            {
+                return NotFound();
+            }
+
+            await _listService.RemoveChannelAsync(list.Id, model.ChannelId);
+
+            return RedirectToAction("Index");
         }
     }
 }

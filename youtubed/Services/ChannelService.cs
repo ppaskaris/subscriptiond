@@ -86,7 +86,10 @@ namespace youtubed.Services
             using (var connection = _connectionFactory.CreateConnection())
             {
                 var now = DateTimeOffset.Now;
-                var visibleAfter = now.Add(Constants.VisibilityTimeout);
+                var visibilityTimeout = Constants.RandomlyBetween(
+                    Constants.VisibilityTimeoutMin,
+                    Constants.VisibilityTimeoutMax);
+                var visibleAfter = now.Add(visibilityTimeout);
                 id = await connection.ExecuteScalarAsync<string>(
                     @"
                     UPDATE TOP (1) Channel

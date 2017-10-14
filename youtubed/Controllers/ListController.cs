@@ -8,6 +8,7 @@ using youtubed.Models;
 
 namespace youtubed.Controllers
 {
+    [Route("{token}/list/{id}")]
     public class ListController : Controller
     {
         private readonly IListService _listService;
@@ -22,7 +23,7 @@ namespace youtubed.Controllers
         }
 
         [HttpGet]
-        public async Task<IActionResult> View(Guid? id, string token)
+        public async Task<IActionResult> Index(Guid? id, string token)
         {
             if (id == null)
             {
@@ -46,18 +47,7 @@ namespace youtubed.Controllers
             return View(listView);
         }
 
-        [HttpPost]
-        public async Task<IActionResult> Create()
-        {
-            var list = await _listService.CreateListAsync();
-            return RedirectToAction("View", new
-            {
-                Id = list.Id,
-                Token = list.TokenString
-            });
-        }
-
-        [HttpGet]
+        [HttpGet, Route("add-channel")]
         public async Task<IActionResult> AddChannel(Guid? id, string token)
         {
             if (id == null)
@@ -86,7 +76,7 @@ namespace youtubed.Controllers
             });
         }
 
-        [HttpPost]
+        [HttpPost, Route("add-channel")]
         public async Task<IActionResult> AddChannel(AddChannelModel model)
         {
             if (!ModelState.IsValid)
@@ -113,10 +103,10 @@ namespace youtubed.Controllers
 
             await _listService.AddChannelAsync(list.Id, channel.Id);
 
-            return RedirectToAction("View", new
+            return RedirectToAction("Index", new
             {
-                Id = list.Id,
-                Token = list.TokenString
+                id = list.Id,
+                token = list.TokenString
             });
         }
     }

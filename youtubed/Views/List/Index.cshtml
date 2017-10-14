@@ -3,14 +3,14 @@
 @model youtubed.Models.ListViewModel
 
 @{
-    ViewData["Title"] = "View List";
+    ViewData["Title"] = "Your List";
 }
 
 <h1>@ViewData["Title"]</h1>
 <p>
-    This is a <strong>secret list</strong> that is only visible to someone with
-    a copy of <a asp-action="View" asp-route-Id="@Model.Id" asp-route-Token="@Model.Token">this link</a>.
-    Consider bookmarking it as it cannot be recovered if you lose it.
+    This is your <strong>secret list</strong> that is only visible to those
+    with a copy of <a asp-action="Index" asp-route-id="@Model.Id" asp-route-token="@Model.Token">this link</a>.
+    Consider bookmarking it as the link cannot be recovered if you lose it.
 </p>
 
 <h2>Videos</h2>
@@ -36,10 +36,10 @@
 else
 {
     <p>
-        <em>There are no new videos in this list.</em>
+        <em>No recent videos.</em>
     </p>
 }
 
 <div>
-    <a asp-action="AddChannel" asp-route-Id="@Model.Id" asp-route-Token="@Model.Token">Add new channel</a>
+    <a asp-action="AddChannel" asp-route-id="@Model.Id" asp-route-token="@Model.Token">Add New Channel</a>
 </div>

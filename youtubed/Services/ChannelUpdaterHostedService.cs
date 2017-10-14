@@ -36,7 +36,10 @@ namespace youtubed.Services
                     Console.WriteLine("I fucked up.");
                     Console.WriteLine(ex.ToString());
                 }
-                await Task.Delay(Constants.UpdateFrequency, cancellationToken);
+                var delay = Constants.RandomlyBetween(
+                    Constants.UpdateFrequencyMin,
+                    Constants.UpdateFrequencyMax);
+                await Task.Delay(delay, cancellationToken);
             }
         }
     }

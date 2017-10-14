@@ -29,7 +29,10 @@ namespace youtubed.Services
             var videoRecords = videos
                 .Select(CreateVideoDataRecord)
                 .ToList();
-            var later = DateTimeOffset.Now.Add(Constants.UpdateMaxAge);
+            var updateMaxAge = Constants.RandomlyBetween(
+                Constants.UpdateMaxAgeMin,
+                Constants.UpdateMaxAgeMax);
+            var later = DateTimeOffset.Now.Add(updateMaxAge);
             using (var connection = _connectionFactory.CreateConnection())
             {
                 // Dapper doesn't support empty TVPs...

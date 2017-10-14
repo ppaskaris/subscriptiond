@@ -77,7 +77,11 @@ namespace youtubed.Services
                 ",
                 new { id }))
             {
-                var list = await query.ReadSingleAsync<ListModel>();
+                var list = await query.ReadFirstOrDefaultAsync<ListModel>();
+                if (list == null)
+                {
+                    return null;
+                }
                 var videos = await query.ReadAsync<VideoViewModel>();
                 listView = new ListViewModel
                 {

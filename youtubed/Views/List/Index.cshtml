@@ -13,7 +13,7 @@
     Consider bookmarking it as it cannot be recovered if you lose it.
 </p>
 <p>
-    If you do not access this list again within <time datetime="@Model.ExpiredAfter.ToString("o")">@Model.MaxAge.Humanize()</time>,
+    If you do not access this list again within <time datetime="@Model.ExpiredAfter.ToString("o")" title="@Model.ExpiredAfter.ToString("g")">@Model.MaxAge.Humanize()</time>,
     it will be automatically deleted.
 </p>
 
@@ -39,7 +39,7 @@
                     <span class="video-title">@video.VideoTitle</span>
                 </a>
                 <a class="channel-title channel-link" href="@video.ChannelUrl" rel="noopener noreferrer" referrerpolicy="no-referrer">@video.ChannelTitle</a>
-                <span class="video-published-at">@video.VideoPublishedAt.Humanize()</span>
+                <time class="video-published-at" datetime="@video.VideoPublishedAt.ToString("o")" title="@video.VideoPublishedAt.ToString("g")">@video.VideoPublishedAt.Humanize()</time>
             </li>
         }
     </ol>

@@ -30,8 +30,8 @@ namespace youtubed.Services
                 .Select(CreateVideoDataRecord)
                 .ToList();
             var updateMaxAge = Constants.RandomlyBetween(
-                Constants.UpdateMaxAgeMin,
-                Constants.UpdateMaxAgeMax);
+                Constants.ChannelMaxAgeMin,
+                Constants.ChannelMaxAgeMax);
             var later = DateTimeOffset.Now.Add(updateMaxAge);
             using (var connection = _connectionFactory.CreateConnection())
             {

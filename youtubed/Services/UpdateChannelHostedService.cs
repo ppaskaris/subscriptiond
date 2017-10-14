@@ -1,24 +1,27 @@
 ﻿using Humanizer;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace youtubed.Services
 {
-    public class ChannelUpdaterHostedService : HostedService
+    public class UpdateChannelHostedService : HostedService
     {
         private readonly IChannelService _channelService;
         private readonly IChannelVideoService _channelVideoService;
+        private readonly ILogger _logger;
 
-        public ChannelUpdaterHostedService(
+        public UpdateChannelHostedService(
             IChannelService channelService,
-            IChannelVideoService channelVideoService)
+            IChannelVideoService channelVideoService,
+            ILogger<UpdateChannelHostedService> logger)
         {
             _channelService = channelService;
             _channelVideoService = channelVideoService;
+            _logger = logger;
         }
 
         protected override async Task ExecuteAsync(CancellationToken cancellationToken)
@@ -27,23 +30,23 @@ namespace youtubed.Services
             {
                 try
                 {
-                    Trace.TraceInformation("Checking for a stale channel ID.");
+                    _logger.LogInformation("Checking for stale channels.");
                     var channelId = await _channelService.GetNextStaleIdOrDefaultAsync();
                     if (channelId != null)
                     {
-                        Trace.TraceInformation("Refreshing channel {0}", channelId);
+                        _logger.LogInformation("Refreshing channel {0}.", channelId);
                         await _channelVideoService.RefreshVideosAsync(channelId);
                     }
                 }
                 catch (Exception ex)
                 {
-                    Trace.TraceError("Exception thrown while updatiung channels.");
-                    Trace.TraceError(ex.ToString());
+                    _logger.LogError("Exception thrown while updating channels.");
+                    _logger.LogError(ex.ToString());
                 }
                 var delay = Constants.RandomlyBetween(
-                    Constants.UpdateFrequencyMin,
-                    Constants.UpdateFrequencyMax);
-                Trace.TraceInformation("Checking again in {0}", delay.Humanize());
+                    Constants.ChannelUpdateFrequencyMin,
+                    Constants.ChannelUpdateFrequencyMax);
+                _logger.LogInformation("Updating channels again in {0}.", delay.Humanize());
                 await Task.Delay(delay, cancellationToken);
             }
         }

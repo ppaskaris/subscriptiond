@@ -74,7 +74,7 @@ namespace youtubed.Services
                 request.ChannelId = channelId;
                 request.MaxResults = 50;
                 request.Order = SearchResource.ListRequest.OrderEnum.Date;
-                request.PublishedAfter = DateTimeOffset.Now.AddDays(-30).UtcDateTime;
+                request.PublishedAfter = DateTimeOffset.Now.Subtract(Constants.VideoMaxAge).UtcDateTime;
                 request.SafeSearch = SearchResource.ListRequest.SafeSearchEnum.None;
                 request.Type = "video";
                 if (nextPageToken != null)

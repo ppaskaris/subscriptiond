@@ -1,10 +1,12 @@
-﻿@{
+﻿@using Humanizer
+
+@{
     ViewData["Title"] = "About";
 }
 
 <h1>@ViewData["Title"]</h1>
 <p>
-    youtubed is an anonymous subscription manager for <a href="https://youtube.com" rel="noopener noreferrer">YouTube</a>.
+    youtubed is an anonymous subscription manager for <a href="https://www.youtube.com" rel="noopener noreferrer">YouTube</a>.
 </p>
 
 <h2>Usage</h2>
@@ -18,11 +20,8 @@
 <p>
     youtubed periodically queries channels that have been added to secret lists
     for new videos. It does this <em>communally</em> and <em>anonymously</em>
-    using randomized delays.
-
-    When new videos are available, youtubed downloads their details and
-    presents them to you when you view your secret list. Only videos published
-    within the last 30 days are retained by youtubed.
+    using randomized delays. When new videos are available, youtubed downloads
+    their details and presents them to you when you view your secret list.
 </p>
 
 <h2>Privacy</h2>
@@ -54,8 +53,8 @@
     above. Additionally, youtubed automatically deletes:
 </p>
 <ul>
-    <li>YouTube video metadata for videos published earler than 30 days ago.</li>
-    <li>Secret lists last accessed earlier than 45 days ago.</li>
+    <li>YouTube video metadata for videos published earlier than @Constants.VideoMaxAge.Negate().Humanize().</li>
+    <li>Secret lists that have not been checked within @Constants.ListMaxAgeMin.Humanize().</li>
 </ul>
 
 <h2>Contact</h2>

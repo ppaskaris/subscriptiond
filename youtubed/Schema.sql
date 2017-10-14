@@ -19,6 +19,7 @@ CREATE TABLE Channel (
 CREATE TABLE List (
     Id UNIQUEIDENTIFIER NOT NULL,
     Token BINARY (40) NOT NULL,
+	ExpiredAfter DATETIMEOFFSET NOT NULL,
 
 	CONSTRAINT FK_List PRIMARY KEY (Id)
 );
@@ -32,7 +33,7 @@ CREATE TABLE ChannelVideo (
 	Thumbnail NVARCHAR(2000) NULL,
 
 	CONSTRAINT PK_ChannelVideo PRIMARY KEY (ChannelId, Id),
-	CONSTRAINT FK_ChannelVideo_ChannelId FOREIGN KEY (ChannelId) REFERENCES Channel (Id)
+	CONSTRAINT FK_ChannelVideo_Channel FOREIGN KEY (ChannelId) REFERENCES Channel (Id) ON DELETE CASCADE
 );
 
 CREATE TABLE ListChannel (
@@ -40,7 +41,8 @@ CREATE TABLE ListChannel (
 	ChannelId NVARCHAR (50) NOT NULL,
 
 	CONSTRAINT PK_ListChannel PRIMARY KEY (ListId, ChannelId),
-	CONSTRAINT FK_ListChannel_ChannelId FOREIGN KEY (ChannelId) REFERENCES Channel (Id)
+	CONSTRAINT FK_ListChannel_List FOREIGN KEY (ListId) REFERENCES List (Id) ON DELETE CASCADE,
+	CONSTRAINT FK_ListChannel_Channel FOREIGN KEY (ChannelId) REFERENCES Channel (Id)
 );
 
 CREATE TYPE ChannelVideoType AS TABLE (

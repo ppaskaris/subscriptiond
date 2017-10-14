@@ -8,12 +8,24 @@
 
 <h1>@ViewData["Title"]</h1>
 <p>
-    This is your <strong>secret list</strong> that is only visible to those
-    with a copy of <a asp-action="Index" asp-route-id="@Model.Id" asp-route-token="@Model.Token">this link</a>.
-    Consider bookmarking it as the link cannot be recovered if you lose it.
+    This is a <strong>secret list</strong> that is only visible to those with a
+    copy of <a asp-action="Index" asp-route-id="@Model.Id" asp-route-token="@Model.Token">this link</a>.
+    Consider bookmarking it as it cannot be recovered if you lose it.
+</p>
+<p>
+    If you do not access this list again within @Model.MaxAge.Humanize(), it
+    will be automatically deleted.
 </p>
 
 <h2>Videos</h2>
+@if (Model.StaleCount > 0)
+{
+    <div class="alert alert-info" role="alert">
+        There @(Model.StaleCount == 1 ? "is" : "are") @Model.StaleCount
+        @(Model.StaleCount == 1 ? "channel" : "channels") in this list waiting
+        to be updated. <a class="alert-link" asp-action="Index" asp-route-id="@Model.Id" asp-route-token="@Model.Token">Refresh</a>
+    </div>
+}
 @if (Model.Videos.Any())
 {
     <ol class="video-list">
@@ -40,6 +52,6 @@ else
     </p>
 }
 
-<div>
+<p>
     <a asp-action="AddChannel" asp-route-id="@Model.Id" asp-route-token="@Model.Token">Add New Channel</a>
-</div>
+</p>

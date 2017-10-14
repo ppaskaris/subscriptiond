@@ -13,5 +13,6 @@ namespace youtubed.Services
         Task<ListViewModel> GetListViewAsync(Guid id);
 
         Task AddChannelAsync(Guid listId, string channelId);
+        Task<int> RemoveExpiredListsAsync();
     }
 }

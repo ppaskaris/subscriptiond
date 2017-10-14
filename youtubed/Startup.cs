@@ -31,14 +31,17 @@ namespace youtubed
 
             services.Configure<YoutubeOptions>(Configuration.GetSection("Youtube"));
 
-            services.AddSingleton<IChannelService, ChannelService>();
-            services.AddSingleton<IChannelVideoService, ChannelVideoService>();
+            SqlMapper.AddTypeHandler(new TimeSpanTypeHandler());
+
             services.AddSingleton<IConnectionFactory>(new ConnectionStringConnectionFactory(Configuration.GetConnectionString("Main")));
-            services.AddSingleton<IHostedService, ChannelUpdaterHostedService>();
-            services.AddSingleton<IListService, ListService>();
             services.AddSingleton<IYoutubeService, YoutubeService>();
 
-            SqlMapper.AddTypeHandler(new TimeSpanTypeHandler());
+            services.AddSingleton<IChannelService, ChannelService>();
+            services.AddSingleton<IChannelVideoService, ChannelVideoService>();
+            services.AddSingleton<IListService, ListService>();
+
+            services.AddSingleton<IHostedService, MaintenanceHostedService>();
+            services.AddSingleton<IHostedService, UpdateChannelHostedService>();
         }
 
         // This method gets called by the runtime. Use this method to configure
@@ -52,11 +55,11 @@ namespace youtubed
             }
             else
             {
-                app.UseExceptionHandler("/Home/Error");
+                app.UseExceptionHandler("/error");
             }
 
             app.UseStaticFiles();
-            // app.UseStatusCodePages();
+            app.UseStatusCodePagesWithRedirects("/error/{0}");
             app.UseMvc();
         }
     }

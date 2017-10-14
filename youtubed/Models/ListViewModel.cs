@@ -9,6 +9,10 @@ namespace youtubed.Models
     {
         public Guid Id { get; set; }
         public string Token { get; set; }
+        public DateTimeOffset ExpiredAfter { get; set; }
         public IEnumerable<VideoViewModel> Videos { get; set; }
+        public int StaleCount { get; set; }
+
+        public TimeSpan MaxAge => ExpiredAfter.Subtract(DateTimeOffset.Now);
     }
 }

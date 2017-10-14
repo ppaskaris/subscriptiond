@@ -42,10 +42,14 @@ namespace youtubed.Controllers
             return View();
         }
 
-        [HttpGet, Route("error")]
-        public IActionResult Error()
+        [HttpGet, Route("error/{statusCode?}")]
+        public IActionResult Error(int? statusCode)
         {
-            return View(new ErrorViewModel { RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier });
+            return View(new ErrorViewModel
+            {
+                StatusCode = statusCode.HasValue ? statusCode.Value : 500,
+                RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier
+            });
         }
     }
 }

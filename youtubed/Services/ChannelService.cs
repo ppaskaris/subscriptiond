@@ -50,31 +50,31 @@ namespace youtubed.Services
                     Title = channel.Title,
                     Thumbnail = channel.Thumbnail
                 };
-            }
 
-            using (var connection = _connectionFactory.CreateConnection())
-            {
-                var manyYearsAgo = DateTimeOffset.MinValue;
-                await connection.ExecuteAsync(
-                    @"
-                    MERGE INTO Channel target
-                    USING (
-                        SELECT @url as Url
-                    ) source ON source.Url = target.Url
-                    WHEN MATCHED THEN
-                        UPDATE SET StaleAfter = @manyYearsAgo
-                    WHEN NOT MATCHED THEN
-                        INSERT (Id, Url, Title, Thumbnail, StaleAfter, VisibleAfter)
-                        VALUES (@id, @url, @title, @thumbnail, @manyYearsAgo, @manyYearsAgo);
-                    ",
-                    new
-                    {
-                        id = model.Id,
-                        url = model.Url,
-                        title = model.Title,
-                        thumbnail = model.Thumbnail,
-                        manyYearsAgo
-                    });
+                using (var connection = _connectionFactory.CreateConnection())
+                {
+                    var manyYearsAgo = DateTimeOffset.MinValue;
+                    await connection.ExecuteAsync(
+                        @"
+                        MERGE INTO Channel target
+                        USING (
+                            SELECT @url as Url
+                        ) source ON source.Url = target.Url
+                        WHEN MATCHED THEN
+                            UPDATE SET StaleAfter = @manyYearsAgo
+                        WHEN NOT MATCHED THEN
+                            INSERT (Id, Url, Title, Thumbnail, StaleAfter, VisibleAfter)
+                            VALUES (@id, @url, @title, @thumbnail, @manyYearsAgo, @manyYearsAgo);
+                        ",
+                        new
+                        {
+                            id = model.Id,
+                            url = model.Url,
+                            title = model.Title,
+                            thumbnail = model.Thumbnail,
+                            manyYearsAgo
+                        });
+                }
             }
 
             return model;
@@ -100,6 +100,7 @@ namespace youtubed.Services
                         FROM Channel
                         WHERE StaleAfter <= @now
                           AND VisibleAfter <= @now
+                          AND EXISTS(SELECT * FROM ListChannel WHERE ListChannel.ChannelId = Channel.Id)
                         ORDER BY StaleAfter ASC,
                                  VisibleAfter ASC
                     ) target;
@@ -107,6 +108,23 @@ namespace youtubed.Services
                     new { now, visibleAfter });
             }
             return id;
+        }
+
+        public async Task<int> RemoveOrphanChannelsAsync()
+        {
+            int count;
+            using (var connection = _connectionFactory.CreateConnection())
+            {
+                var now = DateTimeOffset.Now;
+                count = await connection.ExecuteAsync(
+                    @"
+                    DELETE FROM Channel
+                    WHERE VisibleAfter <= @now
+                      AND NOT EXISTS(SELECT * FROM ListChannel WHERE ListChannel.ChannelId = Channel.Id);
+                    ",
+                    new { now });
+            }
+            return count;
         }
     }
 }

@@ -92,11 +92,17 @@ namespace youtubed.Services
                 var visibleAfter = now.Add(visibilityTimeout);
                 id = await connection.ExecuteScalarAsync<string>(
                     @"
-                    UPDATE TOP (1) Channel
+                    UPDATE target
                     SET VisibleAfter = @visibleAfter
                     OUTPUT inserted.Id
-                    WHERE StaleAfter <= @now
-                      AND VisibleAfter <= @now;
+                    FROM (
+                        SELECT TOP (1) *
+                        FROM Channel
+                        WHERE StaleAfter <= @now
+                          AND VisibleAfter <= @now
+                        ORDER BY StaleAfter ASC,
+                                 VisibleAfter ASC
+                    ) target;
                     ",
                     new { now, visibleAfter });
             }

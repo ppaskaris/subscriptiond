@@ -1,5 +1,8 @@
-﻿IF OBJECT_ID('Channel', 'U') IS NOT NULL
-	DROP TABLE Channel;
+﻿DROP TYPE IF EXISTS [ChannelVideoType];
+DROP TABLE IF EXISTS [ListChannel];
+DROP TABLE IF EXISTS [ChannelVideo];
+DROP TABLE IF EXISTS [List];
+DROP TABLE IF EXISTS [Channel];
 
 CREATE TABLE Channel (
 	Id NVARCHAR (50) NOT NULL,
@@ -13,18 +16,12 @@ CREATE TABLE Channel (
 	CONSTRAINT UK_Channel_Url UNIQUE (Url)
 );
 
-﻿IF OBJECT_ID('List', 'U') IS NOT NULL
-	DROP TABLE List;
-
 CREATE TABLE List (
     Id UNIQUEIDENTIFIER NOT NULL,
     Token BINARY (40) NOT NULL,
 
 	CONSTRAINT FK_List PRIMARY KEY (Id)
 );
-
-﻿IF OBJECT_ID('ChannelVideo', 'U') IS NOT NULL
-	DROP TABLE ChannelVideo;
 
 CREATE TABLE ChannelVideo (
 	ChannelId NVARCHAR (50) NOT NULL,
@@ -38,9 +35,6 @@ CREATE TABLE ChannelVideo (
 	CONSTRAINT FK_ChannelVideo_ChannelId FOREIGN KEY (ChannelId) REFERENCES Channel (Id)
 );
 
-﻿IF OBJECT_ID('ListChannel', 'U') IS NOT NULL
-	DROP TABLE ListChannel;
-
 CREATE TABLE ListChannel (
 	ListId UNIQUEIDENTIFIER NOT NULL,
 	ChannelId NVARCHAR (50) NOT NULL,
@@ -48,9 +42,6 @@ CREATE TABLE ListChannel (
 	CONSTRAINT PK_ListChannel PRIMARY KEY (ListId, ChannelId),
 	CONSTRAINT FK_ListChannel_ChannelId FOREIGN KEY (ChannelId) REFERENCES Channel (Id)
 );
-
-﻿IF TYPE_ID('ChannelVideoType') IS NOT NULL
-	DROP TYPE ChannelVideoType;
 
 CREATE TYPE ChannelVideoType AS TABLE (
 	ChannelId NVARCHAR (50) NOT NULL,

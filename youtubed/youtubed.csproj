@@ -6,6 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="BuildBundlerMinifier" Version="2.6.362" />
     <PackageReference Include="Dapper" Version="1.50.4-alpha1-00070" />
     <PackageReference Include="Google.Apis.YouTube.v3" Version="1.29.2.991" />
     <PackageReference Include="Humanizer.Core" Version="2.2.0" />

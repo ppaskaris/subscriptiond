@@ -11,8 +11,8 @@ namespace youtubed
         public const string YoutubePattern = @"^https:\/\/www\.youtube\.com\/(user|channel)\/([a-zA-Z0-9_-]+)$";
         public const string YoutubeVideoUrl = @"https://www.youtube.com/watch_popup?v={0}";
         public static readonly Regex YoutubeExpression = new Regex(YoutubePattern);
-        public static readonly TimeSpan UpdateFrequencyMin = TimeSpan.FromMinutes(10);
-        public static readonly TimeSpan UpdateFrequencyMax = TimeSpan.FromMinutes(2);
+        public static readonly TimeSpan UpdateFrequencyMin = TimeSpan.FromMinutes(2);
+        public static readonly TimeSpan UpdateFrequencyMax = TimeSpan.FromMinutes(10);
         public static readonly TimeSpan UpdateMaxAgeMin = TimeSpan.FromMinutes(60);
         public static readonly TimeSpan UpdateMaxAgeMax = TimeSpan.FromMinutes(90);
         public static readonly TimeSpan VisibilityTimeoutMin = TimeSpan.FromSeconds(30);
@@ -22,6 +22,10 @@ namespace youtubed
 
         public static TimeSpan RandomlyBetween(TimeSpan lower, TimeSpan upper)
         {
+            if (upper < lower)
+            {
+                throw new ArgumentException("Value is too small.", nameof(upper));
+            }
             ulong value;
             ulong range = (ulong)(upper.Ticks - lower.Ticks);
             byte[] buffer = new byte[8];

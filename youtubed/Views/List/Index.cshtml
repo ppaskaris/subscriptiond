@@ -13,34 +13,33 @@
     Consider bookmarking it as it cannot be recovered if you lose it.
 </p>
 <p>
-    If you do not access this list again within @Model.MaxAge.Humanize(), it
-    will be automatically deleted.
+    If you do not access this list again within <time datetime="@Model.ExpiredAfter.ToString("o")">@Model.MaxAge.Humanize()</time>,
+    it will be automatically deleted.
 </p>
 
 <h2>Videos</h2>
 @if (Model.StaleCount > 0)
 {
     <div class="alert alert-info" role="alert">
-        There @(Model.StaleCount == 1 ? "is" : "are") @Model.StaleCount
-        @(Model.StaleCount == 1 ? "channel" : "channels") in this list waiting
-        to be updated. <a class="alert-link" asp-action="Index" asp-route-id="@Model.Id" asp-route-token="@Model.Token">Refresh</a>
+        @("channel".ToQuantity(Model.StaleCount)) in this list @("is".ToQuantity(Model.StaleCount, ShowQuantityAs.None))
+        waiting to be updated. <a class="alert-link" asp-action="Index" asp-route-id="@Model.Id" asp-route-token="@Model.Token">Refresh</a>
     </div>
 }
 @if (Model.Videos.Any())
 {
-    <ol class="video-list">
+    <ol class="video-list clearfix">
         @foreach (var video in Model.Videos)
         {
             <li class="video-item">
-                <a href="@video.VideoUrl" rel="noopener noreferrer">
+                <a class="video-link" href="@video.VideoUrl" rel="noopener noreferrer">
                     <div class="video-image">
-                        <img src="@video.VideoThumbnail" alt="video thumbnail" referrerpolicy="no-referrer" width="210" height="118" />
-                        <span class="video-duration">@video.VideoDuration.Humanize()</span>
+                        <img src="@video.VideoThumbnail" alt="video thumbnail" referrerpolicy="no-referrer" width="224" height="126" />
+                        @*<span class="video-duration">@video.VideoDuration.Humanize()</span>*@
                     </div>
                     <span class="video-title">@video.VideoTitle</span>
-                    <span class="channel-title">@video.ChannelTitle</span>
-                    <span class="video-published-at">@video.VideoPublishedAt.Humanize()</span>
                 </a>
+                <a class="channel-title channel-link" href="@video.ChannelUrl" rel="noopener noreferrer">@video.ChannelTitle</a>
+                <span class="video-published-at">@video.VideoPublishedAt.Humanize()</span>
             </li>
         }
     </ol>

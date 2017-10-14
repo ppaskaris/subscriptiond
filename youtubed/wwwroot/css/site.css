@@ -22,12 +22,21 @@
 }
 
 .video-item {
-    display: inline-block;
-    height: 210px;
-    margin-bottom: 24px;
-    margin-right: 4px;
+    display: block;
+    float: left;
+    height: 228px;
     overflow: hidden;
-    width: 210px;
+    padding-bottom: 24px;
+    padding-right: 4px;
+    width: 228px;
+}
+
+.video-link {
+    display: block;
+}
+
+.video-link:hover {
+    text-decoration: none;
 }
 
 .video-image {
@@ -53,9 +62,9 @@
     display: block;
     font-size: 13px;
     font-weight: bold;
-    margin: 8px 0;
-    max-height: 38px;
+    max-height: 48px;
     overflow: hidden;
+    padding: 8px 0;
 }
 
 .channel-title, .video-published-at {
@@ -65,4 +74,9 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.channel-title:hover {
+    color: rgba(17, 17, 17, 0.8);
+    text-decoration: none;
 }

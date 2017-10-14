@@ -77,6 +77,7 @@ namespace youtubed.Services
 
                 SELECT Channel.Id AS ChannelId,
                        Channel.Title AS ChannelTitle,
+                       Channel.Url AS ChannelUrl,
                        ChannelVideo.Id AS VideoId,
                        ChannelVideo.Title AS VideoTitle,
                        ChannelVideo.Duration AS VideoDuration,

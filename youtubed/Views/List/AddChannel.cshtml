@@ -11,7 +11,7 @@
         <label asp-for="Url" class="control-label"></label>
         <input asp-for="Url" class="form-control" aria-describedby="UrlHelp" placeholder="https://www.youtube.com/user/PewDiePie" />
         <span asp-validation-for="Url" class="text-danger"></span>
-        <span id="UrlHelp" class="help-block">Copy the text in your browser's <a href="https://en.wikipedia.org/wiki/Address_bar#Address_bar_implementations" rel="noopener noreferrer" target="_blank">address bar</a> while on the channel page.</span>
+        <span id="UrlHelp" class="help-block">Copy the text in your browser's <a href="https://en.wikipedia.org/wiki/Address_bar#Address_bar_implementations" rel="noopener noreferrer" referrerpolicy="no-referrer" target="_blank">address bar</a> while on the channel page.</span>
     </div>
     @Html.HiddenFor(model => model.Id)
     @Html.HiddenFor(model => model.Token)

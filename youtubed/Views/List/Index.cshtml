@@ -31,14 +31,14 @@
         @foreach (var video in Model.Videos)
         {
             <li class="video-item">
-                <a class="video-link" href="@video.VideoUrl" rel="noopener noreferrer">
+                <a class="video-link" href="@video.VideoUrl" rel="noopener noreferrer" referrerpolicy="no-referrer">
                     <div class="video-image">
                         <img src="@video.VideoThumbnail" alt="video thumbnail" referrerpolicy="no-referrer" width="224" height="126" />
                         @*<span class="video-duration">@video.VideoDuration.Humanize()</span>*@
                     </div>
                     <span class="video-title">@video.VideoTitle</span>
                 </a>
-                <a class="channel-title channel-link" href="@video.ChannelUrl" rel="noopener noreferrer">@video.ChannelTitle</a>
+                <a class="channel-title channel-link" href="@video.ChannelUrl" rel="noopener noreferrer" referrerpolicy="no-referrer">@video.ChannelTitle</a>
                 <span class="video-published-at">@video.VideoPublishedAt.Humanize()</span>
             </li>
         }

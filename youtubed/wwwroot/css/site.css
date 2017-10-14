@@ -19,7 +19,7 @@
 .video-item {
     display: block;
     float: left;
-    height: 204px;
+    height: 208px;
     margin-bottom: 24px;
     margin-right: 4px;
     overflow: hidden;
@@ -60,6 +60,7 @@
     max-height: 48px;
     overflow: hidden;
     padding: 8px 0;
+    text-overflow: ellipsis;
 }
 
 .video-channel-link, .video-published-at {
@@ -101,7 +102,8 @@
     display: block;
     font-size: 13px;
     font-weight: bold;
-    max-height: 48px;
+    height: 48px;
     overflow: hidden;
     padding: 8px 0;
+    text-overflow: ellipsis;
 }

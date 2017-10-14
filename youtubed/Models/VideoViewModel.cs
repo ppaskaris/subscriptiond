@@ -15,6 +15,6 @@ namespace youtubed.Models
         public DateTimeOffset VideoPublishedAt { get; set; }
         public string VideoThumbnail { get; set; }
 
-        public string VideoUrl => string.Format(Constants.YoutubeVideoUrl, VideoId);
+        public string VideoUrl => string.Format(Constants.YoutubeWatchUrl, VideoId);
     }
 }

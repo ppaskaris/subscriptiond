@@ -33,6 +33,7 @@ namespace youtubed.Services
 
             var request = Service.Channels.List("id,snippet");
             request.MaxResults = 1;
+            request.Fields = "items(id,snippet(title,thumbnails(medium,default)))";
 
             var type = match.Groups[1].Value;
             var identifier = match.Groups[2].Value;
@@ -73,6 +74,7 @@ namespace youtubed.Services
                 var request = Service.Search.List("snippet");
                 request.ChannelId = channelId;
                 request.MaxResults = 50;
+                request.Fields = "nextPageToken,items(id(kind,videoId),snippet(channelId,title,publishedAt,thumbnails(medium,default)))";
                 request.Order = SearchResource.ListRequest.OrderEnum.Date;
                 request.PublishedAfter = DateTimeOffset.Now.Subtract(Constants.VideoMaxAge).UtcDateTime;
                 request.SafeSearch = SearchResource.ListRequest.SafeSearchEnum.None;
@@ -111,7 +113,6 @@ namespace youtubed.Services
         {
             var thumbnail =
                 thumbnailDetails.Medium ??
-                thumbnailDetails.High ??
                 thumbnailDetails.Default__;
             return thumbnail?.Url;
         }

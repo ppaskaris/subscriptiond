@@ -10,32 +10,28 @@
 <h2>Usage</h2>
 <ol>
     <li><a asp-action="CreateList">Create a new list</a>.</li>
-    <li>Add channels from YouTube to your secret list.</li>
-    <li>Bookmark your secret list and check back for new videos.</li>
+    <li>Add channels from YouTube to your list.</li>
+    <li>Bookmark your list and check back for new videos.</li>
 </ol>
 
 <h2>How it works</h2>
 <p>
     youtubed periodically queries channels that have been added to lists for
-    new videos. It does this <em>communally</em> and <em>anonymously</em>
-    using randomized delays. When new videos are available, youtubed downloads
-    their details and presents them to you when you view your secret list.
+    new videos. It does this communally and anonymously using randomized
+    delays. When new videos are available, youtubed downloads their details
+    and presents them when you view your list.
 </p>
 
 <h2>Privacy</h2>
 <p>
-    youtubed stores the following usage information:
+    youtubed does not track or store any usage information other than:
 </p>
 <ul>
-    <li>When you last viewed your secret list (with noise added).</li>
+    <li>When you last viewed your list (with noise added).</li>
     <li>Web server logs for 7 days.</li>
 </ul>
 <p>
-    youtubed does not track or store any other information about your usage.
-</p>
-<p>
-    youtubed attempts to execute the following programs in your browser on some
-    pages:
+    youtubed attempts to execute the following scripts on some pages:
 </p>
 <ul>
     <li>jQuery 2.2.0 <sub>(<a href="https://github.com/jquery/jquery/tree/2.2.0" rel="noopener noreferrer" referrerpolicy="no-referrer" target="_blank">source</a>, <a href="https://raw.githubusercontent.com/jquery/jquery/2.2.0/LICENSE.txt" rel="noopener noreferrer" referrerpolicy="no-referrer" target="_blank">license</a>)</sub></li>
@@ -47,15 +43,12 @@
     using Subresource Integrity (SRI). All third-party links, images,
     stylesheets and scripts are configured with a Referrer Policy of
     "no-referrer".
-</p>
 <p>
-    No attempt is made for any third-party resources other than those listed
-    above. Additionally, youtubed automatically deletes:
+    youtubed automatically deletes:
 </p>
 <ul>
     <li>Lists that have not been accessed within @Constants.ListMaxAgeMin.Humanize().</li>
-    <li>Metadata for videos published more than @Constants.VideoMaxAge.Humanize() ago.</li>
-    <li>Metadata for channels that are not used in any lists.</li>
+    <li>Metadata for videos published earlier than @Constants.VideoMaxAge.Humanize() ago.</li>
 </ul>
 
 <h2>Contact</h2>

@@ -10,6 +10,7 @@ using youtubed.Services;
 using youtubed.Data;
 using Microsoft.Extensions.Hosting;
 using Dapper;
+using Microsoft.AspNetCore.Mvc;
 
 namespace youtubed
 {
@@ -27,7 +28,10 @@ namespace youtubed
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddOptions();
-            services.AddMvc();
+            services.AddMvc(options =>
+            {
+                options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute());
+            });
 
             services.Configure<YoutubeOptions>(Configuration.GetSection("Youtube"));
 

@@ -7,7 +7,7 @@ software, distributed under the GNU General Public License [2].
 I wrote this software to learn ASP.NET Core MVC and to scratch my own itch
 around managing YouTube subscriptions. I run an instance [3] on the Azure free
 tier for my personal use. You may to use this instance if you wish, but I ask
-that you be considerate as it is grossly provisioned for general use.
+that you be considerate as it is grossly under-provisioned for general use.
 
 [1]: https://www.youtube.com/
 [2]: https://www.gnu.org/copyleft/gpl.html

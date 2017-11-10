@@ -123,7 +123,7 @@ namespace youtubed.Services
             var service = new YouTubeService(new BaseClientService.Initializer
             {
                 ApiKey = _options.Credentials,
-                ApplicationName = $"youtubed/{version}"
+                ApplicationName = $"subscriptiond/{version}"
             });
             return service;
         }

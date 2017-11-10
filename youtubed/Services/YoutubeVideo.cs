@@ -12,6 +12,6 @@ namespace youtubed.Services
         public TimeSpan Duration { get; set; }
         public DateTimeOffset PublishedAt { get; set; }
         public string Thumbnail { get; set; }
-        public string ChannelId { get; internal set; }
+        public string ChannelId { get; set; }
     }
 }

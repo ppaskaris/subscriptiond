@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using youtubed.Services;
 using youtubed.Models;
+using youtubed.SecurityTheatre;
 
 namespace youtubed.Controllers
 {
@@ -39,7 +40,7 @@ namespace youtubed.Controllers
             {
                 return NotFound();
             }
-            if (token != listView.Token)
+            if (TokenUtils.NotEqual(token, listView.Token))
             {
                 return NotFound();
             }
@@ -64,7 +65,7 @@ namespace youtubed.Controllers
             {
                 return NotFound();
             }
-            if (token != list.TokenString)
+            if (TokenUtils.NotEqual(token, list.TokenString))
             {
                 return NotFound();
             }
@@ -90,7 +91,7 @@ namespace youtubed.Controllers
             {
                 return BadRequest();
             }
-            if (token != list.TokenString)
+            if (TokenUtils.NotEqual(token, list.TokenString))
             {
                 return BadRequest();
             }
@@ -129,7 +130,7 @@ namespace youtubed.Controllers
             {
                 return NotFound();
             }
-            if (token != list.TokenString)
+            if (TokenUtils.NotEqual(token, list.TokenString))
             {
                 return NotFound();
             }
@@ -162,7 +163,7 @@ namespace youtubed.Controllers
             {
                 return NotFound();
             }
-            if (token != list.TokenString)
+            if (TokenUtils.NotEqual(token, list.TokenString))
             {
                 return NotFound();
             }
@@ -192,7 +193,7 @@ namespace youtubed.Controllers
             {
                 return NotFound();
             }
-            if (token != list.TokenString)
+            if (TokenUtils.NotEqual(token, list.TokenString))
             {
                 return NotFound();
             }
@@ -222,7 +223,7 @@ namespace youtubed.Controllers
             {
                 return NotFound();
             }
-            if (token != list.TokenString)
+            if (TokenUtils.NotEqual(token, list.TokenString))
             {
                 return NotFound();
             }
@@ -254,7 +255,7 @@ namespace youtubed.Controllers
             {
                 return NotFound();
             }
-            if (token != list.TokenString)
+            if (TokenUtils.NotEqual(token, list.TokenString))
             {
                 return NotFound();
             }

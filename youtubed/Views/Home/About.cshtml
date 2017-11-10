@@ -4,7 +4,8 @@
 
 <h1>@ViewData["Title"]</h1>
 <p>
-    youtubed is an anonymous subscription manager for <a href="https://www.youtube.com" rel="noopener noreferrer" referrerpolicy="no-referrer" target="_blank">YouTube</a>.
+    subscriptiond is an anonymous subscription manager for <a href="https://www.youtube.com" rel="noopener noreferrer" referrerpolicy="no-referrer" target="_blank">YouTube</a>.
+    It is free software, distributed under the <a href="https://www.gnu.org/copyleft/gpl.html" rel="noopener noreferrer" referrerpolicy="no-referrer" target="_blank">GNU General Public License</a>.
 </p>
 
 <h2>Usage</h2>
@@ -16,22 +17,22 @@
 
 <h2>How it works</h2>
 <p>
-    youtubed periodically queries channels that have been added to lists for
-    new videos. It does this communally and anonymously using randomized
-    delays. When new videos are available, youtubed downloads their details
-    and presents them when you view your list.
+    subscriptiond periodically queries channels that have been added to lists
+    for new videos. It does this communally and anonymously using randomized
+    delays. When new videos are available, subscriptiond downloads their
+    details and presents them when you view your list.
 </p>
 
 <h2>Privacy</h2>
 <p>
-    youtubed does not track or store any usage information other than:
+    subscriptiond does not track or store any usage information other than:
 </p>
 <ul>
     <li>When you last viewed your list (with noise added).</li>
     <li>Web server logs for 7 days.</li>
 </ul>
 <p>
-    youtubed attempts to execute the following scripts on some pages:
+    subscriptiond attempts to execute the following scripts on some pages:
 </p>
 <ul>
     <li>jQuery 2.2.0 <sub>(<a href="https://github.com/jquery/jquery/tree/2.2.0" rel="noopener noreferrer" referrerpolicy="no-referrer" target="_blank">source</a>, <a href="https://raw.githubusercontent.com/jquery/jquery/2.2.0/LICENSE.txt" rel="noopener noreferrer" referrerpolicy="no-referrer" target="_blank">license</a>)</sub></li>
@@ -44,7 +45,7 @@
     stylesheets and scripts are configured with a Referrer Policy of
     "no-referrer".
 <p>
-    youtubed automatically deletes:
+    subscriptiond automatically deletes:
 </p>
 <ul>
     <li>Lists that have not been accessed within @Constants.ListMaxAgeMin.Humanize().</li>
@@ -54,5 +55,5 @@
 <h2>Contact</h2>
 <dl class="dl-horizontal">
     <dt>General questions</dt>
-    <dd><a href="mailto:youtubed@veggiebur.gr">youtubed@veggiebur.gr</a></dd>
+    <dd><a href="mailto:subscriptiond@veggiebur.gr">subscriptiond@veggiebur.gr</a></dd>
 </dl>

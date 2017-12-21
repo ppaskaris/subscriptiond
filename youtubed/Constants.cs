@@ -9,7 +9,7 @@ namespace youtubed
     public static class Constants
     {
         public const string YoutubePattern = @"^https:\/\/www\.youtube\.com\/(user|channel)\/([a-zA-Z0-9_-]+)$";
-        public const string YoutubeWatchUrl = @"https://www.youtube.com/embed/{0}?autoplay=1";
+        public const string YoutubeWatchUrl = @"https://www.youtube.com/embed/{0}?autoplay=1&rel=0";
         public static readonly Regex YoutubeExpression = new Regex(YoutubePattern);
         public static readonly TimeSpan ChannelMaxAgeMax = TimeSpan.FromMinutes(90);
         public static readonly TimeSpan ChannelMaxAgeMin = TimeSpan.FromMinutes(60);

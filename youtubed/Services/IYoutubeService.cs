@@ -8,6 +8,6 @@ namespace youtubed.Services
     public interface IYoutubeService
     {
         Task<YoutubeChannel> GetChannelAsync(string url);
-        Task<IEnumerable<YoutubeVideo>> GetVideosAsync(string channelId);
+        Task<IEnumerable<YoutubeVideo>> GetVideosAsync(string channelId, DateTimeOffset publishedAfter);
     }
 }

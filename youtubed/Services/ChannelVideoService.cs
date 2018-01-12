@@ -25,7 +25,23 @@ namespace youtubed.Services
 
         public async Task RefreshVideosAsync(string channelId)
         {
-            var videos = await _youtubeService.GetVideosAsync(channelId);
+            DateTimeOffset? mostRecentPublishedAt = null;
+            using (var connection = _connectionFactory.CreateConnection())
+            {
+                mostRecentPublishedAt =
+                    await connection.QueryFirstOrDefaultAsync<DateTimeOffset?>(
+                        @"
+                        SELECT DATEADD(second, 1, MAX(PublishedAt))
+                        FROM ChannelVideo
+                        WHERE ChannelId = @channelId;
+                        ",
+                        new { channelId });
+            }
+            DateTimeOffset earliestPublishedAt =
+                DateTimeOffset.Now.Subtract(Constants.VideoMaxAge);
+            var videos = await _youtubeService.GetVideosAsync(
+                channelId,
+                mostRecentPublishedAt ?? earliestPublishedAt);
             var videoRecords = videos
                 .Select(CreateVideoDataRecord)
                 .ToList();
@@ -61,8 +77,10 @@ namespace youtubed.Services
                                 source.PublishedAt,
                                 source.Thumbnail
                             )
-                        WHEN NOT MATCHED BY SOURCE AND target.ChannelId = @channelId THEN
-                            DELETE;
+                        WHEN NOT MATCHED BY SOURCE
+                            AND target.ChannelId = @channelId
+                            AND target.PublishedAt < @earliestPublishedAt THEN
+                                DELETE;
 
                         UPDATE Channel
                         SET StaleAfter = @later
@@ -71,6 +89,7 @@ namespace youtubed.Services
                         new
                         {
                             channelId,
+                            earliestPublishedAt,
                             videoTable,
                             later
                         });
@@ -80,7 +99,8 @@ namespace youtubed.Services
                     await connection.ExecuteAsync(
                         @"
                         DELETE FROM ChannelVideo
-                        WHERE ChannelId = @channelId;
+                        WHERE ChannelId = @channelId
+                          AND PublishedAt < @earliestPublishedAt;
 
                         UPDATE Channel
                         SET StaleAfter = @later
@@ -89,6 +109,7 @@ namespace youtubed.Services
                         new
                         {
                             channelId,
+                            earliestPublishedAt,
                             later
                         });
                 }

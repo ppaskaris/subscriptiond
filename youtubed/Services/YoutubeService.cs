@@ -64,7 +64,7 @@ namespace youtubed.Services
             };
         }
 
-        public async Task<IEnumerable<YoutubeVideo>> GetVideosAsync(string channelId)
+        public async Task<IEnumerable<YoutubeVideo>> GetVideosAsync(string channelId, DateTimeOffset publishedAfter)
         {
             string nextPageToken = null;
             var results = new List<YoutubeVideo>();
@@ -76,7 +76,7 @@ namespace youtubed.Services
                 request.MaxResults = 50;
                 request.Fields = "nextPageToken,items(id(kind,videoId),snippet(channelId,title,publishedAt,thumbnails(medium,default)))";
                 request.Order = SearchResource.ListRequest.OrderEnum.Date;
-                request.PublishedAfter = DateTimeOffset.Now.Subtract(Constants.VideoMaxAge).UtcDateTime;
+                request.PublishedAfter = publishedAfter.UtcDateTime;
                 request.SafeSearch = SearchResource.ListRequest.SafeSearchEnum.None;
                 request.Type = "video";
                 if (nextPageToken != null)

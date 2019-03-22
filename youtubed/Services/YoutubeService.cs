@@ -93,6 +93,14 @@ namespace youtubed.Services
                         continue;
                     }
 
+                    // YouTube API is just ignoring this parameter now.
+                    DateTimeOffset publishedAt =
+                        new DateTimeOffset(item.Snippet.PublishedAt.Value);
+                    if (publishedAt <= publishedAfter)
+                    {
+                        continue;
+                    }
+
                     var result = new YoutubeVideo
                     {
                         ChannelId = item.Snippet.ChannelId,

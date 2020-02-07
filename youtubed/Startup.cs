@@ -2,15 +2,15 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Dapper;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using youtubed.Services;
-using youtubed.Data;
 using Microsoft.Extensions.Hosting;
-using Dapper;
-using Microsoft.AspNetCore.Mvc;
+using youtubed.Data;
+using youtubed.Services;
 
 namespace youtubed
 {
@@ -31,6 +31,7 @@ namespace youtubed
             services.AddMvc(options =>
             {
                 options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute());
+                options.EnableEndpointRouting = false;
             });
 
             services.Configure<YoutubeOptions>(Configuration.GetSection("Youtube"));
@@ -50,12 +51,11 @@ namespace youtubed
 
         // This method gets called by the runtime. Use this method to configure
         // the HTTP request pipeline.
-        public void Configure(IApplicationBuilder app, Microsoft.AspNetCore.Hosting.IHostingEnvironment env)
+        public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
         {
             if (env.IsDevelopment())
             {
                 app.UseDeveloperExceptionPage();
-                app.UseBrowserLink();
             }
             else
             {

@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using youtubed.Data;
 using youtubed.Services;
 
@@ -32,6 +33,12 @@ namespace youtubed
             {
                 options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute());
                 options.EnableEndpointRouting = false;
+            });
+            services.AddLogging(loggingBuilder =>
+            {
+                loggingBuilder.AddConsole();
+                loggingBuilder.AddDebug();
+                loggingBuilder.AddAzureWebAppDiagnostics();
             });
 
             services.Configure<YoutubeOptions>(Configuration.GetSection("Youtube"));

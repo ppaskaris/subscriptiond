@@ -98,7 +98,10 @@ namespace youtubed.Services
                         new DateTimeOffset(item.Snippet.PublishedAt.Value);
                     if (publishedAt <= publishedAfter)
                     {
-                        continue;
+                        // Hopefully the sort still works because iterating
+                        // through all of these hits the API quota real quick
+                        nextPageToken = null;
+                        break;
                     }
 
                     var result = new YoutubeVideo

@@ -31,9 +31,9 @@ namespace youtubed.Services
                 throw new ArgumentException(nameof(url), "Invalid format.");
             }
 
-            var request = Service.Channels.List("id,snippet");
+            var request = Service.Channels.List("id,snippet,contentDetails");
             request.MaxResults = 1;
-            request.Fields = "items(id,snippet(title,thumbnails(medium,default)))";
+            request.Fields = "items(id,snippet(title,thumbnails(medium,default)),contentDetails(relatedPlaylists(uploads)))";
 
             var type = match.Groups[1].Value;
             var identifier = match.Groups[2].Value;
@@ -60,25 +60,22 @@ namespace youtubed.Services
             {
                 Id = item.Id,
                 Title = item.Snippet.Title,
-                Thumbnail = PickThumbnail(item.Snippet.Thumbnails)
+                Thumbnail = PickThumbnail(item.Snippet.Thumbnails),
+                PlaylistId = item.ContentDetails.RelatedPlaylists.Uploads
             };
         }
 
-        public async Task<IEnumerable<YoutubeVideo>> GetVideosAsync(string channelId, DateTimeOffset publishedAfter)
+        public async Task<IEnumerable<YoutubeVideo>> GetVideosAsync(string playlistId, DateTimeOffset publishedAfter)
         {
             string nextPageToken = null;
             var results = new List<YoutubeVideo>();
 
             do
             {
-                var request = Service.Search.List("snippet");
-                request.ChannelId = channelId;
+                var request = Service.PlaylistItems.List("snippet");
+                request.PlaylistId = playlistId;
                 request.MaxResults = 50;
-                request.Fields = "nextPageToken,items(id(kind,videoId),snippet(channelId,title,publishedAt,thumbnails(medium,default)))";
-                request.Order = SearchResource.ListRequest.OrderEnum.Date;
-                request.PublishedAfter = publishedAfter.UtcDateTime;
-                request.SafeSearch = SearchResource.ListRequest.SafeSearchEnum.None;
-                request.Type = "video";
+                request.Fields = "nextPageToken,items(snippet(resourceId(kind, videoId),channelId,title,publishedAt,thumbnails(medium,default)))";
                 if (nextPageToken != null)
                 {
                     request.PageToken = nextPageToken;
@@ -88,29 +85,29 @@ namespace youtubed.Services
                 nextPageToken = response.NextPageToken;
                 foreach (var item in response.Items)
                 {
-                    if (item.Id.Kind != "youtube#video")
+                    if (item.Snippet.ResourceId.Kind != "youtube#video")
                     {
                         continue;
                     }
 
-                    // YouTube API is just ignoring this parameter now.
                     DateTimeOffset publishedAt =
                         new DateTimeOffset(item.Snippet.PublishedAt.Value);
                     if (publishedAt <= publishedAfter)
                     {
-                        // Hopefully the sort still works because iterating
-                        // through all of these hits the API quota real quick
+                        // Stop after this page. We might as well finish
+                        // reading the current page since we already paid for
+                        // the API call with our quota.
                         nextPageToken = null;
-                        break;
+                        continue;
                     }
 
                     var result = new YoutubeVideo
                     {
                         ChannelId = item.Snippet.ChannelId,
-                        Id = item.Id.VideoId,
+                        Id = item.Snippet.ResourceId.VideoId,
                         Title = item.Snippet.Title,
                         Duration = TimeSpan.FromMinutes(5),
-                        PublishedAt = new DateTimeOffset(item.Snippet.PublishedAt.Value),
+                        PublishedAt = publishedAt,
                         Thumbnail = PickThumbnail(item.Snippet.Thumbnails)
                     };
                     results.Add(result);
@@ -118,6 +115,24 @@ namespace youtubed.Services
             } while (nextPageToken != null);
 
             return results;
+        }
+
+        // TODO: remove after records are migrated
+        public async Task<string> GetPlaylistIdAsync(string channelId)
+        {
+            var request = Service.Channels.List("contentDetails");
+            request.MaxResults = 1;
+            request.Fields = "items(contentDetails(relatedPlaylists(uploads)))";
+            request.Id = channelId;
+
+            var response = await request.ExecuteAsync();
+            var item = response.Items.FirstOrDefault();
+            if (item == null)
+            {
+                return null;
+            }
+
+            return item.ContentDetails.RelatedPlaylists.Uploads;
         }
 
         private string PickThumbnail(ThumbnailDetails thumbnailDetails)

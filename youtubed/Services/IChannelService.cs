@@ -9,7 +9,7 @@ namespace youtubed.Services
     public interface IChannelService
     {
         Task<ChannelModel> GetOrCreateChannelAsync(string url);
-        Task<string> GetNextStaleIdOrDefaultAsync();
+        Task<StaleChannelModel> GetNextStaleChannelOrDefaultAsync();
         Task<int> RemoveOrphanChannelsAsync();
     }
 }

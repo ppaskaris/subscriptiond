@@ -31,11 +31,11 @@ namespace youtubed.Services
                 try
                 {
                     _logger.LogInformation("Checking for stale channels.");
-                    var channelId = await _channelService.GetNextStaleIdOrDefaultAsync();
-                    if (channelId != null)
+                    var channel = await _channelService.GetNextStaleChannelOrDefaultAsync();
+                    if (channel != null)
                     {
-                        _logger.LogInformation("Refreshing channel {0}.", channelId);
-                        await _channelVideoService.RefreshVideosAsync(channelId);
+                        _logger.LogInformation("Refreshing channel {0}.", channel.Id);
+                        await _channelVideoService.RefreshVideosAsync(channel);
                     }
                 }
                 catch (Exception ex)

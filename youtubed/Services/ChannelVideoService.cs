@@ -6,6 +6,7 @@ using System.Data;
 using System.Linq;
 using System.Threading.Tasks;
 using youtubed.Data;
+using youtubed.Models;
 
 namespace youtubed.Services
 {
@@ -22,7 +23,7 @@ namespace youtubed.Services
             _youtubeService = youtubeService;
         }
 
-        public async Task RefreshVideosAsync(string channelId)
+        public async Task RefreshVideosAsync(StaleChannelModel channel)
         {
             DateTimeOffset? mostRecentPublishedAt = null;
             using (var connection = _connectionFactory.CreateConnection())
@@ -34,14 +35,31 @@ namespace youtubed.Services
                         FROM ChannelVideo
                         WHERE ChannelId = @channelId;
                         ",
-                        new { channelId });
+                        new { channelId = channel.Id });
             }
-            DateTimeOffset earliestPublishedAt =
+            var earliestPublishedAt =
                 DateTimeOffset.Now.Subtract(Constants.VideoMaxAge);
+            var publishedAfter = mostRecentPublishedAt?.AddSeconds(1) ?? earliestPublishedAt;
+            // TODO: remove after records are migrated
+            if (channel.PlaylistId == null)
+            {
+                channel.PlaylistId = await _youtubeService.GetPlaylistIdAsync(channel.Id);
+                using (var connection = _connectionFactory.CreateConnection())
+                {
+                    await connection.ExecuteAsync(
+                        @"
+                        UPDATE Channel
+                        SET PlaylistId = @playlistId
+                        WHERE Id = @id
+                        ",
+                        channel);
+                }
+            }
             var videos = await _youtubeService.GetVideosAsync(
-                channelId,
-                mostRecentPublishedAt ?? earliestPublishedAt);
+                channel.PlaylistId,
+                publishedAfter);
             var videoRecords = videos
+                .Where(video => video.ChannelId == channel.Id)
                 .Select(CreateVideoDataRecord)
                 .ToList();
             var updateMaxAge = Constants.RandomlyBetween(
@@ -87,7 +105,7 @@ namespace youtubed.Services
                         ",
                         new
                         {
-                            channelId,
+                            channelId = channel.Id,
                             earliestPublishedAt,
                             videoTable,
                             later
@@ -107,7 +125,7 @@ namespace youtubed.Services
                         ",
                         new
                         {
-                            channelId,
+                            channelId = channel.Id,
                             earliestPublishedAt,
                             later
                         });

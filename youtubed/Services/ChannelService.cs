@@ -28,7 +28,7 @@ namespace youtubed.Services
             {
                 model = await connection.QueryFirstOrDefaultAsync<ChannelModel>(
                     @"
-                    SELECT Id, Url, Title, Thumbnail
+                    SELECT Id, Url, Title, Thumbnail, PlaylistId
                     FROM Channel
                     WHERE Url = @url;
                     ",
@@ -48,7 +48,8 @@ namespace youtubed.Services
                     Id = channel.Id,
                     Url = url,
                     Title = channel.Title,
-                    Thumbnail = channel.Thumbnail
+                    Thumbnail = channel.Thumbnail,
+                    PlaylistId = channel.PlaylistId
                 };
 
                 using (var connection = _connectionFactory.CreateConnection())
@@ -63,8 +64,8 @@ namespace youtubed.Services
                         WHEN MATCHED THEN
                             UPDATE SET StaleAfter = @manyYearsAgo
                         WHEN NOT MATCHED THEN
-                            INSERT (Id, Url, Title, Thumbnail, StaleAfter, VisibleAfter)
-                            VALUES (@id, @url, @title, @thumbnail, @manyYearsAgo, @manyYearsAgo);
+                            INSERT (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
+                            VALUES (@id, @url, @title, @thumbnail, @playlistId, @manyYearsAgo, @manyYearsAgo);
                         ",
                         new
                         {
@@ -72,6 +73,7 @@ namespace youtubed.Services
                             url = model.Url,
                             title = model.Title,
                             thumbnail = model.Thumbnail,
+                            playlistId = model.PlaylistId,
                             manyYearsAgo
                         });
                 }
@@ -80,9 +82,8 @@ namespace youtubed.Services
             return model;
         }
 
-        public async Task<string> GetNextStaleIdOrDefaultAsync()
+        public async Task<StaleChannelModel> GetNextStaleChannelOrDefaultAsync()
         {
-            string id;
             using (var connection = _connectionFactory.CreateConnection())
             {
                 var now = DateTimeOffset.Now;
@@ -90,11 +91,11 @@ namespace youtubed.Services
                     Constants.VisibilityTimeoutMin,
                     Constants.VisibilityTimeoutMax);
                 var visibleAfter = now.Add(visibilityTimeout);
-                id = await connection.ExecuteScalarAsync<string>(
+                return await connection.QueryFirstOrDefaultAsync<StaleChannelModel>(
                     @"
                     UPDATE target
                     SET VisibleAfter = @visibleAfter
-                    OUTPUT inserted.Id
+                    OUTPUT inserted.Id, inserted.PlaylistId
                     FROM (
                         SELECT TOP (1) *
                         FROM Channel
@@ -107,7 +108,6 @@ namespace youtubed.Services
                     ",
                     new { now, visibleAfter });
             }
-            return id;
         }
 
         public async Task<int> RemoveOrphanChannelsAsync()

@@ -1,4 +1,5 @@
 ﻿@model ListViewModel
+@using System.Net
 
 @{
     ViewData["Title"] = Model.Title;
@@ -33,7 +34,7 @@
                     <div class="video-image">
                         <img src="@video.VideoThumbnail" referrerpolicy="no-referrer" width="224" height="126" />
                     </div>
-                    <span class="video-title">@video.VideoTitle</span>
+                    <span class="video-title">@WebUtility.HtmlDecode(video.VideoTitle)</span>
                 </a>
                 <a class="video-channel-link" href="@video.ChannelUrl" rel="noopener noreferrer" referrerpolicy="no-referrer">@video.ChannelTitle</a>
                 <time class="video-published-at" datetime="@video.VideoPublishedAt.ToString("o")" title="@video.VideoPublishedAt.ToString("g")">@video.VideoPublishedAt.Humanize()</time>
@@ -69,9 +70,9 @@ else
 }
 else
 {
-<p>
-    <em>No channels added.</em>
-</p>
+    <p>
+        <em>No channels added.</em>
+    </p>
 }
 <p>
     <a class="btn btn-default" asp-action="AddChannel">Add New Channel</a>

@@ -9,7 +9,5 @@ namespace youtubed.Services
     {
         Task<YoutubeChannel> GetChannelAsync(string url);
         Task<IEnumerable<YoutubeVideo>> GetVideosAsync(string playlistId, DateTimeOffset publishedAfter);
-        // TODO: remove after records are migrated
-        Task<string> GetPlaylistIdAsync(string channelId);
     }
 }

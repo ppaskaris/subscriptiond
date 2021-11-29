@@ -40,21 +40,6 @@ namespace youtubed.Services
             var earliestPublishedAt =
                 DateTimeOffset.Now.Subtract(Constants.VideoMaxAge);
             var publishedAfter = mostRecentPublishedAt?.AddSeconds(1) ?? earliestPublishedAt;
-            // TODO: remove after records are migrated
-            if (channel.PlaylistId == null)
-            {
-                channel.PlaylistId = await _youtubeService.GetPlaylistIdAsync(channel.Id);
-                using (var connection = _connectionFactory.CreateConnection())
-                {
-                    await connection.ExecuteAsync(
-                        @"
-                        UPDATE Channel
-                        SET PlaylistId = @playlistId
-                        WHERE Id = @id
-                        ",
-                        channel);
-                }
-            }
             var videos = await _youtubeService.GetVideosAsync(
                 channel.PlaylistId,
                 publishedAfter);

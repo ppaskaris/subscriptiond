@@ -117,24 +117,6 @@ namespace youtubed.Services
             return results;
         }
 
-        // TODO: remove after records are migrated
-        public async Task<string> GetPlaylistIdAsync(string channelId)
-        {
-            var request = Service.Channels.List("contentDetails");
-            request.MaxResults = 1;
-            request.Fields = "items(contentDetails(relatedPlaylists(uploads)))";
-            request.Id = channelId;
-
-            var response = await request.ExecuteAsync();
-            var item = response.Items.FirstOrDefault();
-            if (item == null)
-            {
-                return null;
-            }
-
-            return item.ContentDetails.RelatedPlaylists.Uploads;
-        }
-
         private string PickThumbnail(ThumbnailDetails thumbnailDetails)
         {
             var thumbnail =

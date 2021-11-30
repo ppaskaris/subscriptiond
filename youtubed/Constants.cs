@@ -13,8 +13,8 @@ namespace youtubed
         public static readonly Regex YoutubeExpression = new Regex(YoutubePattern);
         public static readonly TimeSpan ChannelMaxAgeMin = TimeSpan.FromMinutes(60);
         public static readonly TimeSpan ChannelMaxAgeMax = TimeSpan.FromMinutes(90);
-        public static readonly TimeSpan ChannelUpdateFrequencyMin = TimeSpan.FromSeconds(4);
-        public static readonly TimeSpan ChannelUpdateFrequencyMax = TimeSpan.FromSeconds(6);
+        public static readonly TimeSpan ChannelUpdateFrequencyMin = TimeSpan.FromSeconds(25);
+        public static readonly TimeSpan ChannelUpdateFrequencyMax = TimeSpan.FromSeconds(35);
         public static readonly TimeSpan ListMaxAgeMin = TimeSpan.FromDays(45);
         public static readonly TimeSpan ListMaxAgeMax = TimeSpan.FromDays(47);
         public static readonly TimeSpan MaintenanceFrequencyMin = TimeSpan.FromMinutes(8);

@@ -31,8 +31,8 @@ namespace youtubed.Services
                 try
                 {
                     _logger.LogInformation("Checking for stale channels.");
-                    var channel = await _channelService.GetNextStaleChannelOrDefaultAsync();
-                    if (channel != null)
+                    Models.StaleChannelModel channel;
+                    while ((channel = await _channelService.GetNextStaleChannelOrDefaultAsync()) != null)
                     {
                         _logger.LogInformation("Refreshing channel {0}.", channel.Id);
                         await _channelVideoService.RefreshVideosAsync(channel);

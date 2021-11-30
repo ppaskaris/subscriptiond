@@ -20,6 +20,7 @@ namespace youtubed.Services
 
         public async Task<ListModel> CreateListAsync(string title)
         {
+            using var connection = _connectionFactory.CreateConnection();
             var list = new ListModel
             {
                 Id = Guid.NewGuid(),
@@ -27,41 +28,34 @@ namespace youtubed.Services
                 Title = title,
                 ExpiredAfter = CreateExpiredAfter()
             };
-            using (var connection = _connectionFactory.CreateConnection())
-            {
-                await connection.ExecuteAsync(
-                    @"
-                    INSERT INTO List (Id, Token, Title, ExpiredAfter)
-                    VALUES (@Id, @Token, @Title, @ExpiredAfter);
-                    ",
-                    list);
-            }
+
+            await connection.ExecuteAsync(
+                @"
+                INSERT INTO List (Id, Token, Title, ExpiredAfter)
+                VALUES (@Id, @Token, @Title, @ExpiredAfter);
+                ",
+                list);
             return list;
         }
 
         public async Task<ListModel> GetListAsync(Guid id)
         {
-            ListModel list;
-            using (var connection = _connectionFactory.CreateConnection())
-            {
-                list = await connection.QueryFirstOrDefaultAsync<ListModel>(
-                    @"
-                    SELECT Id, Token, Title, ExpiredAfter
-                    FROM list
-                    WHERE Id = @id;
-                    ",
-                    new { id });
-            }
-            return list;
+            using var connection = _connectionFactory.CreateConnection();
+            return await connection.QueryFirstOrDefaultAsync<ListModel>(
+                @"
+                SELECT Id, Token, Title, ExpiredAfter
+                FROM list
+                WHERE Id = @id;
+                ",
+                new { id });
         }
 
         public async Task<ListViewModel> GetListViewAsync(Guid id)
         {
-            ListViewModel listView;
+            using var connection = _connectionFactory.CreateConnection();
             var expiredAfter = CreateExpiredAfter();
             var now = DateTimeOffset.Now;
-            using (var connection = _connectionFactory.CreateConnection())
-            using (var query = await connection.QueryMultipleAsync(
+            using var query = await connection.QueryMultipleAsync(
                 @"
                 UPDATE List
                 SET ExpiredAfter = @expiredAfter
@@ -100,114 +94,98 @@ namespace youtubed.Services
                 WHERE ListChannel.ListId = @id
                 ORDER BY Channel.Title ASC;
                 ",
-                new { id, expiredAfter, now }))
+                new { id, expiredAfter, now });
+            var list = await query.ReadSingleOrDefaultAsync<ListModel>();
+            if (list == null)
             {
-                var list = await query.ReadSingleOrDefaultAsync<ListModel>();
-                if (list == null)
-                {
-                    return null;
-                }
-                var staleCount = await query.ReadSingleOrDefaultAsync<int>();
-                var videos = await query.ReadAsync<VideoViewModel>();
-                var channels = await query.ReadAsync<ChannelModel>();
-                listView = new ListViewModel
-                {
-                    Id = list.Id,
-                    Token = list.TokenString,
-                    Title = list.Title,
-                    ExpiredAfter = list.ExpiredAfter,
-                    StaleCount = staleCount,
-                    Videos = videos,
-                    Channels = channels
-                };
+                return null;
             }
-            return listView;
+            var staleCount = await query.ReadSingleOrDefaultAsync<int>();
+            var videos = await query.ReadAsync<VideoViewModel>();
+            var channels = await query.ReadAsync<ChannelModel>();
+            return new ListViewModel
+            {
+                Id = list.Id,
+                Token = list.TokenString,
+                Title = list.Title,
+                ExpiredAfter = list.ExpiredAfter,
+                StaleCount = staleCount,
+                Videos = videos,
+                Channels = channels
+            };
         }
 
         public async Task AddChannelAsync(Guid listId, string channelId)
         {
-            using (var connection = _connectionFactory.CreateConnection())
-            {
-                await connection.ExecuteAsync(
-                    @"
-                    MERGE INTO ListChannel target
-                    USING (
-                        SELECT @listId AS ListId,
-                               @channelId AS ChannelId
-                    ) source ON source.ListId = target.ListId
-                            AND source.ChannelId = target.ChannelId
-                    WHEN NOT MATCHED THEN
-                        INSERT (ListId, ChannelId)
-                        VALUES (@listId, @channelId);
-                    ",
-                    new { listId, channelId });
-            }
+            using var connection = _connectionFactory.CreateConnection();
+            await connection.ExecuteAsync(
+                @"
+                MERGE INTO ListChannel target
+                USING (
+                    SELECT @listId AS ListId,
+                           @channelId AS ChannelId
+                ) source ON source.ListId = target.ListId
+                        AND source.ChannelId = target.ChannelId
+                WHEN NOT MATCHED THEN
+                    INSERT (ListId, ChannelId)
+                    VALUES (@listId, @channelId);
+                ",
+                new { listId, channelId });
         }
 
         public async Task RemoveChannelAsync(Guid listId, string channelId)
         {
-            using (var connection = _connectionFactory.CreateConnection())
-            {
-                await connection.ExecuteAsync(
-                    @"
-                    DELETE FROM ListChannel
-                    WHERE ListId = @listId
-                      AND ChannelId = @channelId;
-                    ",
-                    new { listId, channelId });
-            }
+            using var connection = _connectionFactory.CreateConnection();
+            await connection.ExecuteAsync(
+                @"
+                DELETE FROM ListChannel
+                WHERE ListId = @listId
+                  AND ChannelId = @channelId;
+                ",
+                new { listId, channelId });
         }
 
         public async Task RenameListAsync(Guid id, string title)
         {
-            using (var connection = _connectionFactory.CreateConnection())
-            {
-                await connection.ExecuteAsync(
-                    @"
-                    UPDATE List
-                    SET Title = @title
-                    WHERE Id = @id;
-                    ",
-                    new { id, title });
-            }
+            using var connection = _connectionFactory.CreateConnection();
+            await connection.ExecuteAsync(
+                @"
+                UPDATE List
+                SET Title = @title
+                WHERE Id = @id;
+                ",
+                new { id, title });
         }
 
         public async Task DeleteListAsync(Guid id)
         {
-            using (var connection = _connectionFactory.CreateConnection())
-            {
-                await connection.ExecuteAsync(
-                    @"
-                    DELETE FROM List
-                    WHERE Id = @id;
-                    ",
-                    new { id });
-            }
+            using var connection = _connectionFactory.CreateConnection();
+            await connection.ExecuteAsync(
+                @"
+                DELETE FROM List
+                WHERE Id = @id;
+                ",
+                new { id });
         }
 
         public async Task<int> RemoveExpiredListsAsync()
         {
-            int count;
+            using var connection = _connectionFactory.CreateConnection();
             var now = DateTimeOffset.Now;
-            using (var connection = _connectionFactory.CreateConnection())
-            {
-                count = await connection.ExecuteAsync(
-                    @"
-                    DELETE FROM List
-                    WHERE ExpiredAfter <= @now
-                    ",
-                    new { now });
-            }
+            int count = await connection.ExecuteAsync(
+                @"
+                DELETE FROM List
+                WHERE ExpiredAfter <= @now
+                ",
+                new { now });
             return count;
         }
 
         private byte[] CreateToken()
         {
+            using var rng = new RNGCryptoServiceProvider();
             byte[] token = new byte[40];
-            using (var rng = new RNGCryptoServiceProvider())
-            {
-                rng.GetNonZeroBytes(token);
-            }
+            rng.GetNonZeroBytes(token);
             return token;
         }
 

@@ -25,18 +25,14 @@ namespace youtubed.Services
 
         public async Task RefreshVideosAsync(StaleChannelModel channel)
         {
-            DateTimeOffset? mostRecentPublishedAt = null;
-            using (var connection = _connectionFactory.CreateConnection())
-            {
-                mostRecentPublishedAt =
-                    await connection.QueryFirstOrDefaultAsync<DateTimeOffset?>(
-                        @"
-                        SELECT DATEADD(second, 1, MAX(PublishedAt))
-                        FROM ChannelVideo
-                        WHERE ChannelId = @channelId;
-                        ",
-                        new { channelId = channel.Id });
-            }
+            using var connection = _connectionFactory.CreateConnection();
+            var mostRecentPublishedAt = await connection.QueryFirstOrDefaultAsync<DateTimeOffset?>(
+                @"
+                SELECT DATEADD(second, 1, MAX(PublishedAt))
+                FROM ChannelVideo
+                WHERE ChannelId = @channelId;
+                ",
+                new { channelId = channel.Id });
             var earliestPublishedAt =
                 DateTimeOffset.Now.Subtract(Constants.VideoMaxAge);
             var publishedAfter = mostRecentPublishedAt?.AddSeconds(1) ?? earliestPublishedAt;
@@ -51,70 +47,67 @@ namespace youtubed.Services
                 Constants.ChannelMaxAgeMin,
                 Constants.ChannelMaxAgeMax);
             var later = DateTimeOffset.Now.Add(updateMaxAge);
-            using (var connection = _connectionFactory.CreateConnection())
+            // Dapper doesn't support empty TVPs...
+            if (videoRecords.Any())
             {
-                // Dapper doesn't support empty TVPs...
-                if (videoRecords.Any())
-                {
-                    var videoTable = videoRecords
-                        .AsTableValuedParameter("ChannelVideoType");
-                    await connection.ExecuteAsync(
-                        @"
-                        MERGE INTO ChannelVideo target
-                        USING @videoTable source
-                            ON source.Id = target.Id
-                           AND source.ChannelId = target.ChannelId
-                        WHEN MATCHED THEN
-                            UPDATE SET Title = source.Title,
-                                       Duration = source.Duration,
-                                       PublishedAt = source.PublishedAt,
-                                       Thumbnail = source.Thumbnail
-                        WHEN NOT MATCHED BY TARGET THEN
-                            INSERT (ChannelId, Id, Title, Duration, PublishedAt, Thumbnail)
-                            VALUES (
-                                source.ChannelId,
-                                source.Id,
-                                source.Title,
-                                source.Duration,
-                                source.PublishedAt,
-                                source.Thumbnail
-                            )
-                        WHEN NOT MATCHED BY SOURCE
-                            AND target.ChannelId = @channelId
-                            AND target.PublishedAt < @earliestPublishedAt THEN
-                                DELETE;
+                var videoTable = videoRecords
+                    .AsTableValuedParameter("ChannelVideoType");
+                await connection.ExecuteAsync(
+                    @"
+                    MERGE INTO ChannelVideo target
+                    USING @videoTable source
+                       ON source.Id = target.Id
+                      AND source.ChannelId = target.ChannelId
+                    WHEN MATCHED THEN
+                        UPDATE SET Title = source.Title,
+                                   Duration = source.Duration,
+                                   PublishedAt = source.PublishedAt,
+                                   Thumbnail = source.Thumbnail
+                    WHEN NOT MATCHED BY TARGET THEN
+                        INSERT (ChannelId, Id, Title, Duration, PublishedAt, Thumbnail)
+                        VALUES (
+                            source.ChannelId,
+                            source.Id,
+                            source.Title,
+                            source.Duration,
+                            source.PublishedAt,
+                            source.Thumbnail
+                        )
+                    WHEN NOT MATCHED BY SOURCE
+                         AND target.ChannelId = @channelId
+                         AND target.PublishedAt < @earliestPublishedAt THEN
+                            DELETE;
 
-                        UPDATE Channel
-                        SET StaleAfter = @later
-                        WHERE Id = @channelId;
-                        ",
-                        new
-                        {
-                            channelId = channel.Id,
-                            earliestPublishedAt,
-                            videoTable,
-                            later
-                        });
-                }
-                else
-                {
-                    await connection.ExecuteAsync(
-                        @"
-                        DELETE FROM ChannelVideo
-                        WHERE ChannelId = @channelId
-                          AND PublishedAt < @earliestPublishedAt;
+                    UPDATE Channel
+                    SET StaleAfter = @later
+                    WHERE Id = @channelId;
+                    ",
+                    new
+                    {
+                        channelId = channel.Id,
+                        earliestPublishedAt,
+                        videoTable,
+                        later
+                    });
+            }
+            else
+            {
+                await connection.ExecuteAsync(
+                    @"
+                    DELETE FROM ChannelVideo
+                    WHERE ChannelId = @channelId
+                      AND PublishedAt < @earliestPublishedAt;
 
-                        UPDATE Channel
-                        SET StaleAfter = @later
-                        WHERE Id = @channelId;
-                        ",
-                        new
-                        {
-                            channelId = channel.Id,
-                            earliestPublishedAt,
-                            later
-                        });
-                }
+                    UPDATE Channel
+                    SET StaleAfter = @later
+                    WHERE Id = @channelId;
+                    ",
+                    new
+                    {
+                        channelId = channel.Id,
+                        earliestPublishedAt,
+                        later
+                    });
             }
         }
 

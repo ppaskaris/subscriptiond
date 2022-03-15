@@ -72,10 +72,10 @@ namespace youtubed.Services
 
             do
             {
-                var request = Service.PlaylistItems.List("snippet");
+                var request = Service.PlaylistItems.List("snippet,contentDetails");
                 request.PlaylistId = playlistId;
                 request.MaxResults = 50;
-                request.Fields = "nextPageToken,items(snippet(resourceId(kind, videoId),channelId,title,publishedAt,thumbnails(medium,default)))";
+                request.Fields = "nextPageToken,items(snippet(resourceId(kind, videoId),channelId,title,thumbnails(medium,default)),contentDetails(videoPublishedAt))";
                 if (nextPageToken != null)
                 {
                     request.PageToken = nextPageToken;
@@ -90,9 +90,17 @@ namespace youtubed.Services
                         continue;
                     }
 
+                    //
+                    // Snippet.PublishedAt is the time the video was added to
+                    // the uploads playlist.
+                    // 
+                    // ContentDetails.VideoPublishedAt is the time the video
+                    // was published to YouTube.
+                    //
+
                     DateTimeOffset publishedAt =
-                        new DateTimeOffset(item.Snippet.PublishedAt.Value);
-                    if (publishedAt <= publishedAfter)
+                        new DateTimeOffset(item.ContentDetails.VideoPublishedAt.Value);
+                    if (publishedAt < publishedAfter)
                     {
                         // Stop after this page. We might as well finish
                         // reading the current page since we already paid for

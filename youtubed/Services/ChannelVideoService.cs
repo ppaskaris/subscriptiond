@@ -26,19 +26,11 @@ namespace youtubed.Services
         public async Task RefreshVideosAsync(StaleChannelModel channel)
         {
             using var connection = _connectionFactory.CreateConnection();
-            var mostRecentPublishedAt = await connection.QueryFirstOrDefaultAsync<DateTimeOffset?>(
-                @"
-                SELECT DATEADD(second, 1, MAX(PublishedAt))
-                FROM ChannelVideo
-                WHERE ChannelId = @channelId;
-                ",
-                new { channelId = channel.Id });
             var earliestPublishedAt =
                 DateTimeOffset.Now.Subtract(Constants.VideoMaxAge);
-            var publishedAfter = mostRecentPublishedAt?.AddSeconds(1) ?? earliestPublishedAt;
             var videos = await _youtubeService.GetVideosAsync(
                 channel.PlaylistId,
-                publishedAfter);
+                earliestPublishedAt);
             var videoRecords = videos
                 .Where(video => video.ChannelId == channel.Id)
                 .Select(CreateVideoDataRecord)

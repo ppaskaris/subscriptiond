@@ -25,18 +25,24 @@ namespace youtubed.Services
 
         public async Task<YoutubeChannel> GetChannelAsync(string url)
         {
-            var match = Constants.YoutubeExpression.Match(url);
+            var match = Constants.YoutubeChannelExpression.Match(url);
             if (!match.Success)
             {
                 throw new ArgumentException(nameof(url), "Invalid format.");
             }
 
+            var type = match.Groups[1].Value;
+            var identifier = match.Groups[2].Value;
+
+            return await GetChannelByIdentifierAsync(type, identifier);
+        }
+
+        private async Task<YoutubeChannel> GetChannelByIdentifierAsync(string type, string identifier)
+        {
             var request = Service.Channels.List("id,snippet,contentDetails");
             request.MaxResults = 1;
             request.Fields = "items(id,snippet(title,thumbnails(medium,default)),contentDetails(relatedPlaylists(uploads)))";
 
-            var type = match.Groups[1].Value;
-            var identifier = match.Groups[2].Value;
             switch (type)
             {
                 case "channel":
@@ -46,7 +52,7 @@ namespace youtubed.Services
                     request.ForUsername = identifier;
                     break;
                 default:
-                    throw new ArgumentException(nameof(url), "Invalid format.");
+                    throw new ArgumentException("url", "Invalid format.");
             }
 
             var response = await request.ExecuteAsync();
@@ -63,6 +69,31 @@ namespace youtubed.Services
                 Thumbnail = PickThumbnail(item.Snippet.Thumbnails),
                 PlaylistId = item.ContentDetails.RelatedPlaylists.Uploads
             };
+        }
+
+        public async Task<YoutubeChannel> GetVideoChannelAsync(string url)
+        {
+            var match = Constants.YoutubeVideoExpression.Match(url);
+            if (!match.Success)
+            {
+                throw new ArgumentException(nameof(url), "Invalid format.");
+            }
+
+            var identifier = match.Groups[1].Value;
+
+            var request = Service.Videos.List("snippet");
+            request.MaxResults = 1;
+            request.Fields = "items(snippet(channelId))";
+            request.Id = identifier;
+
+            var response = await request.ExecuteAsync();
+            var item = response.Items.FirstOrDefault();
+            if (item == null)
+            {
+                return null;
+            }
+
+            return await GetChannelByIdentifierAsync("channel", item.Snippet.ChannelId);
         }
 
         public async Task<IEnumerable<YoutubeVideo>> GetVideosAsync(string playlistId, DateTimeOffset publishedAfter)

@@ -12,7 +12,7 @@
         <label asp-for="Url" class="control-label"></label>
         <input asp-for="Url" class="form-control" aria-describedby="UrlHelp" placeholder="https://www.youtube.com/user/PewDiePie" />
         <span asp-validation-for="Url" class="text-danger"></span>
-        <span id="UrlHelp" class="help-block">Copy the text from your browser's <a href="https://en.wikipedia.org/wiki/Address_bar#Address_bar_implementations" rel="noopener noreferrer" referrerpolicy="no-referrer" target="_blank">address bar</a> while on the channel page.</span>
+        <span id="UrlHelp" class="help-block">Copy the text from your browser's <a href="https://en.wikipedia.org/wiki/Address_bar#Address_bar_implementations" rel="noopener noreferrer" referrerpolicy="no-referrer" target="_blank">address bar</a> while on the channel page. If the value is a vanity URL (e.g. <code>https://www.youtube.com/c/PewDiePieHighlights</code>), use a video URL instead.</span>
     </div>
     <div class="form-group">
         <input type="submit" value="Add Channel" class="btn btn-primary" />

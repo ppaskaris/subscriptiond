@@ -10,8 +10,8 @@ namespace youtubed.Models
     public class AddChannelModel
     {
         [Required, Url]
-        [RegularExpression(Constants.YoutubePattern)]
-        [Display(Name = "Channel URL")]
+        [RegularExpression(Constants.YoutubeChannelPattern + "|" + Constants.YoutubeVideoPattern)]
+        [Display(Name = "Channel or Video URL")]
         public string Url { get; set; }
     }
 }

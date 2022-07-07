@@ -24,54 +24,73 @@ namespace youtubed.Services
         public async Task<ChannelModel> GetOrCreateChannelAsync(string url)
         {
             using var connection = _connectionFactory.CreateConnection();
-            var model = await connection.QueryFirstOrDefaultAsync<ChannelModel>(
-                @"
-                SELECT Id, Url, Title, Thumbnail, PlaylistId
-                FROM Channel
-                WHERE Url = @url;
-                ",
-                new { url });
 
-            if (model != null)
-            {
-                return model;
-            }
+            YoutubeChannel channel;
 
-            var channel = await _youtubeService.GetChannelAsync(url);
-            if (channel != null)
+            // Vanity URLs cannot be mapped to Channel ID using the API. To
+            // work around this, support adding channels by video URL instead.
+            if (Constants.YoutubeVideoExpression.IsMatch(url))
             {
-                model = new ChannelModel
+                channel = await _youtubeService.GetVideoChannelAsync(url);
+                if (channel == null)
                 {
-                    Id = channel.Id,
-                    Url = url,
-                    Title = channel.Title,
-                    Thumbnail = channel.Thumbnail,
-                    PlaylistId = channel.PlaylistId
-                };
-
-                var manyYearsAgo = DateTimeOffset.MinValue;
-                await connection.ExecuteAsync(
-                    @"
-                    MERGE INTO Channel target
-                    USING (
-                        SELECT @id as Url
-                    ) source ON source.Url = target.Url
-                    WHEN MATCHED THEN
-                        UPDATE SET StaleAfter = @manyYearsAgo
-                    WHEN NOT MATCHED THEN
-                        INSERT (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
-                        VALUES (@id, @url, @title, @thumbnail, @playlistId, @manyYearsAgo, @manyYearsAgo);
-                    ",
-                    new
-                    {
-                        id = model.Id,
-                        url = model.Url,
-                        title = model.Title,
-                        thumbnail = model.Thumbnail,
-                        playlistId = model.PlaylistId,
-                        manyYearsAgo
-                    });
+                    return null;
+                }
+                url = string.Format(Constants.YoutubeChannelUrl, channel.Id);
             }
+            else
+            {
+                var cached = await connection.QueryFirstOrDefaultAsync<ChannelModel>(
+                    @"
+                    SELECT Id, Url, Title, Thumbnail, PlaylistId
+                    FROM Channel
+                    WHERE Url = @url;
+                    ",
+                    new { url });
+
+                if (cached != null)
+                {
+                    return cached;
+                }
+
+                channel = await _youtubeService.GetChannelAsync(url);
+                if (channel == null)
+                {
+                    return null;
+                }
+            }
+
+            var model = new ChannelModel
+            {
+                Id = channel.Id,
+                Url = url,
+                Title = channel.Title,
+                Thumbnail = channel.Thumbnail,
+                PlaylistId = channel.PlaylistId
+            };
+
+            var manyYearsAgo = DateTimeOffset.MinValue;
+            await connection.ExecuteAsync(
+                @"
+                MERGE INTO Channel target
+                USING (
+                    SELECT @id as Url
+                ) source ON source.Url = target.Url
+                WHEN MATCHED THEN
+                    UPDATE SET StaleAfter = @manyYearsAgo
+                WHEN NOT MATCHED THEN
+                    INSERT (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
+                    VALUES (@id, @url, @title, @thumbnail, @playlistId, @manyYearsAgo, @manyYearsAgo);
+                ",
+                new
+                {
+                    id = model.Id,
+                    url = model.Url,
+                    title = model.Title,
+                    thumbnail = model.Thumbnail,
+                    playlistId = model.PlaylistId,
+                    manyYearsAgo
+                });
 
             return model;
         }

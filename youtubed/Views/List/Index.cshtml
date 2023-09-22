@@ -32,10 +32,13 @@
         waiting to be updated. <a class="alert-link" asp-action="Index">Refresh</a>
     </div>
 }
-@if (Model.Videos.Any())
+@{
+    var videoCount = Model.Videos.Count();
+}
+@if (videoCount > 0)
 {
     <ol class="list-unstyled clearfix">
-        @foreach (var video in Model.Videos)
+        @foreach (var video in Model.Videos.Take(Constants.ListRenderMaxItems))
         {
             <li class="video-item">
                 <a class="video-link" href="@video.VideoUrl" rel="noopener noreferrer" referrerpolicy="no-referrer">
@@ -49,6 +52,12 @@
             </li>
         }
     </ol>
+    @if (videoCount > Constants.ListRenderMaxItems)
+    {
+        <div class="alert alert-info">
+            Showing <strong>@Constants.ListRenderMaxItems</strong> of <strong>@videoCount</strong> total videos in this list.
+        </div>
+    }
 }
 else
 {

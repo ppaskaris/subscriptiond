@@ -25,6 +25,7 @@ namespace youtubed
         public static readonly TimeSpan VideoMaxAge = TimeSpan.FromDays(30);
         public static readonly TimeSpan VisibilityTimeoutMin = TimeSpan.FromMinutes(4);
         public static readonly TimeSpan VisibilityTimeoutMax = TimeSpan.FromMinutes(6);
+        public static readonly int ListRenderMaxItems = 100;
 
         private static readonly Random _random = new Random();
 

@@ -5,6 +5,14 @@
     ViewData["Title"] = Model.Title;
 }
 
+@section Meta {
+    @if (Model.StaleCount > 0)
+    {
+        <meta http-equiv="refresh"
+              content="@Math.Floor(Constants.RandomlyBetween(Constants.ChannelUpdateFrequencyMin, Constants.ChannelUpdateFrequencyMax).TotalSeconds)">
+    }
+}
+
 <h1>@ViewData["Title"]</h1>
 <p>
     This is a <strong>secret list</strong> that is only visible to those with a

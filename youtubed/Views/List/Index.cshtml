@@ -40,7 +40,7 @@
             <li class="video-item">
                 <a class="video-link" href="@video.VideoUrl" rel="noopener noreferrer" referrerpolicy="no-referrer">
                     <div class="video-image">
-                        <img src="@video.VideoThumbnail" referrerpolicy="no-referrer" width="224" height="126" />
+                        <img src="@video.VideoThumbnail" referrerpolicy="no-referrer" width="224" height="126" loading="lazy" />
                     </div>
                     <span class="video-title">@WebUtility.HtmlDecode(video.VideoTitle)</span>
                 </a>
@@ -65,7 +65,7 @@ else
         {
             <li class="channel-item">
                 <a class="channel-link" href="@channel.Url" rel="noopener noreferrer" referrerpolicy="no-referrer">
-                    <img src="@channel.Thumbnail" referrerpolicy="no-referrer" width="138" height="138" />
+                    <img src="@channel.Thumbnail" referrerpolicy="no-referrer" width="138" height="138" loading="lazy" />
                     <span class="channel-title">@channel.Title</span>
                 </a>
                 <form asp-action="RemoveChannel">

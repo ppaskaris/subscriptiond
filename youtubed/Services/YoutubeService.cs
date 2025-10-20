@@ -106,7 +106,7 @@ namespace youtubed.Services
                 var request = Service.PlaylistItems.List("snippet,contentDetails");
                 request.PlaylistId = playlistId;
                 request.MaxResults = 50;
-                request.Fields = "nextPageToken,items(snippet(resourceId(kind, videoId),channelId,title,thumbnails(medium,default)),contentDetails(videoPublishedAt))";
+                request.Fields = "nextPageToken,items(snippet(resourceId(kind, videoId),channelId,title,description,thumbnails(medium,default)),contentDetails(videoPublishedAt))";
                 if (nextPageToken != null)
                 {
                     request.PageToken = nextPageToken;
@@ -121,6 +121,11 @@ namespace youtubed.Services
                         continue;
                     }
 
+                    if (MaybeShort(item))
+                    {
+                        continue;
+                    }
+
                     //
                     // Snippet.PublishedAt is the time the video was added to
                     // the uploads playlist.
@@ -129,8 +134,7 @@ namespace youtubed.Services
                     // was published to YouTube.
                     //
 
-                    DateTimeOffset publishedAt =
-                        new DateTimeOffset(item.ContentDetails.VideoPublishedAt.Value);
+                    var publishedAt = item.ContentDetails.VideoPublishedAtDateTimeOffset;
                     if (publishedAt < publishedAfter)
                     {
                         // Stop after this page. We might as well finish
@@ -146,7 +150,7 @@ namespace youtubed.Services
                         Id = item.Snippet.ResourceId.VideoId,
                         Title = item.Snippet.Title,
                         Duration = TimeSpan.FromMinutes(5),
-                        PublishedAt = publishedAt,
+                        PublishedAt = publishedAt.Value,
                         Thumbnail = PickThumbnail(item.Snippet.Thumbnails)
                     };
                     results.Add(result);
@@ -154,6 +158,18 @@ namespace youtubed.Services
             } while (nextPageToken != null);
 
             return results;
+        }
+
+        private bool MaybeShort(PlaylistItem item)
+        {
+            var thumbnail = item.Snippet.Thumbnails.Medium ?? item.Snippet.Thumbnails.Default__;
+            // A video is likely a Short if it is tagged with "#shorts" or if the thumbnail is vertical.
+            return (
+                item.Snippet.Title?.Contains("#shorts", StringComparison.OrdinalIgnoreCase) == true ||
+                item.Snippet.Description?.Contains("#shorts", StringComparison.OrdinalIgnoreCase) == true ||
+                (thumbnail?.Height != null && thumbnail?.Width != null && thumbnail.Height > thumbnail.Width)
+            );
+
         }
 
         private string PickThumbnail(ThumbnailDetails thumbnailDetails)

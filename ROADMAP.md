@@ -26,40 +26,34 @@ Reason: `MERGE` can be brittle, and the stale-channel claiming flow should be re
 8. Expand YouTube URL parsing to support newer channel handle formats and fetch real video durations.
 Reason: current support is narrow and [`youtubed/Services/YoutubeService.cs`](youtubed/Services/YoutubeService.cs) hardcodes a placeholder duration.
 
-9. Improve configuration and secret handling documentation.
-Reason: the repo expects SQL Server and YouTube API credentials, but setup and deployment expectations are only partially discoverable from config files and source.
-
-10. Clean the repository layout and deployment artifacts.
+9. Clean the repository layout and deployment artifacts.
 Reason: committed `bin/`, `obj/`, and publish output add noise, increase context load, and make code review and navigation less pleasant.
 
 ## Sequential Order
 
-1. Improve configuration and secret handling documentation.
-Why first: it lowers setup friction immediately and makes every later change easier to run, test, and review.
-
-2. Add automated tests around list lifecycle and channel refresh behavior.
+1. Add automated tests around list lifecycle and channel refresh behavior.
 Why second: upgrade and refactor work will be safer once core flows have regression coverage.
 
-3. Introduce a cleaner persistence boundary and integration-test the SQL.
+2. Introduce a cleaner persistence boundary and integration-test the SQL.
 Why third: persistence logic is central to the app, and tightening this layer reduces risk before platform and concurrency changes.
 
-4. Revisit SQL Server-specific `MERGE` usage and background-job concurrency behavior.
+3. Revisit SQL Server-specific `MERGE` usage and background-job concurrency behavior.
 Why fourth: this is core behavioral infrastructure that should be stabilized before broader modernization changes.
 
-5. Upgrade the app from `.NET Core 3.1` to a supported LTS release.
+4. Upgrade the app from `.NET Core 3.1` to a supported LTS release.
 Why fifth: by this point the app should be easier to validate, making the framework upgrade less risky.
 
-6. Move from legacy MVC startup patterns to the modern hosting model.
+5. Move from legacy MVC startup patterns to the modern hosting model.
 Why sixth: this follows naturally after the runtime upgrade and aligns the app with current ASP.NET conventions.
 
-7. Replace Bower and BuildBundlerMinifier with a current asset pipeline.
+6. Replace Bower and BuildBundlerMinifier with a current asset pipeline.
 Why seventh: once the backend platform is modernized, the frontend toolchain can be updated with less unrelated churn.
 
-8. Upgrade Bootstrap and client-side libraries or reduce frontend dependency surface.
+7. Upgrade Bootstrap and client-side libraries or reduce frontend dependency surface.
 Why eighth: this builds on the new asset pipeline and is easier once frontend dependency management is modernized.
 
-9. Clean the repository layout and deployment artifacts.
+8. Clean the repository layout and deployment artifacts.
 Why ninth: cleanup is more useful after the major platform and tooling changes have landed.
 
-10. Expand YouTube URL parsing to support newer channel handle formats and fetch real video durations.
+9. Expand YouTube URL parsing to support newer channel handle formats and fetch real video durations.
 Why tenth: this is a product enhancement rather than foundational modernization, so it can come after the platform is in a healthier state.

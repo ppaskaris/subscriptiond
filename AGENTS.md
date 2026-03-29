@@ -51,3 +51,7 @@
 - Preserve the anonymous secret-link model unless the user explicitly asks for authentication or accounts.
 - If changing persistence, inspect both Dapper SQL and the schema together; behavior is encoded in both places.
 - Check for user changes before editing; the worktree may already contain unrelated files.
+
+## Commit Convention
+- Commit messages should end with a Git trailer in this exact form: `Co-Authored-By: Codex %MODEL_NAME%`
+- `%MODEL_NAME%` should be the full model name, for example `GPT-5.4`, not a shortened variant like `GPT-5`.

@@ -149,6 +149,51 @@ namespace youtubed.Tests.Integration
         }
 
         [LocalDbFact]
+        public async Task GetNextStaleChannelOrDefaultAsync_ChannelCanBeRetriedAfterLeaseExpires()
+        {
+            var listId = Guid.NewGuid();
+
+            await ExecuteAsync(
+                @"
+                INSERT INTO List (Id, Token, Title, ExpiredAfter)
+                VALUES (@listId, @token, N'List', @expiredAfter);
+
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
+                VALUES (N'eligible', N'https://www.youtube.com/channel/eligible', N'Eligible', N'a.png', N'playlist-a', @staleAfter, @visibleAfter);
+
+                INSERT INTO ListChannel (ListId, ChannelId)
+                VALUES (@listId, N'eligible');
+                ",
+                new
+                {
+                    listId,
+                    token = Enumerable.Repeat((byte)6, 40).ToArray(),
+                    expiredAfter = DateTimeOffset.UtcNow.AddDays(1),
+                    staleAfter = DateTimeOffset.UtcNow.AddMinutes(-10),
+                    visibleAfter = DateTimeOffset.UtcNow.AddMinutes(-1)
+                });
+
+            var firstClaim = await _service.GetNextStaleChannelOrDefaultAsync();
+            var secondClaim = await _service.GetNextStaleChannelOrDefaultAsync();
+
+            Assert.NotNull(firstClaim);
+            Assert.Null(secondClaim);
+
+            await ExecuteAsync(
+                @"
+                UPDATE Channel
+                SET VisibleAfter = @visibleAfter
+                WHERE Id = N'eligible';
+                ",
+                new { visibleAfter = DateTimeOffset.UtcNow.AddMinutes(-1) });
+
+            var retryClaim = await _service.GetNextStaleChannelOrDefaultAsync();
+
+            Assert.NotNull(retryClaim);
+            Assert.Equal("eligible", retryClaim.Id);
+        }
+
+        [LocalDbFact]
         public async Task RemoveOrphanChannelsAsync_DeletesOnlyExpiredOrphans()
         {
             var listId = Guid.NewGuid();

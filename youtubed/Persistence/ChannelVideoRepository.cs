@@ -35,6 +35,8 @@ namespace youtubed.Persistence
             DateTimeOffset staleAfter)
         {
             using var connection = _connectionFactory.CreateConnection();
+            await connection.OpenAsync();
+            using var transaction = connection.BeginTransaction();
 
             if (videos.Any())
             {
@@ -44,29 +46,41 @@ namespace youtubed.Persistence
 
                 await connection.ExecuteAsync(
                     @"
-                    MERGE INTO ChannelVideo target
-                    USING @videoTable source
-                       ON source.Id = target.Id
-                      AND source.ChannelId = target.ChannelId
-                    WHEN MATCHED THEN
-                        UPDATE SET Title = source.Title,
-                                   Duration = source.Duration,
-                                   PublishedAt = source.PublishedAt,
-                                   Thumbnail = source.Thumbnail
-                    WHEN NOT MATCHED BY TARGET THEN
-                        INSERT (ChannelId, Id, Title, Duration, PublishedAt, Thumbnail)
-                        VALUES (
-                            source.ChannelId,
-                            source.Id,
-                            source.Title,
-                            source.Duration,
-                            source.PublishedAt,
-                            source.Thumbnail
-                        )
-                    WHEN NOT MATCHED BY SOURCE
-                         AND target.ChannelId = @channelId
-                         AND target.PublishedAt < @earliestPublishedAt THEN
-                            DELETE;
+                    UPDATE target
+                    SET Title = source.Title,
+                        Duration = source.Duration,
+                        PublishedAt = source.PublishedAt,
+                        Thumbnail = source.Thumbnail
+                    FROM ChannelVideo target
+                    INNER JOIN @videoTable source
+                        ON source.ChannelId = target.ChannelId
+                       AND source.Id = target.Id;
+
+                    INSERT INTO ChannelVideo (ChannelId, Id, Title, Duration, PublishedAt, Thumbnail)
+                    SELECT source.ChannelId,
+                           source.Id,
+                           source.Title,
+                           source.Duration,
+                           source.PublishedAt,
+                           source.Thumbnail
+                    FROM @videoTable source
+                    WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM ChannelVideo target WITH (UPDLOCK, HOLDLOCK)
+                        WHERE target.ChannelId = source.ChannelId
+                          AND target.Id = source.Id
+                    );
+
+                    DELETE target
+                    FROM ChannelVideo target
+                    WHERE target.ChannelId = @channelId
+                      AND target.PublishedAt < @earliestPublishedAt
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM @videoTable source
+                          WHERE source.ChannelId = target.ChannelId
+                            AND source.Id = target.Id
+                      );
 
                     UPDATE Channel
                     SET StaleAfter = @staleAfter
@@ -78,7 +92,8 @@ namespace youtubed.Persistence
                         earliestPublishedAt,
                         videoTable,
                         staleAfter
-                    });
+                    },
+                    transaction);
             }
             else
             {
@@ -97,8 +112,11 @@ namespace youtubed.Persistence
                         channelId,
                         earliestPublishedAt,
                         staleAfter
-                    });
+                    },
+                    transaction);
             }
+
+            transaction.Commit();
         }
 
         private static SqlDataRecord CreateVideoDataRecord(ChannelVideoRecord video)

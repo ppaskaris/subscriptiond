@@ -2,10 +2,6 @@
 
 ## Pending Tasks (in priority order)
 
-4. Move from legacy MVC startup patterns to the modern hosting model.
-   Why: [`youtubed/Startup.cs`](youtubed/Startup.cs) still disables endpoint routing and uses `UseMvc()`, which makes future framework upgrades harder.
-   When: this follows naturally after the runtime upgrade and aligns the app with current ASP.NET conventions.
-
 5. Replace Bower and BuildBundlerMinifier with a current asset pipeline.
    Why: the frontend toolchain is obsolete and creates avoidable friction for dependency updates and local setup.
    When: once the backend platform is modernized, the frontend toolchain can be updated with less unrelated churn.
@@ -43,3 +39,8 @@
    Why: the current runtime is long out of support, which increases security and maintenance risk across the whole stack.
    When: by this point the app should be easier to validate, making the framework upgrade less risky.
    Progress: Upgraded the app and test projects to `.NET 10`, moved version and token helpers off removed legacy APIs, switched SQL access from `System.Data.SqlClient` to `Microsoft.Data.SqlClient`, updated the entry point to the generic host while preserving `Startup` and `UseMvc()`, and reran both the controller/unit suite and the opt-in LocalDB integration suite successfully.
+
+5. Move from legacy MVC startup patterns to the modern hosting model. (Completed)
+   Why: [`youtubed/Startup.cs`](youtubed/Startup.cs) still disables endpoint routing and uses `UseMvc()`, which makes future framework upgrades harder.
+   When: this follows naturally after the runtime upgrade and aligns the app with current ASP.NET conventions.
+   Progress: Replaced `Startup` with minimal-host bootstrapping in [`youtubed/Program.cs`](youtubed/Program.cs), switched MVC registration to `AddControllersWithViews`, moved the request pipeline to endpoint routing with `MapControllers()`, preserved the existing secret-link URL shapes, and added app-level routing tests that verify the public routes, 404 redirect behavior, list creation redirect, and nested list action routing.

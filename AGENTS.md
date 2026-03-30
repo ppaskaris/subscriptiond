@@ -10,7 +10,7 @@
 
 ## Architecture
 
-- Entry point and DI: [`youtubed/Program.cs`](youtubed/Program.cs), [`youtubed/Startup.cs`](youtubed/Startup.cs)
+- Entry point, DI, and middleware pipeline: [`youtubed/Program.cs`](youtubed/Program.cs)
 - Web layer: [`youtubed/Controllers/HomeController.cs`](youtubed/Controllers/HomeController.cs), [`youtubed/Controllers/ListController.cs`](youtubed/Controllers/ListController.cs)
 - Data access: [`youtubed/Services/ListService.cs`](youtubed/Services/ListService.cs), [`youtubed/Services/ChannelService.cs`](youtubed/Services/ChannelService.cs), [`youtubed/Services/ChannelVideoService.cs`](youtubed/Services/ChannelVideoService.cs)
 - YouTube API integration: [`youtubed/Services/YoutubeService.cs`](youtubed/Services/YoutubeService.cs)
@@ -44,12 +44,12 @@
 
 ## Constraints And Gotchas
 
-- The runtime is on `.NET 10`, but the web stack still mixes older patterns and libraries such as Bootstrap 3, jQuery validation, Bower, and `UseMvc()`.
-- Routing still uses `UseMvc()` with endpoint routing disabled.
+- The runtime is on `.NET 10`, but the frontend stack still mixes older libraries and tooling such as Bootstrap 3, jQuery validation, Bower, and BuildBundlerMinifier.
+- Routing now uses endpoint routing with controller attributes mapped via `MapControllers()`, so preserve the existing attribute route templates when changing URLs.
 - SQL is SQL Server-specific and uses `MERGE` plus TVPs.
 - YouTube URL support is limited to `/channel/...`, `/user/...`, and video URLs used as a fallback for vanity channels.
 - `YoutubeService` currently hardcodes video duration to 5 minutes instead of loading real durations.
-- There are no automated tests in the repo.
+- Automated coverage now includes controller/unit tests, repository and service LocalDB integration tests, and lightweight route-level integration tests for app startup and URL compatibility.
 
 ## Safe Assumptions For Future Sessions
 

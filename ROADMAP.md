@@ -2,19 +2,15 @@
 
 ## Pending Tasks (in priority order)
 
-5. Replace Bower and BuildBundlerMinifier with a current asset pipeline.
-   Why: the frontend toolchain is obsolete and creates avoidable friction for dependency updates and local setup.
-   When: once the backend platform is modernized, the frontend toolchain can be updated with less unrelated churn.
-
-6. Upgrade Bootstrap and client-side libraries or reduce frontend dependency surface.
+7. Upgrade Bootstrap and client-side libraries or reduce frontend dependency surface.
    Why: Bootstrap 3 and old jQuery validation packages are dated and likely to lag on compatibility, accessibility, and security maintenance.
    When: this builds on the new asset pipeline and is easier once frontend dependency management is modernized.
 
-7. Clean the repository layout and deployment artifacts.
+8. Clean the repository layout and deployment artifacts.
    Why: committed `bin/`, `obj/`, and publish output add noise, increase context load, and make code review and navigation less pleasant.
    When: cleanup is more useful after the major platform and tooling changes have landed.
 
-8. Expand YouTube URL parsing to support newer channel handle formats and fetch real video durations.
+9. Expand YouTube URL parsing to support newer channel handle formats and fetch real video durations.
    Why: current support is narrow and [`youtubed/Services/YoutubeService.cs`](youtubed/Services/YoutubeService.cs) hardcodes a placeholder duration.
    When: this is a product enhancement rather than foundational modernization, so it can come after the platform is in a healthier state.
 
@@ -44,3 +40,8 @@
    Why: [`youtubed/Startup.cs`](youtubed/Startup.cs) still disables endpoint routing and uses `UseMvc()`, which makes future framework upgrades harder.
    When: this follows naturally after the runtime upgrade and aligns the app with current ASP.NET conventions.
    Progress: Replaced `Startup` with minimal-host bootstrapping in [`youtubed/Program.cs`](youtubed/Program.cs), switched MVC registration to `AddControllersWithViews`, moved the request pipeline to endpoint routing with `MapControllers()`, preserved the existing secret-link URL shapes, and added app-level routing tests that verify the public routes, 404 redirect behavior, list creation redirect, and nested list action routing.
+
+6. Replace Bower and BuildBundlerMinifier with a current asset pipeline. (Completed)
+   Why: the frontend toolchain is obsolete and creates avoidable friction for dependency updates and local setup.
+   When: once the backend platform is modernized, the frontend toolchain can be updated with less unrelated churn.
+   Progress: Replaced Bower and BuildBundlerMinifier with an npm-driven `lightningcss` pipeline that builds app-owned CSS from `youtubed/Assets/css` during `dotnet build` and `dotnet publish`, moved third-party CSS/JS references to pinned CDN URLs, restored SRI on the validation scripts, removed the checked-in vendored frontend libraries under `wwwroot/lib`, and updated the route-level tests and fixtures around the new asset behavior.

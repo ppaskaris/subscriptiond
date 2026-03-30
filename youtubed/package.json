@@ -1,0 +1,10 @@
+{
+  "name": "subscriptiond-assets",
+  "private": true,
+  "scripts": {
+    "build:css": "lightningcss Assets/css/site.css --minify --output-file wwwroot/css/site.css"
+  },
+  "devDependencies": {
+    "lightningcss-cli": "^1.30.2"
+  }
+}

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using youtubed.Models;
 using youtubed.Services;
@@ -55,7 +56,9 @@ namespace youtubed.Tests.Infrastructure
                     Id = ExistingList.Id,
                     Title = ExistingList.Title,
                     Token = ExistingList.TokenString,
-                    Videos = Array.Empty<VideoViewModel>()
+                    Videos = Array.Empty<VideoViewModel>(),
+                    Channels = Array.Empty<ChannelModel>(),
+                    ExpiredAfter = DateTimeOffset.UtcNow.AddDays(7)
                 }
                 : null);
         }

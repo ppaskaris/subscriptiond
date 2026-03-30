@@ -229,6 +229,8 @@ namespace youtubed.Tests.Controllers
             var redirect = Assert.IsType<RedirectToActionResult>(result);
             Assert.Equal("Index", redirect.ActionName);
             Assert.Null(redirect.ControllerName);
+            Assert.Equal(list.TokenString, redirect.RouteValues["token"]);
+            Assert.Equal(id, redirect.RouteValues["id"]);
             listService.Verify(service => service.AddChannelAsync(id, channel.Id), Times.Once);
         }
 
@@ -285,12 +287,18 @@ namespace youtubed.Tests.Controllers
             listService.Setup(service => service.RenameListAsync(id, "Updated")).Returns(Task.CompletedTask);
             var renameResult = await CreateController(listService: listService)
                 .Edit(id, list.TokenString, new EditListModel { Title = "Updated" });
-            Assert.Equal("Index", Assert.IsType<RedirectToActionResult>(renameResult).ActionName);
+            var renameRedirect = Assert.IsType<RedirectToActionResult>(renameResult);
+            Assert.Equal("Index", renameRedirect.ActionName);
+            Assert.Equal(list.TokenString, renameRedirect.RouteValues["token"]);
+            Assert.Equal(id, renameRedirect.RouteValues["id"]);
             listService.Verify(service => service.RenameListAsync(id, "Updated"), Times.Once);
 
             var sameTitleResult = await CreateController(listService: listService)
                 .Edit(id, list.TokenString, new EditListModel { Title = "Original" });
-            Assert.Equal("Index", Assert.IsType<RedirectToActionResult>(sameTitleResult).ActionName);
+            var sameTitleRedirect = Assert.IsType<RedirectToActionResult>(sameTitleResult);
+            Assert.Equal("Index", sameTitleRedirect.ActionName);
+            Assert.Equal(list.TokenString, sameTitleRedirect.RouteValues["token"]);
+            Assert.Equal(id, sameTitleRedirect.RouteValues["id"]);
             listService.Verify(service => service.RenameListAsync(It.IsAny<Guid>(), "Original"), Times.Never);
         }
 
@@ -388,6 +396,8 @@ namespace youtubed.Tests.Controllers
                 .RemoveChannel(id, list.TokenString, new RemoveChannelModel { ChannelId = "channel-1" });
             var redirect = Assert.IsType<RedirectToActionResult>(result);
             Assert.Equal("Index", redirect.ActionName);
+            Assert.Equal(list.TokenString, redirect.RouteValues["token"]);
+            Assert.Equal(id, redirect.RouteValues["id"]);
             listService.Verify(service => service.RemoveChannelAsync(id, "channel-1"), Times.Once);
         }
 

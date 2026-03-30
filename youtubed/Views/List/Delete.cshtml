@@ -2,6 +2,8 @@
 
 @{
     ViewData["Title"] = "Delete List";
+    var listId = ViewContext.RouteData.Values["id"];
+    var listToken = ViewContext.RouteData.Values["token"];
 }
 
 <h2>@ViewData["Title"]</h2>
@@ -10,8 +12,8 @@
     recoverable.
 </p>
 <p>Are you sure you want to delete your list?</p>
-<form asp-action="Delete">
+<form asp-action="Delete" asp-route-token="@listToken" asp-route-id="@listId">
     <input type="hidden" name="Confirm" value="true" />
     <input type="submit" value="Delete List" class="btn btn-danger" />
-    <a asp-action="Index" class="btn btn-default">Cancel</a>
+    <a asp-action="Index" asp-route-token="@listToken" asp-route-id="@listId" class="btn btn-default">Cancel</a>
 </form>

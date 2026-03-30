@@ -110,7 +110,7 @@ namespace youtubed.Controllers
 
             await _listService.AddChannelAsync(list.Id, channel.Id);
 
-            return RedirectToAction("Index");
+            return RedirectToAction("Index", new { token = list.TokenString, id = list.Id });
         }
 
         [HttpGet, Route("edit")]
@@ -173,7 +173,7 @@ namespace youtubed.Controllers
                 await _listService.RenameListAsync(list.Id, model.Title);
             }
 
-            return RedirectToAction("Index");
+            return RedirectToAction("Index", new { token = list.TokenString, id = list.Id });
         }
 
         [HttpGet, Route("delete")]
@@ -262,7 +262,7 @@ namespace youtubed.Controllers
 
             await _listService.RemoveChannelAsync(list.Id, model.ChannelId);
 
-            return RedirectToAction("Index");
+            return RedirectToAction("Index", new { token = list.TokenString, id = list.Id });
         }
     }
 }

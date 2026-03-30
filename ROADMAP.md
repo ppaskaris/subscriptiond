@@ -2,16 +2,15 @@
 
 ## Top 10 Modernization Tasks (in priority order)
 
-1. Add automated tests around list lifecycle and channel refresh behavior. (In progress)
+1. Add automated tests around list lifecycle and channel refresh behavior. (Completed)
    Why: there are no tests, and the most important business behavior currently lives in controllers plus SQL-heavy services.
    When: upgrade and refactor work will be safer once core flows have regression coverage.
-   Progress: Added an xUnit regression suite for `HomeController` and `ListController` covering core list lifecycle flows and list-page stale-count behavior without a real database.
-   Remaining: SQL Server-backed tests for Dapper/schema behavior and refresh flows that depend on persistence are still deferred.
+   Progress: Added an xUnit regression suite for `HomeController` and `ListController`, plus opt-in LocalDB integration tests for `ListService`, `ChannelService`, and `ChannelVideoService` covering list lifecycle, stale-channel claiming, orphan cleanup, and channel video refresh behavior against the real schema.
 
 2. Introduce a cleaner persistence boundary and integration-test the SQL.
    Why: important logic is split between Dapper queries and [`youtubed/Schema.sql`](youtubed/Schema.sql), so refactors are risky without stronger coverage and clearer repository boundaries.
    When: persistence logic is central to the app, and tightening this layer reduces risk before platform and concurrency changes.
-   Note: SQL-backed tests deferred from item 1 should be folded into this work.
+   Note: basic SQL-backed coverage now exists via LocalDB integration tests; this item should focus on deepening SQL coverage and improving the persistence design itself.
 
 3. Revisit SQL Server-specific `MERGE` usage and background-job concurrency behavior.
    Why: `MERGE` can be brittle, and the stale-channel claiming flow should be reviewed before scaling or changing job execution patterns.

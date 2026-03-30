@@ -11,6 +11,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using youtubed.Data;
+using youtubed.Persistence;
 using youtubed.Services;
 
 namespace youtubed
@@ -47,6 +48,9 @@ namespace youtubed
 
             services.AddSingleton<IConnectionFactory>(new ConnectionStringConnectionFactory(Configuration.GetConnectionString("Main")));
             services.AddSingleton<IYoutubeService, YoutubeService>();
+            services.AddSingleton<IListRepository, ListRepository>();
+            services.AddSingleton<IChannelRepository, ChannelRepository>();
+            services.AddSingleton<IChannelVideoRepository, ChannelVideoRepository>();
 
             services.AddSingleton<IChannelService, ChannelService>();
             services.AddSingleton<IChannelVideoService, ChannelVideoService>();

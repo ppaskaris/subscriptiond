@@ -1,30 +1,25 @@
-﻿using Dapper;
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
-using youtubed.Data;
 using youtubed.Models;
+using youtubed.Persistence;
 
 namespace youtubed.Services
 {
     public class ChannelService : IChannelService
     {
-        private readonly IConnectionFactory _connectionFactory;
+        private readonly IChannelRepository _channelRepository;
         private readonly IYoutubeService _youtubeService;
 
         public ChannelService(
-            IConnectionFactory connectionFactory,
+            IChannelRepository channelRepository,
             IYoutubeService youtubeService)
         {
-            _connectionFactory = connectionFactory;
+            _channelRepository = channelRepository;
             _youtubeService = youtubeService;
         }
 
         public async Task<ChannelModel> GetOrCreateChannelAsync(string url)
         {
-            using var connection = _connectionFactory.CreateConnection();
-
             YoutubeChannel channel;
 
             // Vanity URLs cannot be mapped to Channel ID using the API. To
@@ -36,18 +31,12 @@ namespace youtubed.Services
                 {
                     return null;
                 }
+
                 url = string.Format(Constants.YoutubeChannelUrl, channel.Id);
             }
             else
             {
-                var cached = await connection.QueryFirstOrDefaultAsync<ChannelModel>(
-                    @"
-                    SELECT Id, Url, Title, Thumbnail, PlaylistId
-                    FROM Channel
-                    WHERE Url = @url;
-                    ",
-                    new { url });
-
+                var cached = await _channelRepository.GetByUrlAsync(url);
                 if (cached != null)
                 {
                     return cached;
@@ -69,70 +58,22 @@ namespace youtubed.Services
                 PlaylistId = channel.PlaylistId
             };
 
-            var manyYearsAgo = DateTimeOffset.MinValue;
-            await connection.ExecuteAsync(
-                @"
-                MERGE INTO Channel target
-                USING (
-                    SELECT @url as Url
-                ) source ON source.Url = target.Url
-                WHEN MATCHED THEN
-                    UPDATE SET StaleAfter = @manyYearsAgo
-                WHEN NOT MATCHED THEN
-                    INSERT (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
-                    VALUES (@id, @url, @title, @thumbnail, @playlistId, @manyYearsAgo, @manyYearsAgo);
-                ",
-                new
-                {
-                    id = model.Id,
-                    url = model.Url,
-                    title = model.Title,
-                    thumbnail = model.Thumbnail,
-                    playlistId = model.PlaylistId,
-                    manyYearsAgo
-                });
-
+            await _channelRepository.SaveDiscoveredChannelAsync(model, DateTimeOffset.MinValue);
             return model;
         }
 
-        public async Task<StaleChannelModel> GetNextStaleChannelOrDefaultAsync()
+        public Task<StaleChannelModel> GetNextStaleChannelOrDefaultAsync()
         {
-            using var connection = _connectionFactory.CreateConnection();
             var now = DateTimeOffset.Now;
             var visibilityTimeout = Constants.RandomlyBetween(
                 Constants.VisibilityTimeoutMin,
                 Constants.VisibilityTimeoutMax);
-            var visibleAfter = now.Add(visibilityTimeout);
-            return await connection.QueryFirstOrDefaultAsync<StaleChannelModel>(
-                @"
-                UPDATE target
-                SET VisibleAfter = @visibleAfter
-                OUTPUT inserted.Id, inserted.PlaylistId
-                FROM (
-                    SELECT TOP (1) *
-                    FROM Channel
-                    WHERE StaleAfter <= @now
-                      AND VisibleAfter <= @now
-                      AND EXISTS(SELECT * FROM ListChannel WHERE ListChannel.ChannelId = Channel.Id)
-                    ORDER BY StaleAfter ASC,
-                             VisibleAfter ASC
-                ) target;
-                ",
-                new { now, visibleAfter });
+            return _channelRepository.ClaimNextStaleChannelAsync(now, now.Add(visibilityTimeout));
         }
 
-        public async Task<int> RemoveOrphanChannelsAsync()
+        public Task<int> RemoveOrphanChannelsAsync()
         {
-            using var connection = _connectionFactory.CreateConnection();
-            var now = DateTimeOffset.Now;
-            int count = await connection.ExecuteAsync(
-                @"
-                DELETE FROM Channel
-                WHERE VisibleAfter <= @now
-                    AND NOT EXISTS(SELECT * FROM ListChannel WHERE ListChannel.ChannelId = Channel.Id);
-                ",
-                new { now });
-            return count;
+            return _channelRepository.RemoveOrphanChannelsAsync(DateTimeOffset.Now);
         }
     }
 }

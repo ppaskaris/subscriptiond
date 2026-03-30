@@ -2,10 +2,6 @@
 
 ## Pending Tasks (in priority order)
 
-8. Clean the repository layout and deployment artifacts.
-   Why: committed `bin/`, `obj/`, and publish output add noise, increase context load, and make code review and navigation less pleasant.
-   When: cleanup is more useful after the major platform and tooling changes have landed.
-
 9. Expand YouTube URL parsing to support newer channel handle formats and fetch real video durations.
    Why: current support is narrow and [`youtubed/Services/YoutubeService.cs`](youtubed/Services/YoutubeService.cs) hardcodes a placeholder duration.
    When: this is a product enhancement rather than foundational modernization, so it can come after the platform is in a healthier state.
@@ -46,3 +42,8 @@
    Why: Bootstrap 3 and old jQuery validation packages are dated and likely to lag on compatibility, accessibility, and security maintenance.
    When: this builds on the new asset pipeline and is easier once frontend dependency management is modernized.
    Progress: Kept the Bootstrap 3.3.7 stylesheet in place because the app does not use Bootstrap JavaScript, upgraded the form validation stack to `jQuery 3.7.1`, `jquery-validation 1.22.1`, and `jquery-validation-unobtrusive 4.0.0`, switched those scripts to jsDelivr with refreshed SRI hashes, updated the About page dependency disclosure, adjusted the route-level assertions, and verified the change with automated tests plus manual browser checks.
+
+8. Clean the repository layout and deployment artifacts. (WONTFIX / Completed)
+   Why: committed `bin/`, `obj`, and publish output add noise, increase context load, and make code review and navigation less pleasant.
+   When: cleanup is more useful after the major platform and tooling changes have landed.
+   Progress: Verified with `git ls-files` that the suspected build and deployment output is not tracked in the repository and is already covered by [`.gitignore`](.gitignore), so no code or layout change is needed.

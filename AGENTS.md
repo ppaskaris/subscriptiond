@@ -58,6 +58,7 @@
 - Preserve the anonymous secret-link model unless the user explicitly asks for authentication or accounts.
 - If changing persistence, inspect both Dapper SQL and the schema together; behavior is encoded in both places.
 - Check for user changes before editing; the worktree may already contain unrelated files.
+- Keep [`ROADMAP.md`](ROADMAP.md) in sync with the work: update task progress whenever meaningful progress is made, and move a task into the Completed section with a `Progress:` note as soon as it is finished.
 
 ## Commit Convention
 

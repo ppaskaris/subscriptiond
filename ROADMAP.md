@@ -2,10 +2,6 @@
 
 ## Pending Tasks (in priority order)
 
-7. Upgrade Bootstrap and client-side libraries or reduce frontend dependency surface.
-   Why: Bootstrap 3 and old jQuery validation packages are dated and likely to lag on compatibility, accessibility, and security maintenance.
-   When: this builds on the new asset pipeline and is easier once frontend dependency management is modernized.
-
 8. Clean the repository layout and deployment artifacts.
    Why: committed `bin/`, `obj/`, and publish output add noise, increase context load, and make code review and navigation less pleasant.
    When: cleanup is more useful after the major platform and tooling changes have landed.
@@ -45,3 +41,8 @@
    Why: the frontend toolchain is obsolete and creates avoidable friction for dependency updates and local setup.
    When: once the backend platform is modernized, the frontend toolchain can be updated with less unrelated churn.
    Progress: Replaced Bower and BuildBundlerMinifier with an npm-driven `lightningcss` pipeline that builds app-owned CSS from `youtubed/Assets/css` during `dotnet build` and `dotnet publish`, moved third-party CSS/JS references to pinned CDN URLs, restored SRI on the validation scripts, removed the checked-in vendored frontend libraries under `wwwroot/lib`, and updated the route-level tests and fixtures around the new asset behavior.
+
+7. Upgrade Bootstrap and client-side libraries or reduce frontend dependency surface. (Completed)
+   Why: Bootstrap 3 and old jQuery validation packages are dated and likely to lag on compatibility, accessibility, and security maintenance.
+   When: this builds on the new asset pipeline and is easier once frontend dependency management is modernized.
+   Progress: Kept the Bootstrap 3.3.7 stylesheet in place because the app does not use Bootstrap JavaScript, upgraded the form validation stack to `jQuery 3.7.1`, `jquery-validation 1.22.1`, and `jquery-validation-unobtrusive 4.0.0`, switched those scripts to jsDelivr with refreshed SRI hashes, updated the About page dependency disclosure, adjusted the route-level assertions, and verified the change with automated tests plus manual browser checks.

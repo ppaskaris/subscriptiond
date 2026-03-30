@@ -1,5 +1,5 @@
 using Dapper;
-using Microsoft.SqlServer.Server;
+using Microsoft.Data.SqlClient.Server;
 using System;
 using System.Collections.Generic;
 using System.Data;

@@ -1,8 +1,5 @@
-﻿using Microsoft.IdentityModel.Tokens;
+using Microsoft.AspNetCore.WebUtilities;
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 
 namespace youtubed.Models
 {
@@ -13,6 +10,6 @@ namespace youtubed.Models
         public string Title { get; set; }
         public DateTimeOffset ExpiredAfter { get; set; }
 
-        public string TokenString => Base64UrlEncoder.Encode(Token);
+        public string TokenString => WebEncoders.Base64UrlEncode(Token);
     }
 }

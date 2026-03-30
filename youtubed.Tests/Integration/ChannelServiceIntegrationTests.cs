@@ -1,0 +1,187 @@
+using System;
+using System.Linq;
+using System.Threading.Tasks;
+using Xunit;
+using youtubed.Models;
+using youtubed.Services;
+using youtubed.Tests.Infrastructure;
+
+namespace youtubed.Tests.Integration
+{
+    [Collection(LocalDbTestFixture.CollectionName)]
+    [Trait("Category", "LocalDb")]
+    public sealed class ChannelServiceIntegrationTests : LocalDbIntegrationTestBase
+    {
+        private readonly FakeYoutubeService _youtubeService;
+        private readonly ChannelService _service;
+
+        public ChannelServiceIntegrationTests(LocalDbTestFixture fixture)
+            : base(fixture)
+        {
+            _youtubeService = new FakeYoutubeService();
+            _service = new ChannelService(fixture.ConnectionFactory, _youtubeService);
+        }
+
+        [LocalDbFact]
+        public async Task GetOrCreateChannelAsync_CachesChannelByUrl()
+        {
+            const string url = "https://www.youtube.com/channel/channel-1";
+            _youtubeService.SetChannel(url, new YoutubeChannel
+            {
+                Id = "channel-1",
+                Title = "Integration Channel",
+                Thumbnail = "thumb.png",
+                PlaylistId = "playlist-1"
+            });
+
+            var first = await _service.GetOrCreateChannelAsync(url);
+            var second = await _service.GetOrCreateChannelAsync(url);
+            var count = await ScalarAsync<int>("SELECT COUNT(*) FROM Channel WHERE Url = @url;", new { url });
+
+            Assert.Equal("channel-1", first.Id);
+            Assert.Equal(first.Id, second.Id);
+            Assert.Equal(1, _youtubeService.GetChannelCallCount);
+            Assert.Equal(1, count);
+        }
+
+        [LocalDbFact]
+        public async Task GetOrCreateChannelAsync_VideoUrlFallbackStoresCanonicalChannelUrl()
+        {
+            const string videoUrl = "https://www.youtube.com/watch?v=video-1";
+            _youtubeService.SetVideoChannel(videoUrl, new YoutubeChannel
+            {
+                Id = "channel-2",
+                Title = "Video Channel",
+                Thumbnail = "thumb.png",
+                PlaylistId = "playlist-2"
+            });
+
+            var channel = await _service.GetOrCreateChannelAsync(videoUrl);
+            var persistedUrl = await ScalarAsync<string>("SELECT Url FROM Channel WHERE Id = N'channel-2';");
+
+            Assert.Equal("channel-2", channel.Id);
+            Assert.Equal("https://www.youtube.com/channel/channel-2", persistedUrl);
+            Assert.Equal(1, _youtubeService.GetVideoChannelCallCount);
+            Assert.Equal(0, _youtubeService.GetChannelCallCount);
+        }
+
+        [LocalDbFact]
+        public async Task GetOrCreateChannelAsync_VideoFallbackMarksExistingChannelStaleAgain()
+        {
+            const string videoUrl = "https://www.youtube.com/watch?v=video-2";
+            const string canonicalUrl = "https://www.youtube.com/channel/channel-3";
+            var futureStaleAfter = DateTimeOffset.UtcNow.AddHours(2);
+
+            await ExecuteAsync(
+                @"
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
+                VALUES (N'channel-3', @url, N'Existing', N'thumb.png', N'playlist-3', @staleAfter, @visibleAfter);
+                ",
+                new
+                {
+                    url = canonicalUrl,
+                    staleAfter = futureStaleAfter,
+                    visibleAfter = DateTimeOffset.UtcNow.AddMinutes(-1)
+                });
+
+            _youtubeService.SetVideoChannel(videoUrl, new YoutubeChannel
+            {
+                Id = "channel-3",
+                Title = "Existing",
+                Thumbnail = "thumb.png",
+                PlaylistId = "playlist-3"
+            });
+
+            await _service.GetOrCreateChannelAsync(videoUrl);
+
+            var staleAfter = await ScalarAsync<DateTimeOffset>("SELECT StaleAfter FROM Channel WHERE Id = N'channel-3';");
+
+            Assert.True(staleAfter <= DateTimeOffset.UtcNow.AddMinutes(-1));
+        }
+
+        [LocalDbFact]
+        public async Task GetNextStaleChannelOrDefaultAsync_ClaimsOnlyEligibleAttachedChannel()
+        {
+            var listId = Guid.NewGuid();
+            var now = DateTimeOffset.UtcNow;
+
+            await ExecuteAsync(
+                @"
+                INSERT INTO List (Id, Token, Title, ExpiredAfter)
+                VALUES (@listId, @token, N'List', @expiredAfter);
+
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
+                VALUES
+                    (N'eligible-oldest', N'https://www.youtube.com/channel/eligible-oldest', N'Eligible Oldest', N'a.png', N'playlist-a', @oldestStaleAfter, @visibleAfter),
+                    (N'eligible-newer', N'https://www.youtube.com/channel/eligible-newer', N'Eligible Newer', N'b.png', N'playlist-b', @newerStaleAfter, @visibleAfter),
+                    (N'not-visible', N'https://www.youtube.com/channel/not-visible', N'Not Visible', N'c.png', N'playlist-c', @oldestStaleAfter, @futureVisibleAfter),
+                    (N'orphan', N'https://www.youtube.com/channel/orphan', N'Orphan', N'd.png', N'playlist-d', @oldestStaleAfter, @visibleAfter),
+                    (N'fresh', N'https://www.youtube.com/channel/fresh', N'Fresh', N'e.png', N'playlist-e', @futureStaleAfter, @visibleAfter);
+
+                INSERT INTO ListChannel (ListId, ChannelId)
+                VALUES
+                    (@listId, N'eligible-oldest'),
+                    (@listId, N'eligible-newer'),
+                    (@listId, N'not-visible'),
+                    (@listId, N'fresh');
+                ",
+                new
+                {
+                    listId,
+                    token = Enumerable.Repeat((byte)4, 40).ToArray(),
+                    expiredAfter = now.AddDays(1),
+                    oldestStaleAfter = now.AddMinutes(-10),
+                    newerStaleAfter = now.AddMinutes(-5),
+                    futureStaleAfter = now.AddMinutes(10),
+                    visibleAfter = now.AddMinutes(-1),
+                    futureVisibleAfter = now.AddMinutes(10)
+                });
+
+            var claimed = await _service.GetNextStaleChannelOrDefaultAsync();
+            var visibleAfter = await ScalarAsync<DateTimeOffset>(
+                "SELECT VisibleAfter FROM Channel WHERE Id = N'eligible-oldest';");
+
+            Assert.NotNull(claimed);
+            Assert.Equal("eligible-oldest", claimed.Id);
+            Assert.Equal("playlist-a", claimed.PlaylistId);
+            Assert.True(visibleAfter > now);
+        }
+
+        [LocalDbFact]
+        public async Task RemoveOrphanChannelsAsync_DeletesOnlyExpiredOrphans()
+        {
+            var listId = Guid.NewGuid();
+            var now = DateTimeOffset.UtcNow;
+
+            await ExecuteAsync(
+                @"
+                INSERT INTO List (Id, Token, Title, ExpiredAfter)
+                VALUES (@listId, @token, N'List', @expiredAfter);
+
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
+                VALUES
+                    (N'orphan-expired', N'https://www.youtube.com/channel/orphan-expired', N'Orphan Expired', N'a.png', N'playlist-a', @staleAfter, @expiredVisibleAfter),
+                    (N'orphan-active', N'https://www.youtube.com/channel/orphan-active', N'Orphan Active', N'b.png', N'playlist-b', @staleAfter, @futureVisibleAfter),
+                    (N'attached-expired', N'https://www.youtube.com/channel/attached-expired', N'Attached Expired', N'c.png', N'playlist-c', @staleAfter, @expiredVisibleAfter);
+
+                INSERT INTO ListChannel (ListId, ChannelId)
+                VALUES (@listId, N'attached-expired');
+                ",
+                new
+                {
+                    listId,
+                    token = Enumerable.Repeat((byte)5, 40).ToArray(),
+                    expiredAfter = now.AddDays(1),
+                    staleAfter = now.AddMinutes(-1),
+                    expiredVisibleAfter = now.AddMinutes(-5),
+                    futureVisibleAfter = now.AddMinutes(5)
+                });
+
+            var removed = await _service.RemoveOrphanChannelsAsync();
+            var remaining = await QueryAsync<string>("SELECT Id FROM Channel ORDER BY Id;");
+
+            Assert.Equal(1, removed);
+            Assert.Equal(new[] { "attached-expired", "orphan-active" }, remaining);
+        }
+    }
+}

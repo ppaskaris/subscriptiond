@@ -37,7 +37,7 @@
 
 ## Operational Notes
 
-- Local development expects SQL Server and `ConnectionStrings:Main` in [`youtubed/appsettings.Development.json`](youtubed/appsettings.Development.json).
+- Local development runs against SQL Server Express LocalDB 2019 and expects `ConnectionStrings:Main` in [`youtubed/appsettings.Development.json`](youtubed/appsettings.Development.json).
 - YouTube credentials are bound from `Youtube` configuration into `YoutubeOptions`.
 - The app relies on two hosted services for freshness and cleanup; list pages may auto-refresh while stale channels are being updated.
 - The repo currently includes committed build output under `youtubed/bin` and `youtubed/obj`.
@@ -69,3 +69,4 @@
 - Long-running tooling (tests, docker compose, migrations, etc.) must always be invoked with sensible timeouts or in non-interactive batch mode. Never leave a shell command waiting indefinitely—prefer explicit timeouts, scripted runs, or log polling after the command exits.
 - The `dotnet` CLI will need network access and inside your sandbox you always have to run those commands with `with_escalated_permissions: true` on the `shell` tool call and include a one-sentence justification (e.g., "Need network access for npm install/build").
 - Ensure to include the `with_escalated_permissions` for all builds, restores, migrations, installs, tests, etc where network access is required otherwise the command will hang.
+- Accessing SQL Server Express LocalDB from this environment requires elevated permissions; LocalDB instance inspection and SQL connectivity checks will fail inside the sandbox even when the instance is running.

@@ -113,12 +113,12 @@ namespace youtubed.Tests.Routing
 
             var content = await client.GetStringAsync(path);
 
-            Assert.Contains("https://ajax.aspnetcdn.com/ajax/jquery/jquery-2.2.0.min.js", content);
-            Assert.Contains("integrity=\"sha384-K+ctZQ+LL8q6tP7I94W+qzQsfRV2a+AfHIi9k8z8l9ggpc8X+Ytst4yBo/hH+8Fk\"", content);
-            Assert.Contains("https://ajax.aspnetcdn.com/ajax/jquery.validate/1.14.0/jquery.validate.min.js", content);
-            Assert.Contains("integrity=\"sha384-Fnqn3nxp3506LP/7Y3j/25BlWeA3PXTyT1l78LjECcPaKCV12TsZP7yyMxOe/G/k\"", content);
-            Assert.Contains("https://ajax.aspnetcdn.com/ajax/jquery.validation.unobtrusive/3.2.6/jquery.validate.unobtrusive.min.js", content);
-            Assert.Contains("integrity=\"sha384-JrXK+k53HACyavUKOsL+NkmSesD2P+73eDMrbTtTk0h4RmOF8hF8apPlkp26JlyH\"", content);
+            Assert.Contains("https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js", content);
+            Assert.Contains("integrity=\"sha384-1H217gwSVyLSIfaLxHbE7dRb3v4mYCKbpQvzx0cegeju1MVsGrX5xXxAvs/HgeFs\"", content);
+            Assert.Contains("https://cdn.jsdelivr.net/npm/jquery-validation@1.22.1/dist/jquery.validate.min.js", content);
+            Assert.Contains("integrity=\"sha384-DIFfDxcYkhbAXYdxOYFZshXsis24zK4HtbU7qI30u9/eP7JtiRIGuOaLsoYL5QTs\"", content);
+            Assert.Contains("https://cdn.jsdelivr.net/npm/jquery-validation-unobtrusive@4.0.0/dist/jquery.validate.unobtrusive.min.js", content);
+            Assert.Contains("integrity=\"sha384-DU2a51mTHKDhpXhTyJQ++hP8L9L8Gc48TlvbzBmUof71V7kNVs4ELmaVJKPxcAGn\"", content);
         }
 
         public static IEnumerable<object[]> FormPagePaths()

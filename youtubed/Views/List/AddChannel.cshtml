@@ -2,11 +2,13 @@
 
 @{
     ViewData["Title"] = "Add New Channel";
+    var listId = ViewContext.RouteData.Values["id"];
+    var listToken = ViewContext.RouteData.Values["token"];
 }
 
 <h1>@ViewData["Title"]</h1>
 <p>Adding a channel will add its recent videos to your secret list.</p>
-<form asp-action="AddChannel">
+<form asp-action="AddChannel" asp-route-token="@listToken" asp-route-id="@listId">
     <div asp-validation-summary="ModelOnly" class="text-danger"></div>
     <div class="form-group">
         <label asp-for="Url" class="control-label"></label>
@@ -16,7 +18,7 @@
     </div>
     <div class="form-group">
         <input type="submit" value="Add Channel" class="btn btn-primary" />
-        <a asp-action="Index" class="btn btn-default">Cancel</a>
+        <a asp-action="Index" asp-route-token="@listToken" asp-route-id="@listId" class="btn btn-default">Cancel</a>
     </div>
 </form>
 

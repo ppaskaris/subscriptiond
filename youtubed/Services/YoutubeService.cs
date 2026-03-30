@@ -1,8 +1,7 @@
-﻿using Google.Apis.Services;
+using Google.Apis.Services;
 using Google.Apis.YouTube.v3;
 using Google.Apis.YouTube.v3.Data;
 using Microsoft.Extensions.Options;
-using Microsoft.Extensions.PlatformAbstractions;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -129,7 +128,7 @@ namespace youtubed.Services
                     //
                     // Snippet.PublishedAt is the time the video was added to
                     // the uploads playlist.
-                    // 
+                    //
                     // ContentDetails.VideoPublishedAt is the time the video
                     // was published to YouTube.
                     //
@@ -182,11 +181,10 @@ namespace youtubed.Services
 
         private YouTubeService CreateService()
         {
-            var version = PlatformServices.Default.Application.ApplicationVersion;
             var service = new YouTubeService(new BaseClientService.Initializer
             {
                 ApiKey = _options.Credentials,
-                ApplicationName = $"subscriptiond/{version}"
+                ApplicationName = $"subscriptiond/{AppVersion.Current}"
             });
             return service;
         }

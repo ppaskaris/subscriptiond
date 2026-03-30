@@ -1,6 +1,6 @@
 using Dapper;
+using Microsoft.Data.SqlClient;
 using System;
-using System.Data.SqlClient;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -22,7 +22,8 @@ namespace youtubed.Tests.Infrastructure
             {
                 DataSource = @"(localdb)\MSSQLLocalDB",
                 InitialCatalog = DatabaseName,
-                IntegratedSecurity = true
+                IntegratedSecurity = true,
+                TrustServerCertificate = true
             }.ConnectionString;
 
             EnsureDapperTypeHandlers();

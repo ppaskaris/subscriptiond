@@ -2,10 +2,6 @@
 
 ## Pending Tasks (in priority order)
 
-3. Upgrade the app from `.NET Core 3.1` to a supported LTS release.
-   Why: the current runtime is long out of support, which increases security and maintenance risk across the whole stack.
-   When: by this point the app should be easier to validate, making the framework upgrade less risky.
-
 4. Move from legacy MVC startup patterns to the modern hosting model.
    Why: [`youtubed/Startup.cs`](youtubed/Startup.cs) still disables endpoint routing and uses `UseMvc()`, which makes future framework upgrades harder.
    When: this follows naturally after the runtime upgrade and aligns the app with current ASP.NET conventions.
@@ -42,3 +38,8 @@
    Why: `MERGE` can be brittle, and the stale-channel claiming flow should be reviewed before scaling or changing job execution patterns.
    When: this is core behavioral infrastructure that should be stabilized before broader modernization changes.
    Progress: Replaced the remaining `MERGE` usage in channel discovery and video refresh with explicit transactional SQL, tightened stale-channel claiming so only one worker can lease a channel at a time without relying on isolation-level-specific hints, documented the lease behavior in the refresh path, and reran the full LocalDB integration suite to verify the SQL-backed coordination behavior.
+
+4. Upgrade the app from `.NET Core 3.1` to a supported LTS release. (Completed)
+   Why: the current runtime is long out of support, which increases security and maintenance risk across the whole stack.
+   When: by this point the app should be easier to validate, making the framework upgrade less risky.
+   Progress: Upgraded the app and test projects to `.NET 10`, moved version and token helpers off removed legacy APIs, switched SQL access from `System.Data.SqlClient` to `Microsoft.Data.SqlClient`, updated the entry point to the generic host while preserving `Startup` and `UseMvc()`, and reran both the controller/unit suite and the opt-in LocalDB integration suite successfully.

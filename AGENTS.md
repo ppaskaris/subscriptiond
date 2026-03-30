@@ -3,7 +3,7 @@
 ## Project Snapshot
 
 - `subscriptiond` is a small ASP.NET Core MVC app for anonymous YouTube subscription lists.
-- The only solution project is [`youtubed`](youtubed), targeting `.NET Core 3.1`.
+- The only solution project is [`youtubed`](youtubed), targeting `.NET 10`.
 - Users do not sign in. Access is via secret list URLs shaped like `/{token}/list/{id}`.
 - Persistence is SQL Server via Dapper.
 - The app stores shared channel/video cache data so multiple lists can reuse the same channel metadata.
@@ -44,7 +44,7 @@
 
 ## Constraints And Gotchas
 
-- Framework and packages are old: `.NET Core 3.1`, Bootstrap 3, jQuery validation, Bower, BuildBundlerMinifier.
+- The runtime is on `.NET 10`, but the web stack still mixes older patterns and libraries such as Bootstrap 3, jQuery validation, Bower, and `UseMvc()`.
 - Routing still uses `UseMvc()` with endpoint routing disabled.
 - SQL is SQL Server-specific and uses `MERGE` plus TVPs.
 - YouTube URL support is limited to `/channel/...`, `/user/...`, and video URLs used as a fallback for vanity channels.
@@ -63,8 +63,16 @@
 
 - Commit messages should end with a Git trailer in this exact form: `Co-Authored-By: Codex %MODEL_NAME%`
 - `%MODEL_NAME%` should be the full model name, for example `GPT-5.4`, not a shortened variant like `GPT-5`.
+- Before creating or amending a commit, assess the change severity and update [`youtubed/youtubed.csproj`](youtubed/youtubed.csproj) `AssemblyVersion` in the same change when the shipped code meaningfully changes.
+- `AssemblyVersion` must stay in `major.minor.build.revision` format.
+- Increment `major` for breaking changes or major platform/application shifts, then reset `minor`, `build`, and `revision` to `0`.
+- Increment `minor` for backward-compatible feature additions, then reset `build` and `revision` to `0`.
+- Increment `build` for backward-compatible fixes, refactors, or internal improvements, then reset `revision` to `0`.
+- Increment `revision` only for very small corrective follow-ups or repackaging-level changes when `major`, `minor`, and `build` should stay the same.
 
 ## Tips for Agents
+
+- `rg` is not available in this environment; prefer PowerShell-native search commands like `Get-ChildItem`, `Select-String`, and `Get-Content` when locating files or text.
 
 - Long-running tooling (tests, docker compose, migrations, etc.) must always be invoked with sensible timeouts or in non-interactive batch mode. Never leave a shell command waiting indefinitely—prefer explicit timeouts, scripted runs, or log polling after the command exits.
 - The `dotnet` CLI will need network access and inside your sandbox you always have to run those commands with `with_escalated_permissions: true` on the `shell` tool call and include a one-sentence justification (e.g., "Need network access for npm install/build").

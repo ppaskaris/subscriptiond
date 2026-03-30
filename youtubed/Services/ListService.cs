@@ -66,9 +66,8 @@ namespace youtubed.Services
 
         private byte[] CreateToken()
         {
-            using var rng = new RNGCryptoServiceProvider();
             var token = new byte[40];
-            rng.GetNonZeroBytes(token);
+            RandomNumberGenerator.Fill(token);
             return token;
         }
 

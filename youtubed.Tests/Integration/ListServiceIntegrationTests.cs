@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Xunit;
 using youtubed.Models;
+using youtubed.Persistence;
 using youtubed.Services;
 using youtubed.Tests.Infrastructure;
 
@@ -17,7 +18,7 @@ namespace youtubed.Tests.Integration
         public ListServiceIntegrationTests(LocalDbTestFixture fixture)
             : base(fixture)
         {
-            _service = new ListService(fixture.ConnectionFactory);
+            _service = new ListService(new ListRepository(fixture.ConnectionFactory));
         }
 
         [LocalDbFact]

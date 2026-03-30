@@ -69,4 +69,5 @@
 - Long-running tooling (tests, docker compose, migrations, etc.) must always be invoked with sensible timeouts or in non-interactive batch mode. Never leave a shell command waiting indefinitely—prefer explicit timeouts, scripted runs, or log polling after the command exits.
 - The `dotnet` CLI will need network access and inside your sandbox you always have to run those commands with `with_escalated_permissions: true` on the `shell` tool call and include a one-sentence justification (e.g., "Need network access for npm install/build").
 - Ensure to include the `with_escalated_permissions` for all builds, restores, migrations, installs, tests, etc where network access is required otherwise the command will hang.
+- Git commands that write to the repository, such as `git add`, `git commit`, and similar index or ref updates, should also be run with elevated permissions in this environment.
 - Accessing SQL Server Express LocalDB from this environment requires elevated permissions; LocalDB instance inspection and SQL connectivity checks will fail inside the sandbox even when the instance is running.

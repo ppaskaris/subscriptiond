@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Xunit;
 using youtubed.Models;
+using youtubed.Persistence;
 using youtubed.Services;
 using youtubed.Tests.Infrastructure;
 
@@ -18,7 +19,7 @@ namespace youtubed.Tests.Integration
             : base(fixture)
         {
             _youtubeService = new FakeYoutubeService();
-            _service = new ChannelVideoService(fixture.ConnectionFactory, _youtubeService);
+            _service = new ChannelVideoService(new ChannelVideoRepository(fixture.ConnectionFactory), _youtubeService);
         }
 
         [LocalDbFact]

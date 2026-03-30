@@ -2,10 +2,6 @@
 
 ## Pending Tasks (in priority order)
 
-2. Revisit SQL Server-specific `MERGE` usage and background-job concurrency behavior.
-   Why: `MERGE` can be brittle, and the stale-channel claiming flow should be reviewed before scaling or changing job execution patterns.
-   When: this is core behavioral infrastructure that should be stabilized before broader modernization changes.
-
 3. Upgrade the app from `.NET Core 3.1` to a supported LTS release.
    Why: the current runtime is long out of support, which increases security and maintenance risk across the whole stack.
    When: by this point the app should be easier to validate, making the framework upgrade less risky.
@@ -41,3 +37,8 @@
    Why: important logic is split between Dapper queries and [`youtubed/Schema.sql`](youtubed/Schema.sql), so refactors are risky without stronger coverage and clearer repository boundaries.
    When: persistence logic is central to the app, and tightening this layer reduces risk before platform and concurrency changes.
    Progress: Extracted Dapper/SQL code from the application services into a dedicated `youtubed/Persistence` layer, kept the service interfaces focused on orchestration, and added repository-oriented LocalDB integration tests alongside the existing service-level SQL coverage.
+
+3. Revisit SQL Server-specific `MERGE` usage and background-job concurrency behavior. (Completed)
+   Why: `MERGE` can be brittle, and the stale-channel claiming flow should be reviewed before scaling or changing job execution patterns.
+   When: this is core behavioral infrastructure that should be stabilized before broader modernization changes.
+   Progress: Replaced the remaining `MERGE` usage in channel discovery and video refresh with explicit transactional SQL, tightened stale-channel claiming so only one worker can lease a channel at a time without relying on isolation-level-specific hints, documented the lease behavior in the refresh path, and reran the full LocalDB integration suite to verify the SQL-backed coordination behavior.

@@ -68,6 +68,10 @@ namespace youtubed.Services
             var visibilityTimeout = Constants.RandomlyBetween(
                 Constants.VisibilityTimeoutMin,
                 Constants.VisibilityTimeoutMax);
+
+            // The database lease is the only worker-coordination mechanism.
+            // If a refresh fails, the channel becomes eligible again once this
+            // visibility window expires and another worker can claim it.
             return _channelRepository.ClaimNextStaleChannelAsync(now, now.Add(visibilityTimeout));
         }
 

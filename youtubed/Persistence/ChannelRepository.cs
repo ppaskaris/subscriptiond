@@ -1,5 +1,6 @@
 using Dapper;
 using System;
+using System.Data;
 using System.Threading.Tasks;
 using youtubed.Data;
 using youtubed.Models;
@@ -30,27 +31,55 @@ namespace youtubed.Persistence
         public async Task SaveDiscoveredChannelAsync(ChannelModel channel, DateTimeOffset staleAfter)
         {
             using var connection = _connectionFactory.CreateConnection();
-            await connection.ExecuteAsync(
+            await connection.OpenAsync();
+            using var transaction = connection.BeginTransaction(IsolationLevel.Serializable);
+
+            var parameters = new
+            {
+                id = channel.Id,
+                url = channel.Url,
+                title = channel.Title,
+                thumbnail = channel.Thumbnail,
+                playlistId = channel.PlaylistId,
+                staleAfter
+            };
+
+            // Rediscovery should only make an existing channel eligible again.
+            var updated = await connection.ExecuteAsync(
                 @"
-                MERGE INTO Channel target
-                USING (
-                    SELECT @url AS Url
-                ) source ON source.Url = target.Url
-                WHEN MATCHED THEN
-                    UPDATE SET StaleAfter = @staleAfter
-                WHEN NOT MATCHED THEN
-                    INSERT (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
-                    VALUES (@id, @url, @title, @thumbnail, @playlistId, @staleAfter, @staleAfter);
+                UPDATE Channel WITH (UPDLOCK, HOLDLOCK)
+                SET StaleAfter = @staleAfter
+                WHERE Url = @url;
                 ",
-                new
-                {
-                    id = channel.Id,
-                    url = channel.Url,
-                    title = channel.Title,
-                    thumbnail = channel.Thumbnail,
-                    playlistId = channel.PlaylistId,
-                    staleAfter
-                });
+                parameters,
+                transaction);
+
+            if (updated == 0)
+            {
+                await connection.ExecuteAsync(
+                    @"
+                    INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
+                    SELECT @id, @url, @title, @thumbnail, @playlistId, @staleAfter, @staleAfter
+                    WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM Channel WITH (UPDLOCK, HOLDLOCK)
+                        WHERE Url = @url
+                    );
+                    ",
+                    parameters,
+                    transaction);
+
+                await connection.ExecuteAsync(
+                    @"
+                    UPDATE Channel
+                    SET StaleAfter = @staleAfter
+                    WHERE Url = @url;
+                    ",
+                    parameters,
+                    transaction);
+            }
+
+            transaction.Commit();
         }
 
         public async Task<StaleChannelModel> ClaimNextStaleChannelAsync(DateTimeOffset now, DateTimeOffset visibleAfter)
@@ -58,18 +87,19 @@ namespace youtubed.Persistence
             using var connection = _connectionFactory.CreateConnection();
             return await connection.QueryFirstOrDefaultAsync<StaleChannelModel>(
                 @"
-                UPDATE target
-                SET VisibleAfter = @visibleAfter
-                OUTPUT inserted.Id, inserted.PlaylistId
-                FROM (
-                    SELECT TOP (1) *
-                    FROM Channel
+                ;WITH nextChannel AS (
+                    SELECT TOP (1) Id, PlaylistId, VisibleAfter
+                    FROM Channel WITH (UPDLOCK, ROWLOCK)
                     WHERE StaleAfter <= @now
                       AND VisibleAfter <= @now
                       AND EXISTS(SELECT * FROM ListChannel WHERE ListChannel.ChannelId = Channel.Id)
                     ORDER BY StaleAfter ASC,
                              VisibleAfter ASC
-                ) target;
+                )
+                UPDATE nextChannel
+                SET VisibleAfter = @visibleAfter
+                OUTPUT inserted.Id, inserted.PlaylistId
+                ;
                 ",
                 new { now, visibleAfter });
         }

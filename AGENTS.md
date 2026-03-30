@@ -71,3 +71,4 @@
 - Ensure to include the `with_escalated_permissions` for all builds, restores, migrations, installs, tests, etc where network access is required otherwise the command will hang.
 - Git commands that write to the repository, such as `git add`, `git commit`, and similar index or ref updates, should also be run with elevated permissions in this environment.
 - Accessing SQL Server Express LocalDB from this environment requires elevated permissions; LocalDB instance inspection and SQL connectivity checks will fail inside the sandbox even when the instance is running.
+- When changing SQL code, always re-run the LocalDB integration tests with `YOUTUBED_RUN_LOCALDB_TESTS=true` before wrapping up.

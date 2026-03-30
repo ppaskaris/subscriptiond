@@ -62,6 +62,67 @@ namespace youtubed.Tests.Integration
         }
 
         [LocalDbFact]
+        public async Task SaveDiscoveredChannelAsync_ConcurrentCallsLeaveSingleRow()
+        {
+            const string url = "https://www.youtube.com/channel/shared";
+            var staleAfter = DateTimeOffset.UtcNow.AddMinutes(-2);
+
+            var firstSave = _repository.SaveDiscoveredChannelAsync(
+                new ChannelModel
+                {
+                    Id = "channel-1",
+                    Url = url,
+                    Title = "Original",
+                    Thumbnail = "original.png",
+                    PlaylistId = "playlist-original"
+                },
+                staleAfter);
+
+            var secondSave = _repository.SaveDiscoveredChannelAsync(
+                new ChannelModel
+                {
+                    Id = "channel-2",
+                    Url = url,
+                    Title = "Updated",
+                    Thumbnail = "updated.png",
+                    PlaylistId = "playlist-updated"
+                },
+                staleAfter.AddMinutes(1));
+
+            await Task.WhenAll(firstSave, secondSave);
+
+            var persisted = await QuerySingleAsync<(int Count, string Id, string Title, string Thumbnail, string PlaylistId, DateTimeOffset StaleAfter)>(
+                @"
+                SELECT COUNT(*) AS Count,
+                       MIN(Id) AS Id,
+                       MIN(Title) AS Title,
+                       MIN(Thumbnail) AS Thumbnail,
+                       MIN(PlaylistId) AS PlaylistId,
+                       MAX(StaleAfter) AS StaleAfter
+                FROM Channel
+                WHERE Url = @url;
+                ",
+                new { url });
+
+            Assert.Equal(1, persisted.Count);
+            Assert.Contains(persisted.Id, new[] { "channel-1", "channel-2" });
+            Assert.True(persisted.StaleAfter >= staleAfter);
+
+            if (persisted.Id == "channel-1")
+            {
+                Assert.Equal("Original", persisted.Title);
+                Assert.Equal("original.png", persisted.Thumbnail);
+                Assert.Equal("playlist-original", persisted.PlaylistId);
+            }
+            else
+            {
+                Assert.Equal("Updated", persisted.Title);
+                Assert.Equal("updated.png", persisted.Thumbnail);
+                Assert.Equal("playlist-updated", persisted.PlaylistId);
+            }
+        }
+
+        [LocalDbFact]
         public async Task ClaimNextStaleChannelAsync_ReturnsNullWhenNoEligibleChannelsExist()
         {
             var listId = Guid.NewGuid();
@@ -97,6 +158,78 @@ namespace youtubed.Tests.Integration
             var claimed = await _repository.ClaimNextStaleChannelAsync(now, now.AddMinutes(5));
 
             Assert.Null(claimed);
+        }
+
+        [LocalDbFact]
+        public async Task ClaimNextStaleChannelAsync_ConcurrentCallsReturnSingleWinner()
+        {
+            var listId = Guid.NewGuid();
+            var now = DateTimeOffset.UtcNow;
+
+            await ExecuteAsync(
+                @"
+                INSERT INTO List (Id, Token, Title, ExpiredAfter)
+                VALUES (@listId, @token, N'List', @expiredAfter);
+
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
+                VALUES (N'eligible', N'https://www.youtube.com/channel/eligible', N'Eligible', N'a.png', N'playlist-a', @staleAfter, @visibleAfter);
+
+                INSERT INTO ListChannel (ListId, ChannelId)
+                VALUES (@listId, N'eligible');
+                ",
+                new
+                {
+                    listId,
+                    token = Enumerable.Repeat((byte)8, 40).ToArray(),
+                    expiredAfter = now.AddDays(1),
+                    staleAfter = now.AddMinutes(-10),
+                    visibleAfter = now.AddMinutes(-1)
+                });
+
+            var firstClaim = _repository.ClaimNextStaleChannelAsync(now, now.AddMinutes(5));
+            var secondClaim = _repository.ClaimNextStaleChannelAsync(now, now.AddMinutes(5));
+
+            var claims = await Task.WhenAll(firstClaim, secondClaim);
+
+            Assert.Single(claims.Where(claim => claim != null));
+            Assert.Equal("eligible", claims.Single(claim => claim != null).Id);
+        }
+
+        [LocalDbFact]
+        public async Task ClaimNextStaleChannelAsync_DoesNotReissueLeaseUntilItExpires()
+        {
+            var listId = Guid.NewGuid();
+            var now = DateTimeOffset.UtcNow;
+            var leaseExpiresAt = now.AddMinutes(5);
+
+            await ExecuteAsync(
+                @"
+                INSERT INTO List (Id, Token, Title, ExpiredAfter)
+                VALUES (@listId, @token, N'List', @expiredAfter);
+
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
+                VALUES (N'eligible', N'https://www.youtube.com/channel/eligible', N'Eligible', N'a.png', N'playlist-a', @staleAfter, @visibleAfter);
+
+                INSERT INTO ListChannel (ListId, ChannelId)
+                VALUES (@listId, N'eligible');
+                ",
+                new
+                {
+                    listId,
+                    token = Enumerable.Repeat((byte)9, 40).ToArray(),
+                    expiredAfter = now.AddDays(1),
+                    staleAfter = now.AddMinutes(-10),
+                    visibleAfter = now.AddMinutes(-1)
+                });
+
+            var firstClaim = await _repository.ClaimNextStaleChannelAsync(now, leaseExpiresAt);
+            var beforeExpiryClaim = await _repository.ClaimNextStaleChannelAsync(leaseExpiresAt.AddSeconds(-1), leaseExpiresAt.AddMinutes(5));
+            var afterExpiryClaim = await _repository.ClaimNextStaleChannelAsync(leaseExpiresAt.AddSeconds(1), leaseExpiresAt.AddMinutes(5));
+
+            Assert.NotNull(firstClaim);
+            Assert.Null(beforeExpiryClaim);
+            Assert.NotNull(afterExpiryClaim);
+            Assert.Equal("eligible", afterExpiryClaim.Id);
         }
     }
 }

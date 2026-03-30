@@ -34,6 +34,7 @@ namespace youtubed.Services
                     Models.StaleChannelModel channel;
                     while ((channel = await _channelService.GetNextStaleChannelOrDefaultAsync()) != null)
                     {
+                        // Multi-instance coordination happens at claim time in SQL.
                         _logger.LogInformation("Refreshing channel {0}.", channel.Id);
                         await _channelVideoService.RefreshVideosAsync(channel);
                     }

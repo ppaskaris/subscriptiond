@@ -82,13 +82,26 @@ namespace youtubed.Persistence
             transaction.Commit();
         }
 
+        public async Task UpdateMetadataAsync(string id, string title, string thumbnail)
+        {
+            using var connection = _connectionFactory.CreateConnection();
+            await connection.ExecuteAsync(
+                @"
+                UPDATE Channel
+                SET Title = @title,
+                    Thumbnail = @thumbnail
+                WHERE Id = @id;
+                ",
+                new { id, title, thumbnail });
+        }
+
         public async Task<StaleChannelModel> ClaimNextStaleChannelAsync(DateTimeOffset now, DateTimeOffset visibleAfter)
         {
             using var connection = _connectionFactory.CreateConnection();
             return await connection.QueryFirstOrDefaultAsync<StaleChannelModel>(
                 @"
                 ;WITH nextChannel AS (
-                    SELECT TOP (1) Id, PlaylistId, VisibleAfter
+                    SELECT TOP (1) Id, Url, Title, Thumbnail, PlaylistId, VisibleAfter
                     FROM Channel WITH (UPDLOCK, ROWLOCK)
                     WHERE StaleAfter <= @now
                       AND VisibleAfter <= @now
@@ -98,7 +111,7 @@ namespace youtubed.Persistence
                 )
                 UPDATE nextChannel
                 SET VisibleAfter = @visibleAfter
-                OUTPUT inserted.Id, inserted.PlaylistId
+                OUTPUT inserted.Id, inserted.Url, inserted.Title, inserted.Thumbnail, inserted.PlaylistId
                 ;
                 ",
                 new { now, visibleAfter });

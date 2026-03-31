@@ -10,6 +10,7 @@ namespace youtubed.Services
     {
         Task<ChannelModel> GetOrCreateChannelAsync(string url);
         Task<StaleChannelModel> GetNextStaleChannelOrDefaultAsync();
+        Task RefreshMetadataAsync(StaleChannelModel channel);
         Task<int> RemoveOrphanChannelsAsync();
     }
 }

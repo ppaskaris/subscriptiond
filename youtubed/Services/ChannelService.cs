@@ -75,6 +75,25 @@ namespace youtubed.Services
             return _channelRepository.ClaimNextStaleChannelAsync(now, now.Add(visibilityTimeout));
         }
 
+        public async Task RefreshMetadataAsync(StaleChannelModel channel)
+        {
+            var refreshed = await _youtubeService.GetChannelAsync(channel.Url);
+            if (refreshed == null)
+            {
+                return;
+            }
+
+            if (refreshed.Title == channel.Title && refreshed.Thumbnail == channel.Thumbnail)
+            {
+                return;
+            }
+
+            await _channelRepository.UpdateMetadataAsync(
+                channel.Id,
+                refreshed.Title,
+                refreshed.Thumbnail);
+        }
+
         public Task<int> RemoveOrphanChannelsAsync()
         {
             return _channelRepository.RemoveOrphanChannelsAsync(DateTimeOffset.Now);

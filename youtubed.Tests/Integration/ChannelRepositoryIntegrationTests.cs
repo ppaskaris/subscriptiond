@@ -123,6 +123,36 @@ namespace youtubed.Tests.Integration
         }
 
         [LocalDbFact]
+        public async Task UpdateMetadataAsync_UpdatesOnlyTitleAndThumbnail()
+        {
+            var staleAfter = DateTimeOffset.UtcNow.AddHours(1);
+            var visibleAfter = DateTimeOffset.UtcNow.AddMinutes(30);
+
+            await ExecuteAsync(
+                @"
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
+                VALUES (N'channel-1', N'https://www.youtube.com/channel/channel-1', N'Original', N'old.png', N'playlist-1', @staleAfter, @visibleAfter);
+                ",
+                new { staleAfter, visibleAfter });
+
+            await _repository.UpdateMetadataAsync("channel-1", "Updated", "new.png");
+
+            var persisted = await QuerySingleAsync<(string Url, string Title, string Thumbnail, string PlaylistId, DateTimeOffset StaleAfter, DateTimeOffset VisibleAfter)>(
+                @"
+                SELECT Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter
+                FROM Channel
+                WHERE Id = N'channel-1';
+                ");
+
+            Assert.Equal("https://www.youtube.com/channel/channel-1", persisted.Url);
+            Assert.Equal("Updated", persisted.Title);
+            Assert.Equal("new.png", persisted.Thumbnail);
+            Assert.Equal("playlist-1", persisted.PlaylistId);
+            Assert.Equal(staleAfter, persisted.StaleAfter);
+            Assert.Equal(visibleAfter, persisted.VisibleAfter);
+        }
+
+        [LocalDbFact]
         public async Task ClaimNextStaleChannelAsync_ReturnsNullWhenNoEligibleChannelsExist()
         {
             var listId = Guid.NewGuid();
@@ -191,8 +221,11 @@ namespace youtubed.Tests.Integration
 
             var claims = await Task.WhenAll(firstClaim, secondClaim);
 
-            Assert.Single(claims.Where(claim => claim != null));
-            Assert.Equal("eligible", claims.Single(claim => claim != null).Id);
+            var winner = Assert.Single(claims, claim => claim != null);
+            Assert.Equal("eligible", winner.Id);
+            Assert.Equal("https://www.youtube.com/channel/eligible", winner.Url);
+            Assert.Equal("Eligible", winner.Title);
+            Assert.Equal("a.png", winner.Thumbnail);
         }
 
         [LocalDbFact]

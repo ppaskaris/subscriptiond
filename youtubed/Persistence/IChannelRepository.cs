@@ -8,6 +8,7 @@ namespace youtubed.Persistence
     {
         Task<ChannelModel> GetByUrlAsync(string url);
         Task SaveDiscoveredChannelAsync(ChannelModel channel, DateTimeOffset staleAfter);
+        Task UpdateMetadataAsync(string id, string title, string thumbnail);
         Task<StaleChannelModel> ClaimNextStaleChannelAsync(DateTimeOffset now, DateTimeOffset visibleAfter);
         Task<int> RemoveOrphanChannelsAsync(DateTimeOffset now);
     }

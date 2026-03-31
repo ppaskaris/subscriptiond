@@ -144,6 +144,9 @@ namespace youtubed.Tests.Integration
 
             Assert.NotNull(claimed);
             Assert.Equal("eligible-oldest", claimed.Id);
+            Assert.Equal("https://www.youtube.com/channel/eligible-oldest", claimed.Url);
+            Assert.Equal("Eligible Oldest", claimed.Title);
+            Assert.Equal("a.png", claimed.Thumbnail);
             Assert.Equal("playlist-a", claimed.PlaylistId);
             Assert.True(visibleAfter > now);
         }
@@ -191,6 +194,104 @@ namespace youtubed.Tests.Integration
 
             Assert.NotNull(retryClaim);
             Assert.Equal("eligible", retryClaim.Id);
+        }
+
+        [LocalDbFact]
+        public async Task RefreshMetadataAsync_UpdatesChangedTitleAndThumbnail()
+        {
+            const string url = "https://www.youtube.com/channel/channel-refresh";
+
+            await ExecuteAsync(
+                @"
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
+                VALUES (N'channel-refresh', @url, N'Original Title', N'old.png', N'playlist-refresh', @staleAfter, @visibleAfter);
+                ",
+                new
+                {
+                    url,
+                    staleAfter = DateTimeOffset.UtcNow.AddMinutes(-5),
+                    visibleAfter = DateTimeOffset.UtcNow.AddMinutes(-5)
+                });
+
+            _youtubeService.SetChannel(url, new YoutubeChannel
+            {
+                Id = "channel-refresh",
+                Title = "Updated Title",
+                Thumbnail = "new.png",
+                PlaylistId = "playlist-refresh"
+            });
+
+            await _service.RefreshMetadataAsync(new StaleChannelModel
+            {
+                Id = "channel-refresh",
+                Url = url,
+                Title = "Original Title",
+                Thumbnail = "old.png",
+                PlaylistId = "playlist-refresh"
+            });
+
+            var persisted = await QuerySingleAsync<(string Title, string Thumbnail, string PlaylistId)>(
+                @"
+                SELECT Title, Thumbnail, PlaylistId
+                FROM Channel
+                WHERE Id = N'channel-refresh';
+                ");
+
+            Assert.Equal("Updated Title", persisted.Title);
+            Assert.Equal("new.png", persisted.Thumbnail);
+            Assert.Equal("playlist-refresh", persisted.PlaylistId);
+        }
+
+        [LocalDbFact]
+        public async Task RefreshMetadataAsync_UnchangedMetadataSkipsDatabaseUpdate()
+        {
+            const string url = "https://www.youtube.com/channel/channel-same";
+            var staleAfter = DateTimeOffset.UtcNow.AddMinutes(-5);
+            var visibleAfter = DateTimeOffset.UtcNow.AddMinutes(-5);
+
+            await ExecuteAsync(
+                @"
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
+                VALUES (N'channel-same', @url, N'Same Title', N'same.png', N'playlist-same', @staleAfter, @visibleAfter);
+                ",
+                new
+                {
+                    url,
+                    staleAfter,
+                    visibleAfter
+                });
+
+            _youtubeService.SetChannel(url, new YoutubeChannel
+            {
+                Id = "channel-same",
+                Title = "Same Title",
+                Thumbnail = "same.png",
+                PlaylistId = "playlist-same"
+            });
+
+            await _service.RefreshMetadataAsync(new StaleChannelModel
+            {
+                Id = "channel-same",
+                Url = url,
+                Title = "Same Title",
+                Thumbnail = "same.png",
+                PlaylistId = "playlist-same"
+            });
+
+            var persisted = await QuerySingleAsync<(string Title, string Thumbnail, string PlaylistId, DateTimeOffset StaleAfter, DateTimeOffset VisibleAfter)>(
+                @"
+                SELECT Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter
+                FROM Channel
+                WHERE Id = N'channel-same';
+                ");
+
+            Assert.Equal("Same Title", persisted.Title);
+            Assert.Equal("same.png", persisted.Thumbnail);
+            Assert.Equal("playlist-same", persisted.PlaylistId);
+            Assert.Equal(staleAfter, persisted.StaleAfter);
+            Assert.Equal(visibleAfter, persisted.VisibleAfter);
+            Assert.Equal(1, _youtubeService.GetChannelCallCount);
+            Assert.Equal(url, _youtubeService.LastChannelUrl);
         }
 
         [LocalDbFact]

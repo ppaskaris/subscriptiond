@@ -23,6 +23,8 @@ namespace youtubed.Tests.Infrastructure
 
         public DateTimeOffset? LastPublishedAfter { get; private set; }
 
+        public string LastChannelUrl { get; private set; }
+
         public void SetChannel(string url, YoutubeChannel channel)
         {
             _channelsByUrl[url] = channel;
@@ -41,6 +43,7 @@ namespace youtubed.Tests.Infrastructure
         public Task<YoutubeChannel> GetChannelAsync(string url)
         {
             GetChannelCallCount++;
+            LastChannelUrl = url;
             _channelsByUrl.TryGetValue(url, out var channel);
             return Task.FromResult(channel);
         }

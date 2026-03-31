@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Humanizer;
 using youtubed.Models;
 using youtubed.Services;
 
@@ -56,7 +57,18 @@ namespace youtubed.Tests.Infrastructure
                     Id = ExistingList.Id,
                     Title = ExistingList.Title,
                     Token = ExistingList.TokenString,
-                    Videos = Array.Empty<VideoViewModel>(),
+                    Videos = new[]
+                    {
+                        new VideoViewModel
+                        {
+                            VideoId = "video-1",
+                            VideoTitle = "Test &amp; Video",
+                            VideoThumbnail = "https://example.com/video-1.jpg",
+                            ChannelTitle = "Test Channel",
+                            ChannelUrl = "https://www.youtube.com/channel/channel-1",
+                            VideoPublishedAt = DateTimeOffset.UtcNow.Subtract(5.Minutes())
+                        }
+                    },
                     Channels = Array.Empty<ChannelModel>(),
                     ExpiredAfter = DateTimeOffset.UtcNow.AddDays(7)
                 }

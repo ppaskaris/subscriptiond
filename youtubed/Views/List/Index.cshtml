@@ -36,11 +36,12 @@
 }
 @{
     var videoCount = Model.Videos.Count();
+    var renderedVideos = Model.Videos.Take(Constants.ListRenderMaxItems).ToList();
 }
 @if (videoCount > 0)
 {
-    <ol class="list-unstyled clearfix">
-        @foreach (var video in Model.Videos.Take(Constants.ListRenderMaxItems))
+    <ol class="list-unstyled video-list">
+        @foreach (var video in renderedVideos)
         {
             <li class="video-item">
                 <a class="video-link" href="@video.VideoUrl" rel="noopener noreferrer" referrerpolicy="no-referrer">
@@ -53,6 +54,7 @@
                 <time class="video-published-at" datetime="@video.VideoPublishedAt.ToString("o")" title="@video.VideoPublishedAt.ToString("g")">@video.VideoPublishedAt.Humanize()</time>
             </li>
         }
+        <li class="video-item video-item-filler" aria-hidden="true"></li>
     </ol>
     @if (videoCount > Constants.ListRenderMaxItems)
     {

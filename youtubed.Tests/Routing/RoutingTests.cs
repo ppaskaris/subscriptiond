@@ -105,6 +105,22 @@ namespace youtubed.Tests.Routing
             Assert.Contains($"href=\"{expectedBasePath}/delete\"", content);
         }
 
+        [Fact]
+        public async Task ListPage_RendersResponsiveVideoGridMarkup()
+        {
+            using var client = _factory.CreateClient();
+
+            var content = await client.GetStringAsync(
+                $"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}");
+
+            Assert.Contains("<ol class=\"list-unstyled video-list\">", content);
+            Assert.Contains("<li class=\"video-item\">", content);
+            Assert.Contains("<li class=\"video-item video-item-filler\" aria-hidden=\"true\"></li>", content);
+            Assert.Contains("class=\"video-image\"", content);
+            Assert.Contains("width=\"224\"", content);
+            Assert.Contains("height=\"126\"", content);
+        }
+
         [Theory]
         [MemberData(nameof(FormPagePaths))]
         public async Task FormPages_RenderValidationScriptsFromCdn(string path)

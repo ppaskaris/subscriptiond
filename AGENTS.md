@@ -57,6 +57,7 @@
 - Preserve the anonymous secret-link model unless the user explicitly asks for authentication or accounts.
 - If changing persistence, inspect both Dapper SQL and the schema together; behavior is encoded in both places.
 - Check for user changes before editing; the worktree may already contain unrelated files.
+- When interpolating the placeholder `%MODEL_NAME%`, the value should be the full model name. For example: `GPT-5.4` and not a shortened variant like `GPT-5`.
 
 ## Commit Convention
 
@@ -72,7 +73,6 @@
 
 - `rg` is not available in this environment; prefer PowerShell-native search commands like `Get-ChildItem`, `Select-String`, and `Get-Content` when locating files or text.
 - When creating GitHub issues or pull requests, append this exact footer at the end of the body text: `Created-By: Codex %MODEL_NAME%`
-- `%MODEL_NAME%` should be the full model name, for example `GPT-5.4`, not a shortened variant like `GPT-5`.
 - Long-running tooling (tests, docker compose, migrations, etc.) must always be invoked with sensible timeouts or in non-interactive batch mode. Never leave a shell command waiting indefinitely—prefer explicit timeouts, scripted runs, or log polling after the command exits.
 - The `dotnet` CLI will need network access and inside your sandbox you always have to run those commands with `with_escalated_permissions: true` on the `shell` tool call and include a one-sentence justification (e.g., "Need network access for npm install/build").
 - Ensure to include the `with_escalated_permissions` for all builds, restores, migrations, installs, tests, etc where network access is required otherwise the command will hang.

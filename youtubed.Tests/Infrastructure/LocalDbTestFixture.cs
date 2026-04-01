@@ -54,6 +54,7 @@ namespace youtubed.Tests.Infrastructure
             await connection.OpenAsync();
             await connection.ExecuteAsync(
                 @"
+                DELETE FROM ShareLink;
                 DELETE FROM ListChannel;
                 DELETE FROM ChannelVideo;
                 DELETE FROM List;

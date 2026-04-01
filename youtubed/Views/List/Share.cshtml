@@ -1,0 +1,65 @@
+@model ShareListViewModel
+
+@{
+    ViewData["Title"] = "Share";
+}
+
+<h1>Share @Model.Title</h1>
+<p>
+    Create a short one-time share link to open this list on another device.
+    Type or copy the link exactly as shown below. Each link works once and
+    expires in about <strong>1 hour</strong>.
+</p>
+
+@if (Model.HasLinks)
+{
+    <ol class="list-unstyled">
+        @foreach (var shareLink in Model.ShareLinks)
+        {
+            var statusClass = shareLink.Status == "Active"
+                ? "label label-success"
+                : shareLink.Status == "Used"
+                    ? "label label-default"
+                    : "label label-warning";
+            <li class="panel panel-default">
+                <div class="panel-body">
+                    <p>
+                        <span class="@statusClass">@shareLink.Status</span>
+                    </p>
+                    <div class="form-group">
+                        <label>Share link</label>
+                        <input class="form-control" readonly value="@shareLink.ShareUrl" />
+                    </div>
+                    @if (shareLink.UsedAt != null)
+                    {
+                        <p>Used <time datetime="@shareLink.UsedAt.Value.ToString("o")" title="@shareLink.UsedAt.Value.ToString("g")">@shareLink.UsedAt.Value.Humanize()</time>.</p>
+                    }
+                    else
+                    {
+                        <p>Expires <time datetime="@shareLink.ExpiresAfter.ToString("o")" title="@shareLink.ExpiresAfter.ToString("g")">@shareLink.ExpiresAfter.Humanize()</time>.</p>
+                    }
+                    <form asp-action="DeleteShareLink" asp-route-token="@Model.Token" asp-route-id="@Model.ListId" style="display:inline-block">
+                        <input type="hidden" name="password" value="@shareLink.Password" />
+                        <input type="submit" value="Delete" class="btn btn-danger btn-sm" />
+                    </form>
+                </div>
+            </li>
+        }
+    </ol>
+}
+else
+{
+    <p>
+        <em>No share links yet.</em>
+    </p>
+}
+
+<div>
+    <a class="btn btn-default" asp-action="Index" asp-route-token="@Model.Token" asp-route-id="@Model.ListId" style="display:inline-block">Back</a>
+    <form asp-action="CreateShareLink" asp-route-token="@Model.Token" asp-route-id="@Model.ListId" style="display:inline-block">
+        <input type="submit" value="Create share link" class="btn btn-primary" />
+    </form>
+    <form asp-action="DeleteAllShareLinks" asp-route-token="@Model.Token" asp-route-id="@Model.ListId" style="display:inline-block">
+        <input type="submit" value="Delete all share links" class="btn btn-danger" @(Model.HasLinks ? null : "disabled") />
+    </form>
+</div>

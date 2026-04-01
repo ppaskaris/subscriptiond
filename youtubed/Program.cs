@@ -31,12 +31,14 @@ builder.Services.AddSingleton<IConnectionFactory>(
     new ConnectionStringConnectionFactory(builder.Configuration.GetConnectionString("Main")));
 builder.Services.AddSingleton<IYoutubeService, YoutubeService>();
 builder.Services.AddSingleton<IListRepository, ListRepository>();
+builder.Services.AddSingleton<IShareLinkRepository, ShareLinkRepository>();
 builder.Services.AddSingleton<IChannelRepository, ChannelRepository>();
 builder.Services.AddSingleton<IChannelVideoRepository, ChannelVideoRepository>();
 
 builder.Services.AddSingleton<IChannelService, ChannelService>();
 builder.Services.AddSingleton<IChannelVideoService, ChannelVideoService>();
 builder.Services.AddSingleton<IListService, ListService>();
+builder.Services.AddSingleton<IShareLinkService, ShareLinkService>();
 
 builder.Services.AddSingleton<IHostedService, MaintenanceHostedService>();
 builder.Services.AddSingleton<IHostedService, UpdateChannelHostedService>();

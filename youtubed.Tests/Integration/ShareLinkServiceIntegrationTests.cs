@@ -83,7 +83,7 @@ namespace youtubed.Tests.Integration
         }
 
         [LocalDbFact]
-        public async Task DeleteShareLinkAsync_RemovesOnlyTargetPassword()
+        public async Task DeleteShareLinkInListAsync_RemovesOnlyTargetPassword()
         {
             var listId = Guid.NewGuid();
 
@@ -102,7 +102,7 @@ namespace youtubed.Tests.Integration
                     expiresAfter = DateTimeOffset.UtcNow.AddMinutes(30)
                 });
 
-            await _service.DeleteShareLinkAsync("delete-link");
+            await _service.DeleteShareLinkInListAsync(listId, "delete-link");
 
             var remaining = await QueryAsync<string>("SELECT Password FROM ShareLink ORDER BY Password;");
 
@@ -110,7 +110,7 @@ namespace youtubed.Tests.Integration
         }
 
         [LocalDbFact]
-        public async Task DeleteShareLinkAsync_DoesNotAffectOtherLists()
+        public async Task DeleteShareLinkInListAsync_DoesNotAffectOtherLists()
         {
             var listA = Guid.NewGuid();
             var listB = Guid.NewGuid();
@@ -132,7 +132,7 @@ namespace youtubed.Tests.Integration
                     expiresAfter = DateTimeOffset.UtcNow.AddMinutes(30)
                 });
 
-            await _service.DeleteShareLinkAsync("list-a-link");
+            await _service.DeleteShareLinkInListAsync(listA, "list-a-link");
 
             var remaining = await QueryAsync<string>("SELECT Password FROM ShareLink ORDER BY Password;");
 

@@ -9,7 +9,7 @@ namespace youtubed.Services
     {
         Task<ShareLinkModel> CreateShareLinkAsync(Guid listId);
         Task<IReadOnlyList<ShareLinkModel>> GetShareLinksAsync(Guid listId);
-        Task DeleteShareLinkAsync(string password);
+        Task DeleteShareLinkInListAsync(Guid listId, string password);
         Task DeleteShareLinksAsync(Guid listId);
         Task<ConsumedShareLinkModel> ConsumeShareLinkAsync(string password);
         Task<int> RemoveExpiredShareLinksAsync();

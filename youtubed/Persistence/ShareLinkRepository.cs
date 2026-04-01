@@ -52,15 +52,16 @@ namespace youtubed.Persistence
             return rows.AsList();
         }
 
-        public async Task DeleteAsync(string password)
+        public async Task DeleteAsync(Guid listId, string password)
         {
             using var connection = _connectionFactory.CreateConnection();
             await connection.ExecuteAsync(
                 @"
                 DELETE FROM ShareLink
-                WHERE Password = @password;
+                WHERE ListId = @listId
+                  AND Password = @password;
                 ",
-                new { password });
+                new { listId, password });
         }
 
         public async Task DeleteByListAsync(Guid listId)

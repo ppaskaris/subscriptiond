@@ -51,9 +51,9 @@ namespace youtubed.Services
             return _shareLinkRepository.GetByListAsync(listId);
         }
 
-        public Task DeleteShareLinkAsync(string password)
+        public Task DeleteShareLinkInListAsync(Guid listId, string password)
         {
-            return _shareLinkRepository.DeleteAsync(password);
+            return _shareLinkRepository.DeleteAsync(listId, password);
         }
 
         public Task DeleteShareLinksAsync(Guid listId)

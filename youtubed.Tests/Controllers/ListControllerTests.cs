@@ -509,19 +509,10 @@ namespace youtubed.Tests.Controllers
             var list = CreateList(id);
             var listService = CreateListServiceReturning(id, list);
             Assert.IsType<NotFoundResult>(await CreateController(listService: listService).DeleteShareLink(id, "wrong", "password"));
+            Assert.IsType<BadRequestResult>(await CreateController(listService: listService).DeleteShareLink(id, list.TokenString, null));
 
             var shareLinkService = new Mock<IShareLinkService>(MockBehavior.Strict);
-            shareLinkService
-                .Setup(service => service.GetShareLinksAsync(id))
-                .ReturnsAsync(new[]
-                {
-                    new ShareLinkModel
-                    {
-                        Password = "password",
-                        ListId = id
-                    }
-                });
-            shareLinkService.Setup(service => service.DeleteShareLinkAsync("password")).Returns(Task.CompletedTask);
+            shareLinkService.Setup(service => service.DeleteShareLinkInListAsync(id, "password")).Returns(Task.CompletedTask);
 
             var result = await CreateController(listService: listService, shareLinkService: shareLinkService)
                 .DeleteShareLink(id, list.TokenString, "password");
@@ -530,33 +521,7 @@ namespace youtubed.Tests.Controllers
             Assert.Equal("Share", redirect.ActionName);
             Assert.Equal(list.TokenString, redirect.RouteValues["token"]);
             Assert.Equal(id, redirect.RouteValues["id"]);
-            shareLinkService.Verify(service => service.DeleteShareLinkAsync("password"), Times.Once);
-        }
-
-        [Fact]
-        public async Task DeleteShareLinkPost_PasswordFromAnotherList_DoesNotDelete()
-        {
-            var id = Guid.NewGuid();
-            var list = CreateList(id);
-            var listService = CreateListServiceReturning(id, list);
-            var shareLinkService = new Mock<IShareLinkService>(MockBehavior.Strict);
-            shareLinkService
-                .Setup(service => service.GetShareLinksAsync(id))
-                .ReturnsAsync(new[]
-                {
-                    new ShareLinkModel
-                    {
-                        Password = "different-password",
-                        ListId = id
-                    }
-                });
-
-            var result = await CreateController(listService: listService, shareLinkService: shareLinkService)
-                .DeleteShareLink(id, list.TokenString, "password");
-
-            var redirect = Assert.IsType<RedirectToActionResult>(result);
-            Assert.Equal("Share", redirect.ActionName);
-            shareLinkService.Verify(service => service.DeleteShareLinkAsync(It.IsAny<string>()), Times.Never);
+            shareLinkService.Verify(service => service.DeleteShareLinkInListAsync(id, "password"), Times.Once);
         }
 
         private static ListController CreateController(

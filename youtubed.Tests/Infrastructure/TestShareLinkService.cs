@@ -42,7 +42,7 @@ namespace youtubed.Tests.Infrastructure
 
         public Task DeleteShareLinksAsync(Guid listId) => Task.CompletedTask;
 
-        public Task DeleteShareLinkAsync(string password) => Task.CompletedTask;
+        public Task DeleteShareLinkInListAsync(Guid listId, string password) => Task.CompletedTask;
 
         public Task<ConsumedShareLinkModel> ConsumeShareLinkAsync(string password)
         {

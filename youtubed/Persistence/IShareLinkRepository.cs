@@ -9,7 +9,7 @@ namespace youtubed.Persistence
     {
         Task<bool> TryCreateAsync(ShareLinkModel shareLink);
         Task<IReadOnlyList<ShareLinkModel>> GetByListAsync(Guid listId);
-        Task DeleteAsync(string password);
+        Task DeleteAsync(Guid listId, string password);
         Task DeleteByListAsync(Guid listId);
         Task<ConsumedShareLinkModel> ConsumeAsync(string password, DateTimeOffset now);
         Task<int> RemoveExpiredAsync(DateTimeOffset deleteBefore);

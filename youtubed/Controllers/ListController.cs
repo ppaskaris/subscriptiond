@@ -385,14 +385,12 @@ namespace youtubed.Controllers
                 return NotFound();
             }
 
-            if (!string.IsNullOrWhiteSpace(password))
+            if (string.IsNullOrWhiteSpace(password))
             {
-                var shareLinks = await _shareLinkService.GetShareLinksAsync(list.Id);
-                if (shareLinks.Any(shareLink => string.Equals(shareLink.Password, password, StringComparison.Ordinal)))
-                {
-                    await _shareLinkService.DeleteShareLinkAsync(password);
-                }
+                return BadRequest();
             }
+
+            await _shareLinkService.DeleteShareLinkInListAsync(list.Id, password);
 
             return RedirectToAction(nameof(Share), new { token = list.TokenString, id = list.Id });
         }

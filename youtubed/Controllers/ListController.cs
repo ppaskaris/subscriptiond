@@ -14,13 +14,16 @@ namespace youtubed.Controllers
     {
         private readonly IListService _listService;
         private readonly IChannelService _channelService;
+        private readonly IShareLinkService _shareLinkService;
 
         public ListController(
             IListService listService,
-            IChannelService channelService)
+            IChannelService channelService,
+            IShareLinkService shareLinkService)
         {
             _listService = listService;
             _channelService = channelService;
+            _shareLinkService = shareLinkService;
         }
 
         [HttpGet]
@@ -263,6 +266,162 @@ namespace youtubed.Controllers
             await _listService.RemoveChannelAsync(list.Id, model.ChannelId);
 
             return RedirectToAction("Index", new { token = list.TokenString, id = list.Id });
+        }
+
+        [HttpGet, Route("share")]
+        public async Task<IActionResult> Share(Guid? id, string token)
+        {
+            if (id == null)
+            {
+                return BadRequest();
+            }
+            if (token == null)
+            {
+                return BadRequest();
+            }
+
+            var list = await _listService.GetListAsync(id.Value);
+            if (list == null)
+            {
+                return NotFound();
+            }
+            if (TokenUtils.NotEqual(token, list.TokenString))
+            {
+                return NotFound();
+            }
+
+            var shareLinks = await _shareLinkService.GetShareLinksAsync(list.Id);
+            var now = DateTimeOffset.Now;
+
+            return View(new ShareListViewModel
+            {
+                ListId = list.Id,
+                Token = list.TokenString,
+                Title = list.Title,
+                ShareLinks = shareLinks.Select(shareLink => new ShareLinkListItemViewModel
+                {
+                    Password = shareLink.Password,
+                    ShareUrl = CreateShareUrl(shareLink.Password),
+                    ExpiresAfter = shareLink.ExpiresAfter,
+                    UsedAt = shareLink.UsedAt,
+                    Status = GetStatus(shareLink, now)
+                })
+            });
+        }
+
+        [HttpPost, Route("share/create")]
+        public async Task<IActionResult> CreateShareLink(Guid? id, string token)
+        {
+            if (id == null)
+            {
+                return BadRequest();
+            }
+            if (token == null)
+            {
+                return BadRequest();
+            }
+
+            var list = await _listService.GetListAsync(id.Value);
+            if (list == null)
+            {
+                return NotFound();
+            }
+            if (TokenUtils.NotEqual(token, list.TokenString))
+            {
+                return NotFound();
+            }
+
+            await _shareLinkService.CreateShareLinkAsync(list.Id);
+
+            return RedirectToAction(nameof(Share), new { token = list.TokenString, id = list.Id });
+        }
+
+        [HttpPost, Route("share/delete-all")]
+        public async Task<IActionResult> DeleteAllShareLinks(Guid? id, string token)
+        {
+            if (id == null)
+            {
+                return BadRequest();
+            }
+            if (token == null)
+            {
+                return BadRequest();
+            }
+
+            var list = await _listService.GetListAsync(id.Value);
+            if (list == null)
+            {
+                return NotFound();
+            }
+            if (TokenUtils.NotEqual(token, list.TokenString))
+            {
+                return NotFound();
+            }
+
+            await _shareLinkService.DeleteShareLinksAsync(list.Id);
+
+            return RedirectToAction(nameof(Share), new { token = list.TokenString, id = list.Id });
+        }
+
+        [HttpPost, Route("share/delete")]
+        public async Task<IActionResult> DeleteShareLink(Guid? id, string token, string password)
+        {
+            if (id == null)
+            {
+                return BadRequest();
+            }
+            if (token == null)
+            {
+                return BadRequest();
+            }
+
+            var list = await _listService.GetListAsync(id.Value);
+            if (list == null)
+            {
+                return NotFound();
+            }
+            if (TokenUtils.NotEqual(token, list.TokenString))
+            {
+                return NotFound();
+            }
+
+            if (!string.IsNullOrWhiteSpace(password))
+            {
+                var shareLinks = await _shareLinkService.GetShareLinksAsync(list.Id);
+                if (shareLinks.Any(shareLink => string.Equals(shareLink.Password, password, StringComparison.Ordinal)))
+                {
+                    await _shareLinkService.DeleteShareLinkAsync(password);
+                }
+            }
+
+            return RedirectToAction(nameof(Share), new { token = list.TokenString, id = list.Id });
+        }
+
+        private static string GetStatus(ShareLinkModel shareLink, DateTimeOffset now)
+        {
+            if (shareLink.UsedAt != null)
+            {
+                return "Used";
+            }
+
+            return shareLink.ExpiresAfter <= now
+                ? "Expired"
+                : "Active";
+        }
+
+        private string CreateShareUrl(string password)
+        {
+            if (Url == null || HttpContext?.Request == null || !Request.Host.HasValue)
+            {
+                return $"/share/{password}";
+            }
+
+            return Url.Action(
+                "Resolve",
+                "Share",
+                new { sharePassword = password },
+                Request.Scheme,
+                Request.Host.Value);
         }
     }
 }

@@ -102,7 +102,38 @@ namespace youtubed.Tests.Routing
             Assert.Contains($"href=\"{expectedBasePath}\"", content);
             Assert.Contains($"href=\"{expectedBasePath}/add-channel\"", content);
             Assert.Contains($"href=\"{expectedBasePath}/edit\"", content);
+            Assert.Contains($"href=\"{expectedBasePath}/share\"", content);
             Assert.Contains($"href=\"{expectedBasePath}/delete\"", content);
+        }
+
+        [Fact]
+        public async Task ShareRoute_ResolvesToCanonicalListRoute()
+        {
+            using var client = _factory.CreateClient(new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+            var response = await client.GetAsync($"/share/{TestShareLinkService.ExistingPassword}");
+
+            Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+            Assert.Equal(
+                $"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}",
+                response.Headers.Location?.OriginalString);
+        }
+
+        [Fact]
+        public async Task UnknownShareRoute_ReturnsNotFoundErrorPageRedirect()
+        {
+            using var client = _factory.CreateClient(new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false
+            });
+
+            var response = await client.GetAsync("/share/missing-link");
+
+            Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
+            Assert.Equal("/error/404", response.Headers.Location?.OriginalString);
         }
 
         [Fact]
@@ -148,6 +179,26 @@ namespace youtubed.Tests.Routing
             {
                 $"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}/edit"
             };
+        }
+
+        [Fact]
+        public Task ShareManagementRoute_RemainsReachable()
+        {
+            return PublicGetRoutes_ReturnSuccess(
+                $"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}/share");
+        }
+
+        [Fact]
+        public async Task ShareManagementPage_RendersPerItemDeleteButton()
+        {
+            using var client = _factory.CreateClient();
+
+            var content = await client.GetStringAsync(
+                $"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}/share");
+
+            Assert.Contains("value=\"Delete\"", content);
+            Assert.Contains("name=\"password\"", content);
+            Assert.Contains($"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}/share/delete", content);
         }
     }
 }

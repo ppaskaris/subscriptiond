@@ -12,15 +12,18 @@ namespace youtubed.Services
     {
         private readonly IChannelService _channelService;
         private readonly IListService _listService;
+        private readonly IShareLinkService _shareLinkService;
         private readonly ILogger _logger;
 
         public MaintenanceHostedService(
             IChannelService channelService,
             IListService listService,
+            IShareLinkService shareLinkService,
             ILogger<MaintenanceHostedService> logger)
         {
             _channelService = channelService;
             _listService = listService;
+            _shareLinkService = shareLinkService;
             _logger = logger;
         }
 
@@ -40,6 +43,20 @@ namespace youtubed.Services
                 catch (Exception ex)
                 {
                     _logger.LogError("Exception thrown while removing expired lists.");
+                    _logger.LogError(ex.ToString());
+                }
+                try
+                {
+                    _logger.LogInformation("Checking for expired share links.");
+                    var removeCount = await _shareLinkService.RemoveExpiredShareLinksAsync();
+                    if (removeCount > 0)
+                    {
+                        _logger.LogInformation("Removed {0} expired share links.", removeCount);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError("Exception thrown while removing expired share links.");
                     _logger.LogError(ex.ToString());
                 }
                 try

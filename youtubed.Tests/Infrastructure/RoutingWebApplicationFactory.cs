@@ -36,6 +36,15 @@ namespace youtubed.Tests.Infrastructure
                     services.Remove(registration);
                 }
 
+                var shareLinkServiceRegistrations = services
+                    .Where(service => service.ServiceType == typeof(IShareLinkService))
+                    .ToList();
+
+                foreach (var registration in shareLinkServiceRegistrations)
+                {
+                    services.Remove(registration);
+                }
+
                 services.PostConfigure<MvcOptions>(options =>
                 {
                     var antiforgeryFilter = options.Filters
@@ -49,6 +58,7 @@ namespace youtubed.Tests.Infrastructure
                 });
 
                 services.AddSingleton<IListService, TestListService>();
+                services.AddSingleton<IShareLinkService, TestShareLinkService>();
             });
         }
     }

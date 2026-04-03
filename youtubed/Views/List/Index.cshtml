@@ -47,6 +47,7 @@
                 <a class="video-link" href="@video.VideoUrl" rel="noopener noreferrer" referrerpolicy="no-referrer">
                     <div class="video-image">
                         <img src="@video.VideoThumbnail" referrerpolicy="no-referrer" width="224" height="126" loading="lazy" />
+                        <span class="video-duration">@video.FormattedVideoDuration</span>
                     </div>
                     <span class="video-title">@WebUtility.HtmlDecode(video.VideoTitle)</span>
                 </a>

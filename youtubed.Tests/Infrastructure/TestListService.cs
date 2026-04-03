@@ -63,6 +63,7 @@ namespace youtubed.Tests.Infrastructure
                         {
                             VideoId = "video-1",
                             VideoTitle = "Test &amp; Video",
+                            VideoDuration = TimeSpan.FromMinutes(12).Add(TimeSpan.FromSeconds(34)),
                             VideoThumbnail = "https://example.com/video-1.jpg",
                             ChannelTitle = "Test Channel",
                             ChannelUrl = "https://www.youtube.com/channel/channel-1",

@@ -112,6 +112,7 @@ namespace youtubed.Tests.Integration
             Assert.Equal(1, view.StaleCount);
             Assert.Equal("video-new", view.Videos.Select(video => video.VideoId).First());
             Assert.Equal(new[] { "video-new", "video-mid", "video-old" }, view.Videos.Select(video => video.VideoId).ToArray());
+            Assert.Equal(TimeSpan.FromMinutes(5), view.Videos.Select(video => video.VideoDuration).First());
             Assert.Equal(new[] { "Alpha", "Beta" }, view.Channels.Select(channel => channel.Title).ToArray());
             Assert.True(view.ExpiredAfter > originalExpiry);
             Assert.Equal(view.ExpiredAfter, refreshedExpiry);

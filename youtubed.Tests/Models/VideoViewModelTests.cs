@@ -22,6 +22,7 @@ namespace youtubed.Tests.Models
         [Theory]
         [InlineData(3600, "1:00:00")]
         [InlineData(3723, "1:02:03")]
+        [InlineData(9915, "2:45:15")]
         public void FormattedVideoDuration_OneHourOrMore_UsesHourMinuteSecondFormat(int totalSeconds, string expected)
         {
             var model = new VideoViewModel

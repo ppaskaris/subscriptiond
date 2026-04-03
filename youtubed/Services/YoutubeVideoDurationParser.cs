@@ -41,7 +41,7 @@ namespace youtubed.Services
                     continue;
                 }
 
-                if (duration <= TimeSpan.FromMinutes(3))
+                if (duration <= Constants.ShortsMaxDuration)
                 {
                     continue;
                 }

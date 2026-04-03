@@ -58,11 +58,11 @@ namespace youtubed.Tests.Services
         {
             var result = YoutubeVideoDurationParser.ParseById(new[]
             {
-                new KeyValuePair<string, string>("video-1", "PT1M"),
-                new KeyValuePair<string, string>("video-1", "PT2M")
+                new KeyValuePair<string, string>("video-1", "PT4M"),
+                new KeyValuePair<string, string>("video-1", "PT5M")
             });
 
-            Assert.Equal(TimeSpan.FromMinutes(2), result["video-1"]);
+            Assert.Equal(TimeSpan.FromMinutes(5), result["video-1"]);
         }
     }
 }

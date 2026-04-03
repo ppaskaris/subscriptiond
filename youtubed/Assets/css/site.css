@@ -24,7 +24,6 @@ body {
 
 .video-item {
     border-radius: 4px;
-    padding: 8px;
     display: flex;
     flex: 1 1 224px;
     flex-direction: column;

@@ -53,7 +53,7 @@
 ## Safe Assumptions For Future Sessions
 
 - Prefer small, local changes over sweeping rewrites unless explicitly requested.
-- Treat `bin/`, `obj/`, and generated publish output as noise unless the task is about build or deployment. Ignore these directories when running tools to search for files or text.
+- Treat build output and other Git-ignored files as noise unless the task is about build or deployment. When running repo searches, respect the full `.gitignore` instead of recursively scanning the tree and filtering only a few known directories.
 - Preserve the anonymous secret-link model unless the user explicitly asks for authentication or accounts.
 - If changing persistence, inspect both Dapper SQL and the schema together; behavior is encoded in both places.
 - Check for user changes before editing; the worktree may already contain unrelated files.
@@ -62,6 +62,7 @@
 ## Commit Convention
 
 - Commit messages should end with a Git trailer in this exact form: `Co-Authored-By: Codex %MODEL_NAME%`
+- When a thread is fixing a GitHub issue, include a GitHub-closing magic comment such as `Closes #12` in the commit description/body so the issue closes automatically when the commit lands.
 - Before creating or amending a commit, assess the change severity and update [`youtubed/youtubed.csproj`](youtubed/youtubed.csproj) `AssemblyVersion` in the same change when the shipped code meaningfully changes.
 - `AssemblyVersion` must stay in `major.minor.build.revision` format.
 - Increment `major` for breaking changes or major platform/application shifts, then reset `minor`, `build`, and `revision` to `0`.
@@ -71,7 +72,7 @@
 
 ## Tips for Agents
 
-- `rg` is not available in this environment; prefer PowerShell-native search commands like `Get-ChildItem`, `Select-String`, and `Get-Content` when locating files or text.
+- `rg` is not available in this environment; prefer PowerShell-native search commands like `Select-String` and `Get-Content`, but scope repo searches with Git first so ignored files stay excluded. Use `git ls-files --cached --others --exclude-standard` to enumerate searchable files, then pass that list to `Select-String` or similar read-only commands. If a command cannot consume the list directly, use a short PowerShell helper that shells out to `git ls-files --cached --others --exclude-standard` and filters the search to those paths.
 - When creating GitHub issues or pull requests, append this exact footer at the end of the body text: `Created-By: Codex %MODEL_NAME%`
 - Long-running tooling (tests, docker compose, migrations, etc.) must always be invoked with sensible timeouts or in non-interactive batch mode. Never leave a shell command waiting indefinitely—prefer explicit timeouts, scripted runs, or log polling after the command exits.
 - The `dotnet` CLI will need network access and inside your sandbox you always have to run those commands with `with_escalated_permissions: true` on the `shell` tool call and include a one-sentence justification (e.g., "Need network access for npm install/build").

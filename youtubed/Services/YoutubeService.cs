@@ -113,14 +113,10 @@ namespace youtubed.Services
 
                 var response = await request.ExecuteAsync();
                 nextPageToken = response.NextPageToken;
+                var itemsToEnrich = new List<(PlaylistItem Item, DateTimeOffset PublishedAt)>();
                 foreach (var item in response.Items)
                 {
                     if (item.Snippet.ResourceId.Kind != "youtube#video")
-                    {
-                        continue;
-                    }
-
-                    if (MaybeShort(item))
                     {
                         continue;
                     }
@@ -134,7 +130,7 @@ namespace youtubed.Services
                     //
 
                     var publishedAt = item.ContentDetails.VideoPublishedAtDateTimeOffset;
-                    if (publishedAt < publishedAfter)
+                    if (publishedAt == null || publishedAt < publishedAfter)
                     {
                         // Stop after this page. We might as well finish
                         // reading the current page since we already paid for
@@ -143,32 +139,54 @@ namespace youtubed.Services
                         continue;
                     }
 
-                    var result = new YoutubeVideo
+                    itemsToEnrich.Add((item, publishedAt.Value));
+                }
+
+                var durationsById = await GetDurationsByIdAsync(
+                    itemsToEnrich
+                        .Select(value => value.Item.Snippet.ResourceId.VideoId)
+                        .Where(value => !string.IsNullOrWhiteSpace(value))
+                        .ToList());
+
+                foreach (var (item, publishedAt) in itemsToEnrich)
+                {
+                    var videoId = item.Snippet.ResourceId.VideoId;
+                    if (!durationsById.TryGetValue(videoId, out var duration))
+                    {
+                        continue;
+                    }
+
+                    results.Add(new YoutubeVideo
                     {
                         ChannelId = item.Snippet.ChannelId,
-                        Id = item.Snippet.ResourceId.VideoId,
+                        Id = videoId,
                         Title = item.Snippet.Title,
-                        Duration = TimeSpan.FromMinutes(5),
-                        PublishedAt = publishedAt.Value,
+                        Duration = duration,
+                        PublishedAt = publishedAt,
                         Thumbnail = PickThumbnail(item.Snippet.Thumbnails)
-                    };
-                    results.Add(result);
+                    });
                 }
             } while (nextPageToken != null);
 
             return results;
         }
 
-        private bool MaybeShort(PlaylistItem item)
+        private async Task<IReadOnlyDictionary<string, TimeSpan>> GetDurationsByIdAsync(IReadOnlyCollection<string> videoIds)
         {
-            var thumbnail = item.Snippet.Thumbnails.Medium ?? item.Snippet.Thumbnails.Default__;
-            // A video is likely a Short if it is tagged with "#shorts" or if the thumbnail is vertical.
-            return (
-                item.Snippet.Title?.Contains("#shorts", StringComparison.OrdinalIgnoreCase) == true ||
-                item.Snippet.Description?.Contains("#shorts", StringComparison.OrdinalIgnoreCase) == true ||
-                (thumbnail?.Height != null && thumbnail?.Width != null && thumbnail.Height > thumbnail.Width)
-            );
+            if (videoIds.Count == 0)
+            {
+                return new Dictionary<string, TimeSpan>(StringComparer.Ordinal);
+            }
 
+            var request = Service.Videos.List("contentDetails");
+            request.Fields = "items(id,contentDetails(duration))";
+            request.Id = string.Join(",", videoIds);
+
+            var response = await request.ExecuteAsync();
+            return YoutubeVideoDurationParser.ParseById(
+                response.Items.Select(item => new KeyValuePair<string, string>(
+                    item.Id,
+                    item.ContentDetails?.Duration)));
         }
 
         private string PickThumbnail(ThumbnailDetails thumbnailDetails)

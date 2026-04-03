@@ -1,7 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
+using System;
+using System.Globalization;
 
 namespace youtubed.Models
 {
@@ -16,5 +14,14 @@ namespace youtubed.Models
         public string VideoThumbnail { get; set; }
 
         public string VideoUrl => string.Format(Constants.YoutubeWatchUrl, VideoId);
+
+        public string FormattedVideoDuration =>
+            VideoDuration.TotalHours >= 1
+                ? string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0}:{1:mm\\:ss}",
+                    (int)VideoDuration.TotalHours,
+                    VideoDuration)
+                : VideoDuration.ToString("m\\:ss", CultureInfo.InvariantCulture);
     }
 }

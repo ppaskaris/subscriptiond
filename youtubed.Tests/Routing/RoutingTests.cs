@@ -148,6 +148,7 @@ namespace youtubed.Tests.Routing
             Assert.Contains("<li class=\"video-item\">", content);
             Assert.Contains("<li class=\"video-item video-item-filler\" aria-hidden=\"true\"></li>", content);
             Assert.Contains("class=\"video-image\"", content);
+            Assert.Contains("class=\"video-duration\">12:34</span>", content);
             Assert.Contains("width=\"224\"", content);
             Assert.Contains("height=\"126\"", content);
         }

@@ -6,6 +6,17 @@ namespace youtubed.Tests.Models
 {
     public class VideoViewModelTests
     {
+        [Fact]
+        public void WatchUrl_UsesInternalWatchRoute()
+        {
+            var model = new VideoViewModel
+            {
+                VideoId = "video-1"
+            };
+
+            Assert.Equal("/watch/video-1", model.WatchUrl);
+        }
+
         [Theory]
         [InlineData(65, "1:05")]
         [InlineData(754, "12:34")]

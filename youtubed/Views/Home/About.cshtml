@@ -35,6 +35,10 @@
     <li><a href="http://www.google.com/policies/privacy" rel="noopener noreferrer" referrerpolicy="no-referrer" target="_blank">Google Privacy Policy</a></li>
 </ul>
 <p>
+    subscriptiond also uses the <a href="https://developers.google.com/youtube/iframe_api_reference" rel="noopener noreferrer" referrerpolicy="no-referrer" target="_blank">YouTube Player API Reference for iframe Embeds</a>
+    on the watch page to initialize the embedded player playback rate to 2x.
+</p>
+<p>
     subscriptiond does not track or store any usage information other than:
 </p>
 <ul>
@@ -57,7 +61,9 @@
     Bootstrap is loaded on every page, and the jQuery validation scripts are
     loaded on form pages with Subresource Integrity (SRI). All third-party
     links, images, stylesheets and scripts are configured with a Referrer
-    Policy of "no-referrer".
+    Policy of "no-referrer", except for the watch page's YouTube player
+    integration which uses a more permissive policy required for embedded
+    playback.
 <p>
     subscriptiond automatically deletes:
 </p>

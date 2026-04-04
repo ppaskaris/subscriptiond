@@ -21,6 +21,7 @@ namespace youtubed.Tests.Routing
         [InlineData("/")]
         [InlineData("/create-list")]
         [InlineData("/about")]
+        [InlineData("/watch/video-1")]
         [InlineData("/error/404")]
         public async Task PublicGetRoutes_ReturnSuccess(string path)
         {
@@ -107,6 +108,23 @@ namespace youtubed.Tests.Routing
         }
 
         [Fact]
+        public async Task WatchRoute_RendersEmbeddedPlayerApiSetupWithOriginReferrerPolicy()
+        {
+            using var client = _factory.CreateClient();
+
+            var response = await client.GetAsync("/watch/video-1");
+            var content = await response.Content.ReadAsStringAsync();
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal("strict-origin-when-cross-origin", string.Join(",", response.Headers.GetValues("Referrer-Policy")));
+            Assert.Contains("https://www.youtube-nocookie.com/embed/video-1?enablejsapi=1", content);
+            Assert.Contains("<iframe id=\"watch-player\"", content);
+            Assert.Contains("https://www.youtube.com/iframe_api", content);
+            Assert.Contains("new YT.Player('watch-player'", content);
+            Assert.Contains("event.target.setPlaybackRate(2);", content);
+        }
+
+        [Fact]
         public async Task ShareRoute_ResolvesToCanonicalListRoute()
         {
             using var client = _factory.CreateClient(new WebApplicationFactoryClientOptions
@@ -151,6 +169,17 @@ namespace youtubed.Tests.Routing
             Assert.Contains("class=\"video-duration\">12:34</span>", content);
             Assert.Contains("width=\"224\"", content);
             Assert.Contains("height=\"126\"", content);
+        }
+
+        [Fact]
+        public async Task ListPage_VideoLinksOpenInternalWatchRouteInNewTab()
+        {
+            using var client = _factory.CreateClient();
+
+            var content = await client.GetStringAsync(
+                $"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}");
+
+            Assert.Contains("class=\"video-link\" href=\"/watch/video-1\" target=\"_blank\" rel=\"noopener\"", content);
         }
 
         [Theory]

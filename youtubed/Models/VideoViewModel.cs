@@ -14,6 +14,7 @@ namespace youtubed.Models
         public string VideoThumbnail { get; set; }
 
         public string VideoUrl => string.Format(Constants.YoutubeWatchUrl, VideoId);
+        public string WatchUrl => $"/watch/{VideoId}";
 
         public string FormattedVideoDuration =>
             VideoDuration.TotalHours >= 1

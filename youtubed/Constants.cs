@@ -11,6 +11,7 @@ namespace youtubed
         public const string YoutubeChannelPattern = @"^https:\/\/www\.youtube\.com\/(user|channel)\/([a-zA-Z0-9_-]+)$";
         public const string YoutubeVideoPattern = @"^https:\/\/www\.youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)$";
         public const string YoutubeWatchUrl = @"https://www.youtube.com/watch?v={0}";
+        public const string YoutubeEmbedUrl = @"https://www.youtube-nocookie.com/embed/{0}";
         public const string YoutubeChannelUrl = @"https://www.youtube.com/channel/{0}";
         public static readonly Regex YoutubeChannelExpression = new Regex(YoutubeChannelPattern);
         public static readonly Regex YoutubeVideoExpression = new Regex(YoutubeVideoPattern);

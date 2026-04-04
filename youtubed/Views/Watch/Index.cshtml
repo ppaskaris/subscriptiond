@@ -1,0 +1,53 @@
+@model string
+@{
+    Layout = null;
+    var embedUrl = string.Format(Constants.YoutubeEmbedUrl, Model) + "?enablejsapi=1";
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <title>Watch - subscriptiond</title>
+    <style>
+        html, body {
+            margin: 0;
+            height: 100%;
+            background: #000;
+        }
+
+        .watch-frame {
+            border: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <iframe id="watch-player"
+            class="watch-frame"
+            src="@embedUrl"
+            title="YouTube video player"
+            referrerpolicy="strict-origin-when-cross-origin"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowfullscreen></iframe>
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <script>
+        let watchPlayer;
+
+        function onYouTubeIframeAPIReady() {
+            watchPlayer = new YT.Player('watch-player', {
+                events: {
+                    onReady: onWatchPlayerReady
+                }
+            });
+        }
+
+        function onWatchPlayerReady(event) {
+            event.target.setPlaybackRate(2);
+        }
+    </script>
+</body>
+</html>

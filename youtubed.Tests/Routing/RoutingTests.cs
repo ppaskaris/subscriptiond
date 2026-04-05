@@ -122,6 +122,7 @@ namespace youtubed.Tests.Routing
             Assert.Contains("https://www.youtube.com/iframe_api", content);
             Assert.Contains("new YT.Player('watch-player'", content);
             Assert.Contains("event.target.setPlaybackRate(2);", content);
+            Assert.Contains("<title>Watch - subscriptiond</title>", content);
         }
 
         [Fact]
@@ -179,7 +180,21 @@ namespace youtubed.Tests.Routing
             var content = await client.GetStringAsync(
                 $"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}");
 
-            Assert.Contains("class=\"video-link\" href=\"/watch/video-1\" target=\"_blank\" rel=\"noopener\"", content);
+            Assert.Contains("class=\"video-link\"", content);
+            Assert.Contains("href=\"/watch/video-1?title=", content);
+            Assert.Contains("Test", content);
+            Assert.Contains("target=\"_blank\"", content);
+            Assert.Contains("rel=\"noopener\"", content);
+        }
+
+        [Fact]
+        public async Task WatchRoute_WithTitleQuery_RendersDecodedDocumentTitle()
+        {
+            using var client = _factory.CreateClient();
+
+            var content = await client.GetStringAsync("/watch/video-1?title=Test%20%26amp%3B%20Video");
+
+            Assert.Contains("<title>Test &amp; Video - subscriptiond</title>", content);
         }
 
         [Theory]

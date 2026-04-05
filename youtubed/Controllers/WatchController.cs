@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using youtubed.Models;
 
 namespace youtubed.Controllers
 {
@@ -6,7 +7,7 @@ namespace youtubed.Controllers
     public class WatchController : Controller
     {
         [HttpGet("{videoId}")]
-        public IActionResult Index(string videoId)
+        public IActionResult Index(string videoId, string title = null)
         {
             if (string.IsNullOrWhiteSpace(videoId))
             {
@@ -15,7 +16,11 @@ namespace youtubed.Controllers
 
             Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
 
-            return View(model: videoId);
+            return View(new WatchViewModel
+            {
+                VideoId = videoId,
+                VideoTitle = title
+            });
         }
     }
 }

@@ -17,6 +17,18 @@ namespace youtubed.Tests.Models
             Assert.Equal("/watch/video-1", model.WatchUrl);
         }
 
+        [Fact]
+        public void WatchUrl_WithVideoTitle_AppendsEncodedTitleQuery()
+        {
+            var model = new VideoViewModel
+            {
+                VideoId = "video-1",
+                VideoTitle = "Test &amp; Video"
+            };
+
+            Assert.Equal("/watch/video-1?title=Test+%26amp%3B+Video", model.WatchUrl);
+        }
+
         [Theory]
         [InlineData(65, "1:05")]
         [InlineData(754, "12:34")]

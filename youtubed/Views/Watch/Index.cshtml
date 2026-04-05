@@ -1,7 +1,14 @@
-@model string
+@model youtubed.Models.WatchViewModel
+@using System.Net
 @{
     Layout = null;
-    var embedUrl = string.Format(Constants.YoutubeEmbedUrl, Model) + "?enablejsapi=1";
+    var embedUrl = string.Format(Constants.YoutubeEmbedUrl, Model.VideoId) + "?enablejsapi=1";
+    var decodedTitle = string.IsNullOrWhiteSpace(Model.VideoTitle)
+        ? null
+        : WebUtility.HtmlDecode(Model.VideoTitle);
+    var documentTitle = string.IsNullOrWhiteSpace(decodedTitle)
+        ? "Watch - subscriptiond"
+        : $"{decodedTitle} - subscriptiond";
 }
 <!DOCTYPE html>
 <html lang="en">
@@ -9,7 +16,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
-    <title>Watch - subscriptiond</title>
+    <title>@documentTitle</title>
     <style>
         html, body {
             margin: 0;

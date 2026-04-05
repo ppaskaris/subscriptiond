@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Net;
 
 namespace youtubed.Models
 {
@@ -14,7 +15,10 @@ namespace youtubed.Models
         public string VideoThumbnail { get; set; }
 
         public string VideoUrl => string.Format(Constants.YoutubeWatchUrl, VideoId);
-        public string WatchUrl => $"/watch/{VideoId}";
+        public string WatchUrl =>
+            string.IsNullOrWhiteSpace(VideoTitle)
+                ? $"/watch/{VideoId}"
+                : $"/watch/{VideoId}?title={WebUtility.UrlEncode(VideoTitle)}";
 
         public string FormattedVideoDuration =>
             VideoDuration.TotalHours >= 1

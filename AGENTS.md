@@ -1,84 +1,34 @@
 # AGENTS.md
 
-## Project Snapshot
+## Project-Specific Guidance
 
-- `subscriptiond` is a small ASP.NET Core MVC app for anonymous YouTube subscription lists.
-- The only solution project is [`youtubed`](youtubed), targeting `.NET 10`.
-- Users do not sign in. Access is via secret list URLs shaped like `/{token}/list/{id}`.
-- Persistence is SQL Server via Dapper.
-- The app stores shared channel/video cache data so multiple lists can reuse the same channel metadata.
-
-## Architecture
-
-- Entry point, DI, and middleware pipeline: [`youtubed/Program.cs`](youtubed/Program.cs)
-- Web layer: [`youtubed/Controllers/HomeController.cs`](youtubed/Controllers/HomeController.cs), [`youtubed/Controllers/ListController.cs`](youtubed/Controllers/ListController.cs)
-- Data access: [`youtubed/Services/ListService.cs`](youtubed/Services/ListService.cs), [`youtubed/Services/ChannelService.cs`](youtubed/Services/ChannelService.cs), [`youtubed/Services/ChannelVideoService.cs`](youtubed/Services/ChannelVideoService.cs)
-- YouTube API integration: [`youtubed/Services/YoutubeService.cs`](youtubed/Services/YoutubeService.cs)
-- Background jobs: [`youtubed/Services/MaintenanceHostedService.cs`](youtubed/Services/MaintenanceHostedService.cs), [`youtubed/Services/UpdateChannelHostedService.cs`](youtubed/Services/UpdateChannelHostedService.cs)
-- SQL schema: [`youtubed/Schema.sql`](youtubed/Schema.sql)
-
-## Request Flow
-
-- `GET /` shows the landing page and list creation entry point.
-- `POST /create-list` creates a `List` with a random 40-byte token and redirects to the secret list URL.
-- `GET /{token}/list/{id}` refreshes list expiry, counts stale channels, loads cached videos, and renders the list.
-- `POST /{token}/list/{id}/add-channel` validates a YouTube URL, resolves the channel, and upserts the list-channel mapping.
-- `POST /{token}/list/{id}/remove-channel` removes the mapping only; channel cleanup is deferred to maintenance.
-- `POST /{token}/list/{id}/edit` renames the list.
-- `POST /{token}/list/{id}/delete` deletes the list immediately.
-
-## Data Model
-
-- `List`: `Id`, `Token`, `Title`, `ExpiredAfter`
-- `Channel`: cached channel metadata plus `StaleAfter` and `VisibleAfter`
-- `ChannelVideo`: cached recent videos per channel
-- `ListChannel`: many-to-many join
-- `ChannelVideoType`: SQL Server table-valued type used for batch upserts
-
-## Operational Notes
-
-- Local development runs against SQL Server Express LocalDB 2019 and expects `ConnectionStrings:Main` in [`youtubed/appsettings.Development.json`](youtubed/appsettings.Development.json).
-- YouTube credentials are bound from `Youtube` configuration into `YoutubeOptions`.
-- The app relies on two hosted services for freshness and cleanup; list pages may auto-refresh while stale channels are being updated.
-
-## Constraints And Gotchas
-
-- The runtime is on `.NET 10`, but the frontend stack still mixes older libraries and tooling such as Bootstrap 3, jQuery validation, Bower, and BuildBundlerMinifier.
-- Routing now uses endpoint routing with controller attributes mapped via `MapControllers()`, so preserve the existing attribute route templates when changing URLs.
-- SQL is SQL Server-specific and uses `MERGE` plus TVPs.
-- YouTube URL support is limited to `/channel/...`, `/user/...`, and video URLs used as a fallback for vanity channels.
-- `YoutubeService` currently hardcodes video duration to 5 minutes instead of loading real durations.
-- Automated coverage now includes controller/unit tests, repository and service LocalDB integration tests, and lightweight route-level integration tests for app startup and URL compatibility.
-
-## Safe Assumptions For Future Sessions
-
-- Prefer small, local changes over sweeping rewrites unless explicitly requested.
-- Treat build output and other Git-ignored files as noise unless the task is about build or deployment. When running repo searches, respect the full `.gitignore` instead of recursively scanning the tree and filtering only a few known directories.
 - Preserve the anonymous secret-link model unless the user explicitly asks for authentication or accounts.
-- If changing persistence, inspect both Dapper SQL and the schema together; behavior is encoded in both places.
-- Check for user changes before editing; the worktree may already contain unrelated files.
-- When interpolating the placeholder `%MODEL_NAME%`, the value should be the full model name. For example: `GPT-5.4` and not a shortened variant like `GPT-5`.
+- Prefer small, local changes over sweeping rewrites unless explicitly requested.
+- Treat Git-ignored files as noise when searching or reviewing unless the task is specifically about build or deployment output.
+- If changing persistence behavior, inspect both Dapper SQL and [`youtubed/Schema.sql`](youtubed/Schema.sql); behavior is encoded in both places.
+- Preserve existing controller attribute route templates when changing URLs.
+- Be careful with frontend changes: the app still mixes older tooling and libraries, including Bootstrap 3, jQuery validation, Bower, and BuildBundlerMinifier.
+- SQL in this repo is SQL Server-specific and uses patterns such as `MERGE` and TVPs; avoid database-agnostic rewrites unless explicitly requested.
+- If changing SQL code, re-run the LocalDB integration tests with `YOUTUBED_RUN_LOCALDB_TESTS=true` before finishing.
 
-## Commit Convention
+## Environment Notes
 
-- Commit messages should end with a Git trailer in this exact form: `Co-Authored-By: Codex %MODEL_NAME%`
-- When a thread is fixing a GitHub issue, include a GitHub-closing magic comment such as `Closes #12` in the commit description/body so the issue closes automatically when the commit lands.
-- Before creating or amending a commit, assess the change severity and update [`youtubed/youtubed.csproj`](youtubed/youtubed.csproj) `AssemblyVersion` in the same change when the shipped code meaningfully changes.
-- `AssemblyVersion` must stay in `major.minor.build.revision` format.
-- Increment `major` for breaking changes or major platform/application shifts, then reset `minor`, `build`, and `revision` to `0`.
-- Increment `minor` for backward-compatible feature additions, then reset `build` and `revision` to `0`.
-- Increment `build` for backward-compatible fixes, refactors, or internal improvements, then reset `revision` to `0`.
-- Increment `revision` only for very small corrective follow-ups or repackaging-level changes when `major`, `minor`, and `build` should stay the same.
+- `rg` is not available here. Use PowerShell-native search commands, and scope repo searches with `git ls-files --cached --others --exclude-standard` so ignored files stay excluded.
+- Run `dotnet`, LocalDB access, `gh`, and Git commands that write to the repository with elevated permissions in this environment.
+- Run validation sequentially after the build; do not overlap build and test execution because this repo can hit flaky testhost/file-copy races.
 
-## Tips for Agents
+## Commit Rules
 
-- `rg` is not available in this environment; prefer PowerShell-native search commands like `Select-String` and `Get-Content`, but scope repo searches with Git first so ignored files stay excluded. Use `git ls-files --cached --others --exclude-standard` to enumerate searchable files, then pass that list to `Select-String` or similar read-only commands. If a command cannot consume the list directly, use a short PowerShell helper that shells out to `git ls-files --cached --others --exclude-standard` and filters the search to those paths.
-- When creating GitHub issues or pull requests, append this exact footer at the end of the body text: `Created-By: Codex %MODEL_NAME%`
-- Prefer `gh` for GitHub-authenticated operations when it is available, but run `gh` commands with elevated permissions in this environment because sandboxed keyring access can make a valid login appear invalid.
-- Long-running tooling (tests, docker compose, migrations, etc.) must always be invoked with sensible timeouts or in non-interactive batch mode. Never leave a shell command waiting indefinitely—prefer explicit timeouts, scripted runs, or log polling after the command exits.
-- The `dotnet` CLI will need network access and inside your sandbox you always have to run those commands with `with_escalated_permissions: true` on the `shell` tool call and include a one-sentence justification (e.g., "Need network access for npm install/build").
-- Ensure to include the `with_escalated_permissions` for all builds, restores, migrations, installs, tests, etc where network access is required otherwise the command will hang.
-- Git commands that write to the repository, such as `git add`, `git commit`, and similar index or ref updates, should also be run with elevated permissions in this environment.
-- Accessing SQL Server Express LocalDB from this environment requires elevated permissions; LocalDB instance inspection and SQL connectivity checks will fail inside the sandbox even when the instance is running.
-- Always run validation steps sequentially after the build. Do not overlap build and test commands in parallel, because testhost/file-copy races can cause flaky validation results.
-- When changing SQL code, always re-run the LocalDB integration tests with `YOUTUBED_RUN_LOCALDB_TESTS=true` before wrapping up.
+- When interpolating `%MODEL_NAME%`, use the full model name, for example `GPT-5.4`.
+- Commit messages must end with `Co-Authored-By: Codex %MODEL_NAME%`.
+- When a change fixes a GitHub issue, include a closing line such as `Closes #12` in the commit body.
+- When creating or amending a commit for a meaningful shipped code change, update [`youtubed/youtubed.csproj`](youtubed/youtubed.csproj) `AssemblyVersion` in the same change.
+- Keep `AssemblyVersion` in `major.minor.build.revision` format.
+- Increment `major` for breaking changes, resetting `minor`, `build`, and `revision` to `0`.
+- Increment `minor` for backward-compatible features, resetting `build` and `revision` to `0`.
+- Increment `build` for backward-compatible fixes, refactors, or internal improvements, resetting `revision` to `0`.
+- Increment `revision` only for very small corrective follow-ups or repackaging-level changes.
+
+## GitHub Metadata
+
+- When creating GitHub issues or pull requests, append `Created-By: Codex %MODEL_NAME%` at the end of the body text.

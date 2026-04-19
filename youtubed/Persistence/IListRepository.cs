@@ -11,7 +11,7 @@ namespace youtubed.Persistence
         Task<ListViewModel> GetViewAsync(Guid id, DateTimeOffset expiredAfter, DateTimeOffset now);
         Task AddChannelAsync(Guid listId, string channelId);
         Task RemoveChannelAsync(Guid listId, string channelId);
-        Task RenameAsync(Guid id, string title);
+        Task UpdateAsync(Guid id, string title, decimal playbackRate);
         Task DeleteAsync(Guid id);
         Task<int> RemoveExpiredAsync(DateTimeOffset now);
     }

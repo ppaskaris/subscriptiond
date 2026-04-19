@@ -20,8 +20,8 @@ namespace youtubed.Persistence
             using var connection = _connectionFactory.CreateConnection();
             await connection.ExecuteAsync(
                 @"
-                INSERT INTO List (Id, Token, Title, ExpiredAfter)
-                VALUES (@Id, @Token, @Title, @ExpiredAfter);
+                INSERT INTO List (Id, Token, Title, PlaybackRate, ExpiredAfter)
+                VALUES (@Id, @Token, @Title, @PlaybackRate, @ExpiredAfter);
                 ",
                 list);
         }
@@ -31,7 +31,7 @@ namespace youtubed.Persistence
             using var connection = _connectionFactory.CreateConnection();
             return await connection.QueryFirstOrDefaultAsync<ListModel>(
                 @"
-                SELECT Id, Token, Title, ExpiredAfter
+                SELECT Id, Token, Title, PlaybackRate, ExpiredAfter
                 FROM List
                 WHERE Id = @id;
                 ",
@@ -48,6 +48,7 @@ namespace youtubed.Persistence
                 OUTPUT inserted.Id,
                        inserted.Token,
                        inserted.Title,
+                       inserted.PlaybackRate,
                        inserted.ExpiredAfter
                 WHERE Id = @id;
 
@@ -92,6 +93,7 @@ namespace youtubed.Persistence
                 Id = list.Id,
                 Token = list.TokenString,
                 Title = list.Title,
+                PlaybackRate = list.PlaybackRate,
                 ExpiredAfter = list.ExpiredAfter,
                 StaleCount = await query.ReadSingleOrDefaultAsync<int>(),
                 Videos = await query.ReadAsync<VideoViewModel>(),
@@ -129,16 +131,17 @@ namespace youtubed.Persistence
                 new { listId, channelId });
         }
 
-        public async Task RenameAsync(Guid id, string title)
+        public async Task UpdateAsync(Guid id, string title, decimal playbackRate)
         {
             using var connection = _connectionFactory.CreateConnection();
             await connection.ExecuteAsync(
                 @"
                 UPDATE List
-                SET Title = @title
+                SET Title = @title,
+                    PlaybackRate = @playbackRate
                 WHERE Id = @id;
                 ",
-                new { id, title });
+                new { id, title, playbackRate });
         }
 
         public async Task DeleteAsync(Guid id)

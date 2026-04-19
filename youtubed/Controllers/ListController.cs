@@ -140,7 +140,8 @@ namespace youtubed.Controllers
 
             return View(new EditListModel
             {
-                Title = list.Title
+                Title = list.Title,
+                PlaybackRate = list.PlaybackRate
             });
         }
 
@@ -171,9 +172,9 @@ namespace youtubed.Controllers
                 return NotFound();
             }
 
-            if (list.Title != model.Title)
+            if (list.Title != model.Title || list.PlaybackRate != model.PlaybackRate)
             {
-                await _listService.RenameListAsync(list.Id, model.Title);
+                await _listService.UpdateListAsync(list.Id, model.Title, model.PlaybackRate);
             }
 
             return RedirectToAction("Index", new { token = list.TokenString, id = list.Id });

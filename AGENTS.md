@@ -9,6 +9,7 @@
 - Preserve existing controller attribute route templates when changing URLs.
 - Be careful with frontend changes: the app still mixes older tooling and libraries, including Bootstrap 3, jQuery validation, Bower, and BuildBundlerMinifier.
 - SQL in this repo is SQL Server-specific and uses patterns such as `MERGE` and TVPs; avoid database-agnostic rewrites unless explicitly requested.
+- In SQL Server migration scripts, do not statically reference a column later in the same batch after conditionally adding it; SQL Server can bind column names before the `ALTER TABLE` runs. Use a separate batch or dynamic SQL such as `sp_executesql` for the follow-up `UPDATE`/`ALTER COLUMN` statements.
 - If changing SQL code, re-run the LocalDB integration tests with `YOUTUBED_RUN_LOCALDB_TESTS=true` before finishing.
 
 ## Environment Notes

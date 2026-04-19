@@ -28,7 +28,7 @@ namespace youtubed.Tests.Integration
 
             var persisted = await QuerySingleAsync<ListModel>(
                 @"
-                SELECT Id, Token, Title, ExpiredAfter
+                SELECT Id, Token, Title, PlaybackRate, ExpiredAfter
                 FROM List
                 WHERE Id = @id;
                 ",
@@ -37,8 +37,10 @@ namespace youtubed.Tests.Integration
             Assert.Equal("Integration List", list.Title);
             Assert.NotNull(list.Token);
             Assert.Equal(40, list.Token.Length);
+            Assert.Equal(1.00m, list.PlaybackRate);
             Assert.Equal(list.Id, persisted.Id);
             Assert.Equal(list.Title, persisted.Title);
+            Assert.Equal(1.00m, persisted.PlaybackRate);
             Assert.Equal(list.TokenString, persisted.TokenString);
             Assert.True(persisted.ExpiredAfter > DateTimeOffset.Now.AddDays(40));
         }
@@ -54,6 +56,7 @@ namespace youtubed.Tests.Integration
             Assert.NotNull(found);
             Assert.Equal(list.Id, found.Id);
             Assert.Equal(list.TokenString, found.TokenString);
+            Assert.Equal(1.00m, found.PlaybackRate);
             Assert.Null(missing);
         }
 
@@ -68,8 +71,8 @@ namespace youtubed.Tests.Integration
 
             await ExecuteAsync(
                 @"
-                INSERT INTO List (Id, Token, Title, ExpiredAfter)
-                VALUES (@listId, @token, @title, @expiredAfter);
+                INSERT INTO List (Id, Token, Title, PlaybackRate, ExpiredAfter)
+                VALUES (@listId, @token, @title, @playbackRate, @expiredAfter);
 
                 INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
                 VALUES
@@ -92,6 +95,7 @@ namespace youtubed.Tests.Integration
                     listId,
                     token,
                     title = "List View",
+                    playbackRate = 1.75m,
                     expiredAfter = originalExpiry,
                     staleAfter = staleChannelTime,
                     freshAfter = freshChannelTime,
@@ -109,6 +113,7 @@ namespace youtubed.Tests.Integration
 
             Assert.NotNull(view);
             Assert.Equal("List View", view.Title);
+            Assert.Equal(1.75m, view.PlaybackRate);
             Assert.Equal(1, view.StaleCount);
             Assert.Equal("video-new", view.Videos.Select(video => video.VideoId).First());
             Assert.Equal(new[] { "video-new", "video-mid", "video-old" }, view.Videos.Select(video => video.VideoId).ToArray());
@@ -151,7 +156,7 @@ namespace youtubed.Tests.Integration
         }
 
         [LocalDbFact]
-        public async Task RenameRemoveAndDeleteList_UpdatePersistedRows()
+        public async Task UpdateRemoveAndDeleteList_UpdatePersistedRows()
         {
             var listId = Guid.NewGuid();
 
@@ -175,13 +180,15 @@ namespace youtubed.Tests.Integration
                     visibleAfter = DateTimeOffset.UtcNow.AddMinutes(-1)
                 });
 
-            await _service.RenameListAsync(listId, "Renamed");
+            await _service.UpdateListAsync(listId, "Renamed", 1.25m);
             await _service.RemoveChannelAsync(listId, "channel-1");
+            var updatedPlaybackRate = await ScalarAsync<decimal>("SELECT PlaybackRate FROM List WHERE Id = @listId;", new { listId });
             await _service.DeleteListAsync(listId);
 
             var titleCount = await ScalarAsync<int>("SELECT COUNT(*) FROM List WHERE Id = @listId;", new { listId });
             var mappingCount = await ScalarAsync<int>("SELECT COUNT(*) FROM ListChannel WHERE ListId = @listId;", new { listId });
 
+            Assert.Equal(1.25m, updatedPlaybackRate);
             Assert.Equal(0, titleCount);
             Assert.Equal(0, mappingCount);
         }

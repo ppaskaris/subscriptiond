@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Humanizer;
+using youtubed;
 using youtubed.Models;
 using youtubed.Services;
 
@@ -20,6 +21,7 @@ namespace youtubed.Tests.Infrastructure
         {
             Id = ExistingListId,
             Title = "Existing List",
+            PlaybackRate = 2.00m,
             Token = ExistingTokenBytes
         };
 
@@ -27,6 +29,7 @@ namespace youtubed.Tests.Infrastructure
         {
             Id = Guid.Parse("22222222-2222-2222-2222-222222222222"),
             Title = "Created List",
+            PlaybackRate = Constants.DefaultListPlaybackRate,
             Token = new byte[]
             {
                 16, 15, 14, 13, 12, 11, 10, 9,
@@ -40,6 +43,7 @@ namespace youtubed.Tests.Infrastructure
             {
                 Id = CreatedList.Id,
                 Title = title,
+                PlaybackRate = Constants.DefaultListPlaybackRate,
                 Token = CreatedList.Token
             });
         }
@@ -56,6 +60,7 @@ namespace youtubed.Tests.Infrastructure
                 {
                     Id = ExistingList.Id,
                     Title = ExistingList.Title,
+                    PlaybackRate = ExistingList.PlaybackRate,
                     Token = ExistingList.TokenString,
                     Videos = new[]
                     {
@@ -80,7 +85,7 @@ namespace youtubed.Tests.Infrastructure
 
         public Task RemoveChannelAsync(Guid listId, string channelId) => Task.CompletedTask;
 
-        public Task RenameListAsync(Guid id, string title) => Task.CompletedTask;
+        public Task UpdateListAsync(Guid id, string title, decimal playbackRate) => Task.CompletedTask;
 
         public Task DeleteListAsync(Guid id) => Task.CompletedTask;
 

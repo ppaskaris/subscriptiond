@@ -22,6 +22,7 @@ namespace youtubed.Services
                 Id = Guid.NewGuid(),
                 Token = CreateToken(),
                 Title = title,
+                PlaybackRate = Constants.DefaultListPlaybackRate,
                 ExpiredAfter = CreateExpiredAfter()
             };
 
@@ -49,9 +50,9 @@ namespace youtubed.Services
             return _listRepository.RemoveChannelAsync(listId, channelId);
         }
 
-        public Task RenameListAsync(Guid id, string title)
+        public Task UpdateListAsync(Guid id, string title, decimal playbackRate)
         {
-            return _listRepository.RenameAsync(id, title);
+            return _listRepository.UpdateAsync(id, title, playbackRate);
         }
 
         public Task DeleteListAsync(Guid id)

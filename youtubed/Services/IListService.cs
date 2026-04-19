@@ -15,7 +15,7 @@ namespace youtubed.Services
         Task AddChannelAsync(Guid listId, string channelId);
         Task RemoveChannelAsync(Guid listId, string channelId);
 
-        Task RenameListAsync(Guid id, string title);
+        Task UpdateListAsync(Guid id, string title, decimal playbackRate);
         Task DeleteListAsync(Guid id);
 
         Task<int> RemoveExpiredListsAsync();

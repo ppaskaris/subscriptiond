@@ -121,7 +121,7 @@ namespace youtubed.Tests.Routing
             Assert.Contains("<iframe id=\"watch-player\"", content);
             Assert.Contains("https://www.youtube.com/iframe_api", content);
             Assert.Contains("new YT.Player('watch-player'", content);
-            Assert.Contains("event.target.setPlaybackRate(2);", content);
+            Assert.Contains("event.target.setPlaybackRate(1);", content);
             Assert.Contains("<title>Watch - subscriptiond</title>", content);
         }
 
@@ -182,6 +182,7 @@ namespace youtubed.Tests.Routing
 
             Assert.Contains("class=\"video-link\"", content);
             Assert.Contains("href=\"/watch/video-1?title=", content);
+            Assert.Contains("playbackRate=2", content);
             Assert.Contains("Test", content);
             Assert.Contains("target=\"_blank\"", content);
             Assert.Contains("rel=\"noopener\"", content);

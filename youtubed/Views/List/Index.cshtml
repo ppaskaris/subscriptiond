@@ -44,7 +44,7 @@
         @foreach (var video in renderedVideos)
         {
             <li class="video-item">
-                <a class="video-link" href="@video.WatchUrl" target="_blank" rel="noopener">
+                <a class="video-link" href="@video.GetWatchUrl(Model.PlaybackRate)" target="_blank" rel="noopener">
                     <div class="video-image">
                         <img src="@video.VideoThumbnail" referrerpolicy="no-referrer" width="224" height="126" loading="lazy" />
                         <span class="video-duration">@video.FormattedVideoDuration</span>

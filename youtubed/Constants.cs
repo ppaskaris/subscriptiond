@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -31,6 +32,19 @@ namespace youtubed
         public static readonly TimeSpan VisibilityTimeoutMin = TimeSpan.FromMinutes(4);
         public static readonly TimeSpan VisibilityTimeoutMax = TimeSpan.FromMinutes(6);
         public static readonly int ListRenderMaxItems = 100;
+        public static readonly decimal DefaultListPlaybackRate = 1.00m;
+        public static readonly decimal DefaultWatchPlaybackRate = 1.00m;
+        public static readonly decimal[] YoutubePlaybackRates =
+        {
+            0.25m,
+            0.50m,
+            0.75m,
+            1.00m,
+            1.25m,
+            1.50m,
+            1.75m,
+            2.00m
+        };
 
         private static readonly Random _random = new Random();
 
@@ -50,6 +64,16 @@ namespace youtubed
                 value = (ulong)BitConverter.ToInt64(buffer, 0);
             } while (value >= threshold);
             return TimeSpan.FromTicks((long)(value % range) + min.Ticks);
+        }
+
+        public static bool IsSupportedPlaybackRate(decimal playbackRate)
+        {
+            return YoutubePlaybackRates.Contains(playbackRate);
+        }
+
+        public static string FormatPlaybackRate(decimal playbackRate)
+        {
+            return playbackRate.ToString("0.##", CultureInfo.InvariantCulture);
         }
     }
 }

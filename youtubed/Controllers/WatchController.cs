@@ -7,7 +7,7 @@ namespace youtubed.Controllers
     public class WatchController : Controller
     {
         [HttpGet("{videoId}")]
-        public IActionResult Index(string videoId, string title = null)
+        public IActionResult Index(string videoId, string title = null, decimal? playbackRate = null)
         {
             if (string.IsNullOrWhiteSpace(videoId))
             {
@@ -19,8 +19,16 @@ namespace youtubed.Controllers
             return View(new WatchViewModel
             {
                 VideoId = videoId,
-                VideoTitle = title
+                VideoTitle = title,
+                PlaybackRate = GetPlaybackRate(playbackRate)
             });
+        }
+
+        private static decimal GetPlaybackRate(decimal? playbackRate)
+        {
+            return playbackRate != null && Constants.IsSupportedPlaybackRate(playbackRate.Value)
+                ? playbackRate.Value
+                : Constants.DefaultWatchPlaybackRate;
         }
     }
 }

@@ -9,6 +9,7 @@
     var documentTitle = string.IsNullOrWhiteSpace(decodedTitle)
         ? "Watch - subscriptiond"
         : $"{decodedTitle} - subscriptiond";
+    var playbackRate = Constants.FormatPlaybackRate(Model.PlaybackRate);
 }
 <!DOCTYPE html>
 <html lang="en">
@@ -52,7 +53,7 @@
         }
 
         function onWatchPlayerReady(event) {
-            event.target.setPlaybackRate(2);
+            event.target.setPlaybackRate(@playbackRate);
         }
     </script>
     <script src="https://www.youtube.com/iframe_api"></script>

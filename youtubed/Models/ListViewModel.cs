@@ -10,6 +10,7 @@ namespace youtubed.Models
         public Guid Id { get; set; }
         public string Token { get; set; }
         public string Title { get; set; }
+        public decimal PlaybackRate { get; set; } = Constants.DefaultListPlaybackRate;
         public DateTimeOffset ExpiredAfter { get; set; }
         public int StaleCount { get; set; }
         public IEnumerable<VideoViewModel> Videos { get; set; }

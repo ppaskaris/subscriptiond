@@ -1,4 +1,5 @@
-﻿@model EditListModel
+@model EditListModel
+@using System.Globalization
 
 @{
     ViewData["Title"] = "Edit List";
@@ -13,6 +14,16 @@
         <label asp-for="Title" class="control-label"></label>
         <input asp-for="Title" class="form-control" />
         <span asp-validation-for="Title" class="text-danger"></span>
+    </div>
+    <div class="form-group">
+        <label asp-for="PlaybackRate" class="control-label"></label>
+        <select asp-for="PlaybackRate" class="form-control">
+            @foreach (var playbackRate in Constants.YoutubePlaybackRates)
+            {
+                <option value="@playbackRate.ToString("0.00", CultureInfo.InvariantCulture)">@Constants.FormatPlaybackRate(playbackRate)x</option>
+            }
+        </select>
+        <span asp-validation-for="PlaybackRate" class="text-danger"></span>
     </div>
     <div class="form-group">
         <input type="submit" value="Save List" class="btn btn-primary" />

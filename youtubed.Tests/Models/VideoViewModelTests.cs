@@ -29,6 +29,29 @@ namespace youtubed.Tests.Models
             Assert.Equal("/watch/video-1?title=Test+%26amp%3B+Video", model.WatchUrl);
         }
 
+        [Fact]
+        public void GetWatchUrl_WithPlaybackRate_AppendsPlaybackRateQuery()
+        {
+            var model = new VideoViewModel
+            {
+                VideoId = "video-1"
+            };
+
+            Assert.Equal("/watch/video-1?playbackRate=1.5", model.GetWatchUrl(1.50m));
+        }
+
+        [Fact]
+        public void GetWatchUrl_WithVideoTitleAndPlaybackRate_AppendsEncodedQuery()
+        {
+            var model = new VideoViewModel
+            {
+                VideoId = "video-1",
+                VideoTitle = "Test &amp; Video"
+            };
+
+            Assert.Equal("/watch/video-1?title=Test+%26amp%3B+Video&playbackRate=2", model.GetWatchUrl(2.00m));
+        }
+
         [Theory]
         [InlineData(65, "1:05")]
         [InlineData(754, "12:34")]

@@ -251,7 +251,9 @@ namespace youtubed.Tests.Controllers
 
             var successResult = await CreateController(listService: listService).Edit(id, list.TokenString);
             var viewResult = Assert.IsType<ViewResult>(successResult);
-            Assert.Equal("Original", Assert.IsType<EditListModel>(viewResult.Model).Title);
+            var model = Assert.IsType<EditListModel>(viewResult.Model);
+            Assert.Equal("Original", model.Title);
+            Assert.Equal(2.00m, model.PlaybackRate);
         }
 
         [Fact]
@@ -284,22 +286,29 @@ namespace youtubed.Tests.Controllers
             Assert.IsType<NotFoundResult>(await CreateController(listService: listService)
                 .Edit(id, "wrong", new EditListModel { Title = "Updated" }));
 
-            listService.Setup(service => service.RenameListAsync(id, "Updated")).Returns(Task.CompletedTask);
+            listService.Setup(service => service.UpdateListAsync(id, "Updated", 1.50m)).Returns(Task.CompletedTask);
             var renameResult = await CreateController(listService: listService)
-                .Edit(id, list.TokenString, new EditListModel { Title = "Updated" });
+                .Edit(id, list.TokenString, new EditListModel { Title = "Updated", PlaybackRate = 1.50m });
             var renameRedirect = Assert.IsType<RedirectToActionResult>(renameResult);
             Assert.Equal("Index", renameRedirect.ActionName);
             Assert.Equal(list.TokenString, renameRedirect.RouteValues["token"]);
             Assert.Equal(id, renameRedirect.RouteValues["id"]);
-            listService.Verify(service => service.RenameListAsync(id, "Updated"), Times.Once);
+            listService.Verify(service => service.UpdateListAsync(id, "Updated", 1.50m), Times.Once);
 
             var sameTitleResult = await CreateController(listService: listService)
-                .Edit(id, list.TokenString, new EditListModel { Title = "Original" });
+                .Edit(id, list.TokenString, new EditListModel { Title = "Original", PlaybackRate = 2.00m });
             var sameTitleRedirect = Assert.IsType<RedirectToActionResult>(sameTitleResult);
             Assert.Equal("Index", sameTitleRedirect.ActionName);
             Assert.Equal(list.TokenString, sameTitleRedirect.RouteValues["token"]);
             Assert.Equal(id, sameTitleRedirect.RouteValues["id"]);
-            listService.Verify(service => service.RenameListAsync(It.IsAny<Guid>(), "Original"), Times.Never);
+            listService.Verify(service => service.UpdateListAsync(It.IsAny<Guid>(), "Original", It.IsAny<decimal>()), Times.Never);
+
+            listService.Setup(service => service.UpdateListAsync(id, "Original", 1.25m)).Returns(Task.CompletedTask);
+            var rateOnlyResult = await CreateController(listService: listService)
+                .Edit(id, list.TokenString, new EditListModel { Title = "Original", PlaybackRate = 1.25m });
+            var rateOnlyRedirect = Assert.IsType<RedirectToActionResult>(rateOnlyResult);
+            Assert.Equal("Index", rateOnlyRedirect.ActionName);
+            listService.Verify(service => service.UpdateListAsync(id, "Original", 1.25m), Times.Once);
         }
 
         [Fact]
@@ -548,6 +557,7 @@ namespace youtubed.Tests.Controllers
             {
                 Id = id,
                 Title = title,
+                PlaybackRate = 2.00m,
                 Token = new byte[]
                 {
                     1, 2, 3, 4, 5, 6, 7, 8,

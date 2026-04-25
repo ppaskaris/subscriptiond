@@ -23,10 +23,8 @@ body {
 .btn-icon {
     align-items: center;
     display: inline-flex;
-    height: 38px;
     justify-content: center;
-    padding: 0;
-    width: 38px;
+    padding: .375rem;
 }
 
 .btn-icon svg {

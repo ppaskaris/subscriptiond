@@ -82,6 +82,72 @@ namespace youtubed.Tests.Controllers
         }
 
         [Fact]
+        public async Task Channels_MissingId_ReturnsBadRequest()
+        {
+            var controller = CreateController();
+
+            var result = await controller.Channels(null, "token");
+
+            Assert.IsType<BadRequestResult>(result);
+        }
+
+        [Fact]
+        public async Task Channels_MissingToken_ReturnsBadRequest()
+        {
+            var controller = CreateController();
+
+            var result = await controller.Channels(Guid.NewGuid(), null);
+
+            Assert.IsType<BadRequestResult>(result);
+        }
+
+        [Fact]
+        public async Task Channels_ListMissing_ReturnsNotFound()
+        {
+            var id = Guid.NewGuid();
+            var listService = new Mock<IListService>(MockBehavior.Strict);
+            listService.Setup(service => service.GetListViewAsync(id)).ReturnsAsync((ListViewModel)null);
+
+            var result = await CreateController(listService: listService).Channels(id, "token");
+
+            Assert.IsType<NotFoundResult>(result);
+        }
+
+        [Fact]
+        public async Task Channels_TokenMismatch_ReturnsNotFound()
+        {
+            var id = Guid.NewGuid();
+            var listService = new Mock<IListService>(MockBehavior.Strict);
+            listService
+                .Setup(service => service.GetListViewAsync(id))
+                .ReturnsAsync(new ListViewModel { Id = id, Token = "expected" });
+
+            var result = await CreateController(listService: listService).Channels(id, "wrong");
+
+            Assert.IsType<NotFoundResult>(result);
+        }
+
+        [Fact]
+        public async Task Channels_ValidRequest_ReturnsViewWithModel()
+        {
+            var id = Guid.NewGuid();
+            var model = new ListViewModel
+            {
+                Id = id,
+                Token = "expected",
+                Title = "My List",
+                Channels = new[] { new ChannelModel { Id = "channel-1", Title = "Channel" } }
+            };
+            var listService = new Mock<IListService>(MockBehavior.Strict);
+            listService.Setup(service => service.GetListViewAsync(id)).ReturnsAsync(model);
+
+            var result = await CreateController(listService: listService).Channels(id, "expected");
+
+            var viewResult = Assert.IsType<ViewResult>(result);
+            Assert.Same(model, Assert.IsType<ListViewModel>(viewResult.Model));
+        }
+
+        [Fact]
         public async Task AddChannelGet_MissingId_ReturnsNotFound()
         {
             var result = await CreateController().AddChannel(null, "token");
@@ -227,7 +293,7 @@ namespace youtubed.Tests.Controllers
             var result = await CreateController(listService, channelService).AddChannel(id, list.TokenString, model);
 
             var redirect = Assert.IsType<RedirectToActionResult>(result);
-            Assert.Equal("Index", redirect.ActionName);
+            Assert.Equal("Channels", redirect.ActionName);
             Assert.Null(redirect.ControllerName);
             Assert.Equal(list.TokenString, redirect.RouteValues["token"]);
             Assert.Equal(id, redirect.RouteValues["id"]);
@@ -404,7 +470,7 @@ namespace youtubed.Tests.Controllers
             var result = await CreateController(listService: listService)
                 .RemoveChannel(id, list.TokenString, new RemoveChannelModel { ChannelId = "channel-1" });
             var redirect = Assert.IsType<RedirectToActionResult>(result);
-            Assert.Equal("Index", redirect.ActionName);
+            Assert.Equal("Channels", redirect.ActionName);
             Assert.Equal(list.TokenString, redirect.RouteValues["token"]);
             Assert.Equal(id, redirect.RouteValues["id"]);
             listService.Verify(service => service.RemoveChannelAsync(id, "channel-1"), Times.Once);

@@ -2,6 +2,37 @@ body {
     overflow-y: scroll;
 }
 
+.list-header {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.list-header h1 {
+    margin-bottom: 0;
+}
+
+.list-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-icon {
+    align-items: center;
+    display: inline-flex;
+    height: 38px;
+    justify-content: center;
+    padding: 0;
+    width: 38px;
+}
+
+.btn-icon svg {
+    flex: 0 0 auto;
+}
+
 /* Video List */
 .video-list {
     display: flex;

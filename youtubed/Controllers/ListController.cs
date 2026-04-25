@@ -51,6 +51,31 @@ namespace youtubed.Controllers
             return View(listView);
         }
 
+        [HttpGet, Route("channels")]
+        public async Task<IActionResult> Channels(Guid? id, string token)
+        {
+            if (id == null)
+            {
+                return BadRequest();
+            }
+            if (token == null)
+            {
+                return BadRequest();
+            }
+
+            var listView = await _listService.GetListViewAsync(id.Value);
+            if (listView == null)
+            {
+                return NotFound();
+            }
+            if (TokenUtils.NotEqual(token, listView.Token))
+            {
+                return NotFound();
+            }
+
+            return View(listView);
+        }
+
         [HttpGet, Route("add-channel")]
         public async Task<IActionResult> AddChannel(Guid? id, string token)
         {
@@ -113,7 +138,7 @@ namespace youtubed.Controllers
 
             await _listService.AddChannelAsync(list.Id, channel.Id);
 
-            return RedirectToAction("Index", new { token = list.TokenString, id = list.Id });
+            return RedirectToAction(nameof(Channels), new { token = list.TokenString, id = list.Id });
         }
 
         [HttpGet, Route("edit")]
@@ -266,7 +291,7 @@ namespace youtubed.Controllers
 
             await _listService.RemoveChannelAsync(list.Id, model.ChannelId);
 
-            return RedirectToAction("Index", new { token = list.TokenString, id = list.Id });
+            return RedirectToAction(nameof(Channels), new { token = list.TokenString, id = list.Id });
         }
 
         [HttpGet, Route("share")]

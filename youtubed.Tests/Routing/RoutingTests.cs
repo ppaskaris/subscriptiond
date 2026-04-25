@@ -79,6 +79,17 @@ namespace youtubed.Tests.Routing
         }
 
         [Fact]
+        public async Task ChannelsRoute_RemainsReachable()
+        {
+            using var client = _factory.CreateClient();
+
+            var response = await client.GetAsync(
+                $"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}/channels");
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        [Fact]
         public async Task HomePage_UsesCdnBootstrapAndSelfHostedSiteCss()
         {
             using var client = _factory.CreateClient();
@@ -101,10 +112,25 @@ namespace youtubed.Tests.Routing
                 $"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}";
 
             Assert.Contains($"href=\"{expectedBasePath}\"", content);
-            Assert.Contains($"href=\"{expectedBasePath}/add-channel\"", content);
+            Assert.Contains($"href=\"{expectedBasePath}/channels\"", content);
             Assert.Contains($"href=\"{expectedBasePath}/edit\"", content);
             Assert.Contains($"href=\"{expectedBasePath}/share\"", content);
             Assert.Contains($"href=\"{expectedBasePath}/delete\"", content);
+        }
+
+        [Fact]
+        public async Task ChannelsPage_RendersAddChannelLink()
+        {
+            using var client = _factory.CreateClient();
+
+            var content = await client.GetStringAsync(
+                $"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}/channels");
+
+            var expectedBasePath =
+                $"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}";
+
+            Assert.Contains($"href=\"{expectedBasePath}\"", content);
+            Assert.Contains($"href=\"{expectedBasePath}/add-channel\"", content);
         }
 
         [Fact]

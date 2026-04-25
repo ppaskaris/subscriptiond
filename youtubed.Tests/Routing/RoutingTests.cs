@@ -85,7 +85,7 @@ namespace youtubed.Tests.Routing
 
             var content = await client.GetStringAsync("/");
 
-            Assert.Contains("https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css", content);
+            Assert.Contains("https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.6.2/css/bootstrap.min.css", content);
             Assert.Contains("/css/site.css?v=", content);
         }
 

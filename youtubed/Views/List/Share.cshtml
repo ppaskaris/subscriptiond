@@ -17,28 +17,25 @@
         @foreach (var shareLink in Model.ShareLinks)
         {
             var statusClass = shareLink.Status == "Active"
-                ? "label label-success"
+                ? "badge badge-success"
                 : shareLink.Status == "Used"
-                    ? "label label-default"
-                    : "label label-warning";
-            <li class="panel panel-default">
-                <div class="panel-body">
-                    <p>
-                        <span class="@statusClass">@shareLink.Status</span>
-                    </p>
+                    ? "badge badge-secondary"
+                    : "badge badge-warning";
+            <li class="card mb-3">
+                <div class="card-body">
                     <div class="form-group">
-                        <label>Share link</label>
+                        <label>Share link <span class="@statusClass">@shareLink.Status</span></label>
                         <input class="form-control" readonly value="@shareLink.ShareUrl" />
+                        @if (shareLink.UsedAt != null)
+                        {
+                            <p class="text-muted small">Used <time datetime="@shareLink.UsedAt.Value.ToString("o")" title="@shareLink.UsedAt.Value.ToString("g")">@shareLink.UsedAt.Value.Humanize()</time>.</p>
+                        }
+                        else
+                        {
+                            <p class="text-muted small">Expires <time datetime="@shareLink.ExpiresAfter.ToString("o")" title="@shareLink.ExpiresAfter.ToString("g")">@shareLink.ExpiresAfter.Humanize()</time>.</p>
+                        }
                     </div>
-                    @if (shareLink.UsedAt != null)
-                    {
-                        <p>Used <time datetime="@shareLink.UsedAt.Value.ToString("o")" title="@shareLink.UsedAt.Value.ToString("g")">@shareLink.UsedAt.Value.Humanize()</time>.</p>
-                    }
-                    else
-                    {
-                        <p>Expires <time datetime="@shareLink.ExpiresAfter.ToString("o")" title="@shareLink.ExpiresAfter.ToString("g")">@shareLink.ExpiresAfter.Humanize()</time>.</p>
-                    }
-                    <form asp-action="DeleteShareLink" asp-route-token="@Model.Token" asp-route-id="@Model.ListId" style="display:inline-block">
+                    <form asp-action="DeleteShareLink" asp-route-token="@Model.Token" asp-route-id="@Model.ListId" class="d-inline-block">
                         <input type="hidden" name="password" value="@shareLink.Password" />
                         <input type="submit" value="Delete" class="btn btn-danger btn-sm" />
                     </form>
@@ -54,12 +51,12 @@ else
     </p>
 }
 
-<div>
-    <a class="btn btn-default" asp-action="Index" asp-route-token="@Model.Token" asp-route-id="@Model.ListId" style="display:inline-block">Back</a>
-    <form asp-action="CreateShareLink" asp-route-token="@Model.Token" asp-route-id="@Model.ListId" style="display:inline-block">
+<div class="d-flex flex-wrap align-items-center">
+    <a class="btn btn-secondary mr-2 mb-2" asp-action="Index" asp-route-token="@Model.Token" asp-route-id="@Model.ListId">Back</a>
+    <form asp-action="CreateShareLink" asp-route-token="@Model.Token" asp-route-id="@Model.ListId" class="mr-2 mb-2">
         <input type="submit" value="Create share link" class="btn btn-primary" />
     </form>
-    <form asp-action="DeleteAllShareLinks" asp-route-token="@Model.Token" asp-route-id="@Model.ListId" style="display:inline-block">
+    <form asp-action="DeleteAllShareLinks" asp-route-token="@Model.Token" asp-route-id="@Model.ListId" class="mb-2">
         <input type="submit" value="Delete all share links" class="btn btn-danger" @(Model.HasLinks ? null : "disabled") />
     </form>
 </div>

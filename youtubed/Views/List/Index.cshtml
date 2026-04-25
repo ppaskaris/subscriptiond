@@ -74,12 +74,12 @@ else
 <h2>Channels</h2>
 @if (Model.Channels.Any())
 {
-    <ol class="list-unstyled clearfix">
+    <ol class="list-unstyled channel-list">
         @foreach (var channel in Model.Channels)
         {
             <li class="channel-item">
                 <a class="channel-link" href="@channel.Url" rel="noopener noreferrer" referrerpolicy="no-referrer">
-                    <img src="@channel.Thumbnail" referrerpolicy="no-referrer" width="138" height="138" loading="lazy" />
+                    <img src="@channel.Thumbnail" referrerpolicy="no-referrer" width="135" height="135" loading="lazy" />
                     <span class="channel-title">@channel.Title</span>
                 </a>
                 <form asp-action="RemoveChannel" asp-route-token="@listToken" asp-route-id="@listId">
@@ -97,12 +97,12 @@ else
     </p>
 }
 <p>
-    <a class="btn btn-default" asp-action="AddChannel" asp-route-token="@listToken" asp-route-id="@listId">Add New Channel</a>
+    <a class="btn btn-secondary" asp-action="AddChannel" asp-route-token="@listToken" asp-route-id="@listId">Add New Channel</a>
 </p>
 
 <h2>Settings</h2>
 <p>
-    <a class="btn btn-default" asp-action="Edit" asp-route-token="@listToken" asp-route-id="@listId">Edit List</a>
-    <a class="btn btn-default" asp-action="Share" asp-route-token="@listToken" asp-route-id="@listId">Share List</a>
+    <a class="btn btn-secondary" asp-action="Edit" asp-route-token="@listToken" asp-route-id="@listId">Edit List</a>
+    <a class="btn btn-secondary" asp-action="Share" asp-route-token="@listToken" asp-route-id="@listId">Share List</a>
     <a class="btn btn-danger" asp-action="Delete" asp-route-token="@listToken" asp-route-id="@listId">Delete List</a>
 </p>

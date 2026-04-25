@@ -11,12 +11,12 @@
 <form asp-action="Edit" asp-route-token="@listToken" asp-route-id="@listId">
     <div asp-validation-summary="ModelOnly" class="text-danger"></div>
     <div class="form-group">
-        <label asp-for="Title" class="control-label"></label>
+        <label asp-for="Title"></label>
         <input asp-for="Title" class="form-control" />
         <span asp-validation-for="Title" class="text-danger"></span>
     </div>
     <div class="form-group">
-        <label asp-for="PlaybackRate" class="control-label"></label>
+        <label asp-for="PlaybackRate"></label>
         <select asp-for="PlaybackRate" class="form-control">
             @foreach (var playbackRate in Constants.YoutubePlaybackRates)
             {
@@ -27,7 +27,7 @@
     </div>
     <div class="form-group">
         <input type="submit" value="Save List" class="btn btn-primary" />
-        <a asp-action="Index" asp-route-token="@listToken" asp-route-id="@listId" class="btn btn-default">Cancel</a>
+        <a asp-action="Index" asp-route-token="@listToken" asp-route-id="@listId" class="btn btn-secondary">Cancel</a>
     </div>
 </form>
 

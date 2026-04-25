@@ -1,18 +1,5 @@
 body {
     overflow-y: scroll;
-    padding-bottom: 20px;
-}
-
-.navbar {
-    border-radius: 0;
-    border-width: 0 0 1px;
-}
-
-/* Wrapping element */
-/* Set some basic padding to keep content from hitting the edges */
-.body-content {
-    padding-left: 15px;
-    padding-right: 15px;
 }
 
 /* Video List */
@@ -106,14 +93,17 @@ body {
 
 /* Channel List */
 
+.channel-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px 4px;
+}
+
 .channel-item {
     display: block;
-    float: left;
-    height: 220px;
-    margin-bottom: 24px;
-    margin-right: 4px;
+    height: 224px;
     overflow: hidden;
-    width: 138px;
+    width: 135px;
 }
 
 .channel-link {
@@ -133,4 +123,8 @@ body {
     overflow: hidden;
     padding: 8px 0;
     text-overflow: ellipsis;
+}
+
+footer img {
+    vertical-align: middle;
 }

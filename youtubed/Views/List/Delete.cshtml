@@ -15,5 +15,5 @@
 <form asp-action="Delete" asp-route-token="@listToken" asp-route-id="@listId">
     <input type="hidden" name="Confirm" value="true" />
     <input type="submit" value="Delete List" class="btn btn-danger" />
-    <a asp-action="Index" asp-route-token="@listToken" asp-route-id="@listId" class="btn btn-default">Cancel</a>
+    <a asp-action="Index" asp-route-token="@listToken" asp-route-id="@listId" class="btn btn-secondary">Cancel</a>
 </form>

@@ -20,7 +20,7 @@
 
 ## Commit Rules
 
-- When interpolating `%MODEL_NAME%`, use the full model name, for example `GPT-5.4`.
+- When interpolating `%MODEL_NAME%`, use the full model name and version instead of a family name; for the current session, use `GPT-5.5` rather than `GPT-5`.
 - Commit messages must end with `Co-Authored-By: Codex %MODEL_NAME%`.
 - When a change fixes a GitHub issue, include a closing line such as `Closes #12` in the commit body.
 - When creating or amending a commit for a meaningful shipped code change, update [`youtubed/youtubed.csproj`](youtubed/youtubed.csproj) `AssemblyVersion` in the same change.

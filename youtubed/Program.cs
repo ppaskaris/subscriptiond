@@ -6,8 +6,14 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using youtubed.Data;
+using youtubed.DataTransfer;
 using youtubed.Persistence;
 using youtubed.Services;
+
+if (DataTransferCli.IsDataTransferCommand(args))
+{
+    return await DataTransferCli.RunAsync(args);
+}
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -61,6 +67,7 @@ app.UseRouting();
 app.MapControllers();
 
 app.Run();
+return 0;
 
 public partial class Program
 {

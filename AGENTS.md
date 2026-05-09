@@ -4,7 +4,11 @@
 
 - Preserve the anonymous secret-link model unless the user explicitly asks for authentication or accounts.
 - Treat Git-ignored files as noise when searching or reviewing unless the task is specifically about build or deployment output.
-- If changing persistence behavior, inspect both Dapper SQL and [`youtubed/Schema.sql`](youtubed/Schema.sql); behavior is encoded in both places.
+- If changing SQL persistence behavior, inspect both Dapper SQL and [`youtubed/Schema.sql`](youtubed/Schema.sql); behavior is encoded in both places.
+- If changing multi-persistence or Cosmos migration behavior, consult the relevant design docs in [`docs/`](docs/).
+- Keep domain models and repository interfaces storage-agnostic. SQL rows and Cosmos documents should stay inside provider-specific persistence layers.
+- SQL remains normalized and may compute read models with joins. Cosmos may denormalize documents for RU efficiency and reshape them in the persistence layer.
+- For Cosmos-targeted work, prefer point reads, bounded documents, TTL for lifecycle cleanup, narrow indexing, and ETag-based optimistic concurrency. Use one retry after an optimistic-concurrency conflict, then throw unless a task says otherwise.
 - Preserve existing controller attribute route templates when changing URLs.
 - Be careful with frontend changes: the app still mixes older tooling and libraries, including Bootstrap 3, jQuery validation, Bower, and BuildBundlerMinifier.
 - SQL in this repo is SQL Server-specific and uses patterns such as `MERGE` and TVPs; avoid database-agnostic rewrites unless explicitly requested.
@@ -16,6 +20,7 @@
 - `rg` is not available here. Use PowerShell-native search commands, and scope repo searches with `git ls-files --cached --others --exclude-standard` so ignored files stay excluded.
 - Run `dotnet`, LocalDB access, `gh`, and Git commands that write to the repository with elevated permissions in this environment.
 - Run validation sequentially after the build; do not overlap build and test execution because this repo can hit flaky testhost/file-copy races.
+- If changing Cosmos provider code, run Cosmos emulator tests with `YOUTUBED_RUN_COSMOS_TESTS=true` when the emulator is available.
 
 ## Commit Rules
 

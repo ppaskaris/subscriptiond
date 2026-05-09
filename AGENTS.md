@@ -3,7 +3,6 @@
 ## Project-Specific Guidance
 
 - Preserve the anonymous secret-link model unless the user explicitly asks for authentication or accounts.
-- Prefer small, local changes over sweeping rewrites unless explicitly requested.
 - Treat Git-ignored files as noise when searching or reviewing unless the task is specifically about build or deployment output.
 - If changing persistence behavior, inspect both Dapper SQL and [`youtubed/Schema.sql`](youtubed/Schema.sql); behavior is encoded in both places.
 - Preserve existing controller attribute route templates when changing URLs.

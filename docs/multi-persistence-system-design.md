@@ -148,3 +148,7 @@ YOUTUBED_RUN_COSMOS_TESTS=true
 ```
 
 Contract tests should verify domain-visible behavior, not identical storage mechanics. Provider-specific tests can verify SQL schema details or Cosmos TTL/indexing behavior.
+
+## Implementation Contracts
+
+Provider-neutral interface sketches, conflict retry policy, configuration knobs, and logging expectations are captured in [`implementation-contracts.md`](implementation-contracts.md).

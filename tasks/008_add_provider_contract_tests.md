@@ -2,7 +2,7 @@
 
 Status: Not Started
 
-Depends On: 003_refactor_list_projection_behavior, 004_add_daily_authenticated_list_renewal, 005_add_channel_status_and_url_lookup_cache, 006_add_worker_state_and_expiration_purger_ports
+Depends On: 003_add_channel_status_and_url_lookup_cache, 004_refactor_list_read_models, 005_add_daily_authenticated_list_renewal, 006_add_worker_state_and_expiration_purger_ports
 
 ## Goal
 

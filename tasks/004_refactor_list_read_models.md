@@ -1,8 +1,8 @@
-# Task 003: Refactor List Read Models
+# Task 004: Refactor List Read Models
 
 Status: Not Started
 
-Depends On: 002_create_domain_time_abstractions
+Depends On: 002_create_domain_time_abstractions, 003_add_channel_status_and_url_lookup_cache
 
 ## Goal
 

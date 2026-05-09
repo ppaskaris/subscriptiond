@@ -1,8 +1,8 @@
-# Task 004: Add Daily Authenticated List Renewal
+# Task 005: Add Daily Authenticated List Renewal
 
 Status: Not Started
 
-Depends On: 002_create_domain_time_abstractions
+Depends On: 002_create_domain_time_abstractions, 004_refactor_list_read_models
 
 ## Goal
 

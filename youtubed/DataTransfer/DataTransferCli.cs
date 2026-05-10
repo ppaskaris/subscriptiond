@@ -17,7 +17,7 @@ namespace youtubed.DataTransfer
         {
             new TableTransfer(
                 "Channel",
-                new[] { "Id", "Url", "Title", "Thumbnail", "PlaylistId", "StaleAfter", "VisibleAfter" }),
+                new[] { "Id", "Url", "Title", "Thumbnail", "PlaylistId", "StaleAfter", "VisibleAfter", "Status", "StatusReason", "StatusUpdatedAt" }),
             new TableTransfer(
                 "List",
                 new[] { "Id", "Token", "Title", "PlaybackRate", "ExpiredAfter" }),

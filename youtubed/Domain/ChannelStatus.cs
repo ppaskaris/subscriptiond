@@ -2,7 +2,7 @@ namespace youtubed.Domain
 {
     public enum ChannelStatus
     {
-        Active,
-        Unavailable
+        Active = 0,
+        Unavailable = 1
     }
 }

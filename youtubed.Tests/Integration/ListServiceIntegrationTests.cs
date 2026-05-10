@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Xunit;
+using youtubed.Domain;
 using youtubed.Models;
 using youtubed.Persistence;
 using youtubed.Services;
@@ -83,12 +84,20 @@ namespace youtubed.Tests.Integration
                 INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
                 VALUES
                     (N'channel-b', N'https://www.youtube.com/channel/channel-b', N'Beta', N'beta.png', N'playlist-b', @staleAfter, @visibleAfter),
-                    (N'channel-a', N'https://www.youtube.com/channel/channel-a', N'Alpha', N'alpha.png', N'playlist-a', @freshAfter, @visibleAfter);
+                    (N'channel-a', N'https://www.youtube.com/channel/channel-a', N'Alpha', N'alpha.png', N'playlist-a', @freshAfter, @visibleAfter),
+                    (N'channel-g', N'https://www.youtube.com/channel/channel-g', N'Gamma', N'gamma.png', N'playlist-g', @staleAfter, @visibleAfter);
+
+                UPDATE Channel
+                SET Status = @status,
+                    StatusReason = @statusReason,
+                    StatusUpdatedAt = @now
+                WHERE Id = N'channel-g';
 
                 INSERT INTO ListChannel (ListId, ChannelId)
                 VALUES
                     (@listId, N'channel-b'),
-                    (@listId, N'channel-a');
+                    (@listId, N'channel-a'),
+                    (@listId, N'channel-g');
 
                 INSERT INTO ChannelVideo (ChannelId, Id, Title, Duration, PublishedAt, Thumbnail)
                 VALUES
@@ -106,6 +115,9 @@ namespace youtubed.Tests.Integration
                     staleAfter = staleChannelTime,
                     freshAfter = freshChannelTime,
                     visibleAfter = now.AddMinutes(-1),
+                    status = ChannelStatus.Unavailable,
+                    statusReason = ChannelStatusReason.NotFound,
+                    now,
                     duration = TimeSpan.FromMinutes(5).Ticks,
                     newestPublishedAt = now.AddHours(-1),
                     middlePublishedAt = now.AddHours(-2),
@@ -124,7 +136,9 @@ namespace youtubed.Tests.Integration
             Assert.Equal("video-new", view.Videos.Select(video => video.VideoId).First());
             Assert.Equal(new[] { "video-new", "video-mid", "video-old" }, view.Videos.Select(video => video.VideoId).ToArray());
             Assert.Equal(TimeSpan.FromMinutes(5), view.Videos.Select(video => video.VideoDuration).First());
-            Assert.Equal(new[] { "Alpha", "Beta" }, view.Channels.Select(channel => channel.Title).ToArray());
+            Assert.Equal(new[] { "Alpha", "Beta", "Gamma" }, view.Channels.Select(channel => channel.Title).ToArray());
+            Assert.Equal(ChannelStatus.Unavailable, view.Channels.Single(channel => channel.Id == "channel-g").Status);
+            Assert.Equal(ChannelStatusReason.NotFound, view.Channels.Single(channel => channel.Id == "channel-g").StatusReason);
             Assert.Equal(now.Add(Constants.ListMaxAgeMin), view.ExpiredAfter);
             Assert.Equal(Constants.ListMaxAgeMin, view.MaxAge);
             Assert.Equal(Constants.ChannelUpdateFrequencyMin, view.StaleRefreshAfter);

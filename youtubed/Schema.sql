@@ -4,6 +4,37 @@ DROP TABLE IF EXISTS [ListChannel];
 DROP TABLE IF EXISTS [ChannelVideo];
 DROP TABLE IF EXISTS [List];
 DROP TABLE IF EXISTS [Channel];
+DROP TABLE IF EXISTS [ChannelStatusReason];
+DROP TABLE IF EXISTS [ChannelStatus];
+
+CREATE TABLE ChannelStatus (
+	Id INT NOT NULL,
+	Name NVARCHAR(50) NOT NULL,
+
+	CONSTRAINT PK_ChannelStatus PRIMARY KEY (Id),
+	CONSTRAINT UK_ChannelStatus_Name UNIQUE (Name)
+);
+
+INSERT INTO ChannelStatus (Id, Name)
+VALUES
+	(0, N'Active'),
+	(1, N'Unavailable');
+
+CREATE TABLE ChannelStatusReason (
+	Id INT NOT NULL,
+	Name NVARCHAR(100) NOT NULL,
+
+	CONSTRAINT PK_ChannelStatusReason PRIMARY KEY (Id),
+	CONSTRAINT UK_ChannelStatusReason_Name UNIQUE (Name)
+);
+
+INSERT INTO ChannelStatusReason (Id, Name)
+VALUES
+	(0, N'None'),
+	(1, N'NotFound'),
+	(2, N'Deleted'),
+	(3, N'Private'),
+	(4, N'PlaylistUnavailable');
 
 CREATE TABLE Channel (
 	Id NVARCHAR (50) NOT NULL,
@@ -13,9 +44,14 @@ CREATE TABLE Channel (
 	PlaylistId NVARCHAR (50) NOT NULL,
 	StaleAfter DATETIMEOFFSET NOT NULL,
 	VisibleAfter DATETIMEOFFSET NOT NULL,
+	Status INT NOT NULL CONSTRAINT DF_Channel_Status DEFAULT (0),
+	StatusReason INT NOT NULL CONSTRAINT DF_Channel_StatusReason DEFAULT (0),
+	StatusUpdatedAt DATETIMEOFFSET NULL,
 
 	CONSTRAINT PK_Channel PRIMARY KEY (Id),
-	CONSTRAINT UK_Channel_Url UNIQUE (Url)
+	CONSTRAINT UK_Channel_Url UNIQUE (Url),
+	CONSTRAINT FK_Channel_ChannelStatus FOREIGN KEY (Status) REFERENCES ChannelStatus (Id),
+	CONSTRAINT FK_Channel_ChannelStatusReason FOREIGN KEY (StatusReason) REFERENCES ChannelStatusReason (Id)
 );
 
 CREATE TABLE List (

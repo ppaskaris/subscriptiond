@@ -3,6 +3,7 @@ using System;
 using System.Data;
 using System.Threading.Tasks;
 using youtubed.Data;
+using youtubed.Domain;
 using youtubed.Models;
 
 namespace youtubed.Persistence
@@ -21,7 +22,7 @@ namespace youtubed.Persistence
             using var connection = _connectionFactory.CreateConnection();
             return await connection.QueryFirstOrDefaultAsync<ChannelModel>(
                 @"
-                SELECT Id, Url, Title, Thumbnail, PlaylistId
+                SELECT Id, Url, Title, Thumbnail, PlaylistId, Status, StatusReason, StatusUpdatedAt
                 FROM Channel
                 WHERE Url = @url;
                 ",
@@ -41,6 +42,8 @@ namespace youtubed.Persistence
                 title = channel.Title,
                 thumbnail = channel.Thumbnail,
                 playlistId = channel.PlaylistId,
+                status = ChannelStatus.Active,
+                statusReason = ChannelStatusReason.None,
                 staleAfter
             };
 
@@ -48,8 +51,12 @@ namespace youtubed.Persistence
             var updated = await connection.ExecuteAsync(
                 @"
                 UPDATE Channel WITH (UPDLOCK, HOLDLOCK)
-                SET StaleAfter = @staleAfter
-                WHERE Url = @url;
+                SET StaleAfter = @staleAfter,
+                    Status = @status,
+                    StatusReason = @statusReason,
+                    StatusUpdatedAt = NULL
+                WHERE Id = @id
+                   OR Url = @url;
                 ",
                 parameters,
                 transaction);
@@ -58,12 +65,13 @@ namespace youtubed.Persistence
             {
                 await connection.ExecuteAsync(
                     @"
-                    INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
-                    SELECT @id, @url, @title, @thumbnail, @playlistId, @staleAfter, @staleAfter
+                    INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter, Status, StatusReason, StatusUpdatedAt)
+                    SELECT @id, @url, @title, @thumbnail, @playlistId, @staleAfter, @staleAfter, @status, @statusReason, NULL
                     WHERE NOT EXISTS (
                         SELECT 1
                         FROM Channel WITH (UPDLOCK, HOLDLOCK)
-                        WHERE Url = @url
+                        WHERE Id = @id
+                           OR Url = @url
                     );
                     ",
                     parameters,
@@ -73,7 +81,8 @@ namespace youtubed.Persistence
                     @"
                     UPDATE Channel
                     SET StaleAfter = @staleAfter
-                    WHERE Url = @url;
+                    WHERE Id = @id
+                       OR Url = @url;
                     ",
                     parameters,
                     transaction);
@@ -82,17 +91,44 @@ namespace youtubed.Persistence
             transaction.Commit();
         }
 
-        public async Task UpdateMetadataAsync(string id, string title, string thumbnail)
+        public async Task UpdateMetadataAsync(string id, string url, string title, string thumbnail, string playlistId)
         {
             using var connection = _connectionFactory.CreateConnection();
             await connection.ExecuteAsync(
                 @"
                 UPDATE Channel
-                SET Title = @title,
-                    Thumbnail = @thumbnail
+                SET Url = @url,
+                    Title = @title,
+                    Thumbnail = @thumbnail,
+                    PlaylistId = @playlistId,
+                    Status = @status,
+                    StatusReason = @statusReason,
+                    StatusUpdatedAt = NULL
                 WHERE Id = @id;
                 ",
-                new { id, title, thumbnail });
+                new { id, url, title, thumbnail, playlistId, status = ChannelStatus.Active, statusReason = ChannelStatusReason.None });
+        }
+
+        public async Task MarkUnavailableAsync(string id, ChannelStatusReason reason, DateTimeOffset statusUpdatedAt, DateTimeOffset staleAfter)
+        {
+            using var connection = _connectionFactory.CreateConnection();
+            await connection.ExecuteAsync(
+                @"
+                UPDATE Channel
+                SET Status = @status,
+                    StatusReason = @reason,
+                    StatusUpdatedAt = @statusUpdatedAt,
+                    StaleAfter = @staleAfter
+                WHERE Id = @id;
+                ",
+                new
+                {
+                    id,
+                    status = ChannelStatus.Unavailable,
+                    reason,
+                    statusUpdatedAt,
+                    staleAfter
+                });
         }
 
         public async Task<StaleChannelModel> ClaimNextStaleChannelAsync(DateTimeOffset now, DateTimeOffset visibleAfter)
@@ -101,20 +137,28 @@ namespace youtubed.Persistence
             return await connection.QueryFirstOrDefaultAsync<StaleChannelModel>(
                 @"
                 ;WITH nextChannel AS (
-                    SELECT TOP (1) Id, Url, Title, Thumbnail, PlaylistId, VisibleAfter
+                    SELECT TOP (1) Id, Url, Title, Thumbnail, PlaylistId, Status, StatusReason, StatusUpdatedAt, VisibleAfter
                     FROM Channel WITH (UPDLOCK, ROWLOCK)
                     WHERE StaleAfter <= @now
                       AND VisibleAfter <= @now
+                      AND Status = @status
                       AND EXISTS(SELECT * FROM ListChannel WHERE ListChannel.ChannelId = Channel.Id)
                     ORDER BY StaleAfter ASC,
                              VisibleAfter ASC
                 )
                 UPDATE nextChannel
                 SET VisibleAfter = @visibleAfter
-                OUTPUT inserted.Id, inserted.Url, inserted.Title, inserted.Thumbnail, inserted.PlaylistId
+                OUTPUT inserted.Id,
+                       inserted.Url,
+                       inserted.Title,
+                       inserted.Thumbnail,
+                       inserted.PlaylistId,
+                       inserted.Status,
+                       inserted.StatusReason,
+                       inserted.StatusUpdatedAt
                 ;
                 ",
-                new { now, visibleAfter });
+                new { now, visibleAfter, status = ChannelStatus.Active });
         }
 
         public async Task<int> RemoveOrphanChannelsAsync(DateTimeOffset now)

@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using youtubed.Domain;
 using youtubed.Models;
 using youtubed.Persistence;
 
@@ -45,7 +46,7 @@ namespace youtubed.Services
                     return cached;
                 }
 
-                channel = await _youtubeService.GetChannelAsync(url);
+                channel = await _youtubeService.GetChannelByUrlAsync(url);
                 if (channel == null)
                 {
                     return null;
@@ -78,23 +79,50 @@ namespace youtubed.Services
             return _channelRepository.ClaimNextStaleChannelAsync(now, now.Add(visibilityTimeout));
         }
 
-        public async Task RefreshMetadataAsync(StaleChannelModel channel)
+        public async Task<StaleChannelModel> RefreshMetadataAsync(StaleChannelModel channel)
         {
-            var refreshed = await _youtubeService.GetChannelAsync(channel.Url);
+            var refreshed = await _youtubeService.GetChannelByIdAsync(channel.Id);
             if (refreshed == null)
             {
-                return;
+                var now = _clock.UtcNow;
+                await _channelRepository.MarkUnavailableAsync(
+                    channel.Id,
+                    ChannelStatusReason.NotFound,
+                    now,
+                    now.Add(Constants.ChannelUnavailableStaleDelay));
+                return null;
             }
 
-            if (refreshed.Title == channel.Title && refreshed.Thumbnail == channel.Thumbnail)
+            var refreshedUrl = string.Format(Constants.YoutubeChannelUrl, refreshed.Id);
+            if (refreshedUrl == channel.Url &&
+                refreshed.Title == channel.Title &&
+                refreshed.Thumbnail == channel.Thumbnail &&
+                refreshed.PlaylistId == channel.PlaylistId &&
+                channel.Status == ChannelStatus.Active &&
+                channel.StatusReason == ChannelStatusReason.None &&
+                channel.StatusUpdatedAt == null)
             {
-                return;
+                return channel;
             }
 
             await _channelRepository.UpdateMetadataAsync(
                 channel.Id,
+                refreshedUrl,
                 refreshed.Title,
-                refreshed.Thumbnail);
+                refreshed.Thumbnail,
+                refreshed.PlaylistId);
+
+            return new StaleChannelModel
+            {
+                Id = channel.Id,
+                Url = refreshedUrl,
+                Title = refreshed.Title,
+                Thumbnail = refreshed.Thumbnail,
+                PlaylistId = refreshed.PlaylistId,
+                Status = ChannelStatus.Active,
+                StatusReason = ChannelStatusReason.None,
+                StatusUpdatedAt = null
+            };
         }
 
         public Task<int> RemoveOrphanChannelsAsync()

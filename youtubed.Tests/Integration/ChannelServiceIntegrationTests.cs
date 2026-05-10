@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Xunit;
+using youtubed.Domain;
 using youtubed.Models;
 using youtubed.Persistence;
 using youtubed.Services;
@@ -202,9 +203,9 @@ namespace youtubed.Tests.Integration
         }
 
         [LocalDbFact]
-        public async Task RefreshMetadataAsync_UpdatesChangedTitleAndThumbnail()
+        public async Task RefreshMetadataAsync_UpdatesChangedMetadata()
         {
-            const string url = "https://www.youtube.com/channel/channel-refresh";
+            const string url = "https://www.youtube.com/user/channel-refresh";
 
             await ExecuteAsync(
                 @"
@@ -223,10 +224,10 @@ namespace youtubed.Tests.Integration
                 Id = "channel-refresh",
                 Title = "Updated Title",
                 Thumbnail = "new.png",
-                PlaylistId = "playlist-refresh"
+                PlaylistId = "playlist-new"
             });
 
-            await _service.RefreshMetadataAsync(new StaleChannelModel
+            var refreshed = await _service.RefreshMetadataAsync(new StaleChannelModel
             {
                 Id = "channel-refresh",
                 Url = url,
@@ -235,16 +236,23 @@ namespace youtubed.Tests.Integration
                 PlaylistId = "playlist-refresh"
             });
 
-            var persisted = await QuerySingleAsync<(string Title, string Thumbnail, string PlaylistId)>(
+            var persisted = await QuerySingleAsync<(string Url, string Title, string Thumbnail, string PlaylistId, ChannelStatus Status, ChannelStatusReason StatusReason, DateTimeOffset? StatusUpdatedAt)>(
                 @"
-                SELECT Title, Thumbnail, PlaylistId
+                SELECT Url, Title, Thumbnail, PlaylistId, Status, StatusReason, StatusUpdatedAt
                 FROM Channel
                 WHERE Id = N'channel-refresh';
                 ");
 
+            Assert.NotNull(refreshed);
+            Assert.Equal("https://www.youtube.com/channel/channel-refresh", refreshed.Url);
+            Assert.Equal("playlist-new", refreshed.PlaylistId);
+            Assert.Equal("https://www.youtube.com/channel/channel-refresh", persisted.Url);
             Assert.Equal("Updated Title", persisted.Title);
             Assert.Equal("new.png", persisted.Thumbnail);
-            Assert.Equal("playlist-refresh", persisted.PlaylistId);
+            Assert.Equal("playlist-new", persisted.PlaylistId);
+            Assert.Equal(ChannelStatus.Active, persisted.Status);
+            Assert.Equal(ChannelStatusReason.None, persisted.StatusReason);
+            Assert.Null(persisted.StatusUpdatedAt);
         }
 
         [LocalDbFact]
@@ -274,7 +282,7 @@ namespace youtubed.Tests.Integration
                 PlaylistId = "playlist-same"
             });
 
-            await _service.RefreshMetadataAsync(new StaleChannelModel
+            var refreshed = await _service.RefreshMetadataAsync(new StaleChannelModel
             {
                 Id = "channel-same",
                 Url = url,
@@ -295,8 +303,53 @@ namespace youtubed.Tests.Integration
             Assert.Equal("playlist-same", persisted.PlaylistId);
             Assert.Equal(staleAfter, persisted.StaleAfter);
             Assert.Equal(visibleAfter, persisted.VisibleAfter);
-            Assert.Equal(1, _youtubeService.GetChannelCallCount);
-            Assert.Equal(url, _youtubeService.LastChannelUrl);
+            Assert.NotNull(refreshed);
+            Assert.Equal("channel-same", refreshed.Id);
+            Assert.Equal(0, _youtubeService.GetChannelCallCount);
+            Assert.Equal(1, _youtubeService.GetChannelByIdCallCount);
+            Assert.Equal("channel-same", _youtubeService.LastChannelId);
+        }
+
+        [LocalDbFact]
+        public async Task RefreshMetadataAsync_MissingYoutubeChannelMarksUnavailable()
+        {
+            const string url = "https://www.youtube.com/channel/channel-missing";
+            var now = new DateTimeOffset(2026, 5, 10, 12, 0, 0, TimeSpan.Zero);
+            _clock.UtcNow = now;
+
+            await ExecuteAsync(
+                @"
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
+                VALUES (N'channel-missing', @url, N'Missing Title', N'missing.png', N'playlist-missing', @staleAfter, @visibleAfter);
+                ",
+                new
+                {
+                    url,
+                    staleAfter = now.AddMinutes(-5),
+                    visibleAfter = now.AddMinutes(-1)
+                });
+
+            var refreshed = await _service.RefreshMetadataAsync(new StaleChannelModel
+            {
+                Id = "channel-missing",
+                Url = url,
+                Title = "Missing Title",
+                Thumbnail = "missing.png",
+                PlaylistId = "playlist-missing"
+            });
+
+            var persisted = await QuerySingleAsync<(ChannelStatus Status, ChannelStatusReason StatusReason, DateTimeOffset? StatusUpdatedAt, DateTimeOffset StaleAfter)>(
+                @"
+                SELECT Status, StatusReason, StatusUpdatedAt, StaleAfter
+                FROM Channel
+                WHERE Id = N'channel-missing';
+                ");
+
+            Assert.Null(refreshed);
+            Assert.Equal(ChannelStatus.Unavailable, persisted.Status);
+            Assert.Equal(ChannelStatusReason.NotFound, persisted.StatusReason);
+            Assert.Equal(now, persisted.StatusUpdatedAt);
+            Assert.Equal(now.Add(Constants.ChannelUnavailableStaleDelay), persisted.StaleAfter);
         }
 
         [LocalDbFact]

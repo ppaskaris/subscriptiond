@@ -31,29 +31,53 @@ Authenticated access renews list expiration at most once per UTC day. Maintenanc
 Add channel status fields:
 
 ```sql
+CREATE TABLE ChannelStatus (
+    Id INT NOT NULL,
+    Name NVARCHAR(50) NOT NULL,
+
+    CONSTRAINT PK_ChannelStatus PRIMARY KEY (Id),
+    CONSTRAINT UK_ChannelStatus_Name UNIQUE (Name)
+);
+
+CREATE TABLE ChannelStatusReason (
+    Id INT NOT NULL,
+    Name NVARCHAR(100) NOT NULL,
+
+    CONSTRAINT PK_ChannelStatusReason PRIMARY KEY (Id),
+    CONSTRAINT UK_ChannelStatusReason_Name UNIQUE (Name)
+);
+
 ALTER TABLE Channel
-ADD Status NVARCHAR(50) NOT NULL CONSTRAINT DF_Channel_Status DEFAULT (N'Active'),
-    StatusReason NVARCHAR(100) NULL,
+ADD Status INT NOT NULL CONSTRAINT DF_Channel_Status DEFAULT (0),
+    StatusReason INT NOT NULL CONSTRAINT DF_Channel_StatusReason DEFAULT (0),
     StatusUpdatedAt DATETIMEOFFSET NULL;
+
+ALTER TABLE Channel
+ADD CONSTRAINT FK_Channel_ChannelStatus
+    FOREIGN KEY (Status) REFERENCES ChannelStatus (Id),
+    CONSTRAINT FK_Channel_ChannelStatusReason
+    FOREIGN KEY (StatusReason) REFERENCES ChannelStatusReason (Id);
 ```
 
 Status values map to domain enums:
 
-- `Active`
-- `Unavailable`
+- `0 = Active`
+- `1 = Unavailable`
 
 Reason values map to domain enums:
 
-- `None`
-- `NotFound`
-- `Deleted`
-- `Private`
-- `PlaylistUnavailable`
+- `0 = None`
+- `1 = NotFound`
+- `2 = Deleted`
+- `3 = Private`
+- `4 = PlaylistUnavailable`
+
+The lookup tables provide readable SQL joins while the `Channel` table stores numeric enum values that Dapper can map directly to domain enums.
 
 Known permanent YouTube failures should set:
 
-- `Status = 'Unavailable'`
-- `StatusReason = reason`
+- `Status = 1`
+- `StatusReason = reason enum value`
 - `StatusUpdatedAt = now`
 - `StaleAfter = DateTimeOffset.MaxValue`
 

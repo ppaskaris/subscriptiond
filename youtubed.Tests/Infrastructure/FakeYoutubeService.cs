@@ -10,12 +10,16 @@ namespace youtubed.Tests.Infrastructure
     {
         private readonly Dictionary<string, YoutubeChannel> _channelsByUrl =
             new Dictionary<string, YoutubeChannel>(StringComparer.Ordinal);
+        private readonly Dictionary<string, YoutubeChannel> _channelsById =
+            new Dictionary<string, YoutubeChannel>(StringComparer.Ordinal);
         private readonly Dictionary<string, YoutubeChannel> _videoChannelsByUrl =
             new Dictionary<string, YoutubeChannel>(StringComparer.Ordinal);
         private readonly Dictionary<string, IReadOnlyList<YoutubeVideo>> _videosByPlaylist =
             new Dictionary<string, IReadOnlyList<YoutubeVideo>>(StringComparer.Ordinal);
 
         public int GetChannelCallCount { get; private set; }
+
+        public int GetChannelByIdCallCount { get; private set; }
 
         public int GetVideoChannelCallCount { get; private set; }
 
@@ -25,9 +29,20 @@ namespace youtubed.Tests.Infrastructure
 
         public string LastChannelUrl { get; private set; }
 
+        public string LastChannelId { get; private set; }
+
         public void SetChannel(string url, YoutubeChannel channel)
         {
             _channelsByUrl[url] = channel;
+            if (!string.IsNullOrWhiteSpace(channel?.Id))
+            {
+                _channelsById[channel.Id] = channel;
+            }
+        }
+
+        public void SetChannelById(string id, YoutubeChannel channel)
+        {
+            _channelsById[id] = channel;
         }
 
         public void SetVideoChannel(string url, YoutubeChannel channel)
@@ -40,11 +55,19 @@ namespace youtubed.Tests.Infrastructure
             _videosByPlaylist[playlistId] = videos.ToList();
         }
 
-        public Task<YoutubeChannel> GetChannelAsync(string url)
+        public Task<YoutubeChannel> GetChannelByUrlAsync(string url)
         {
             GetChannelCallCount++;
             LastChannelUrl = url;
             _channelsByUrl.TryGetValue(url, out var channel);
+            return Task.FromResult(channel);
+        }
+
+        public Task<YoutubeChannel> GetChannelByIdAsync(string id)
+        {
+            GetChannelByIdCallCount++;
+            LastChannelId = id;
+            _channelsById.TryGetValue(id, out var channel);
             return Task.FromResult(channel);
         }
 

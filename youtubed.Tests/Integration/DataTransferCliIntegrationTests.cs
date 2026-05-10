@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Xunit;
 using youtubed.DataTransfer;
+using youtubed.Domain;
 using youtubed.Tests.Infrastructure;
 
 namespace youtubed.Tests.Integration
@@ -31,8 +32,8 @@ namespace youtubed.Tests.Integration
 
                 await ExecuteAsync(
                     @"
-                    INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
-                    VALUES ('channel-1', N'https://example.test/channel', N'Example Channel', N'https://example.test/thumb.jpg', 'playlist-1', @expiresAfter, @createdAt);
+                    INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter, Status, StatusReason, StatusUpdatedAt)
+                    VALUES ('channel-1', N'https://example.test/channel', N'Example Channel', N'https://example.test/thumb.jpg', 'playlist-1', @expiresAfter, @createdAt, @status, @statusReason, @statusUpdatedAt);
 
                     INSERT INTO [List] (Id, Token, Title, PlaybackRate, ExpiredAfter)
                     VALUES (@listId, @token, N'Example List', 1.50, @expiresAfter);
@@ -46,7 +47,16 @@ namespace youtubed.Tests.Integration
                     INSERT INTO ListChannel (ListId, ChannelId)
                     VALUES (@listId, 'channel-1');
                     ",
-                    new { listId, token, createdAt, expiresAfter });
+                    new
+                    {
+                        listId,
+                        token,
+                        createdAt,
+                        expiresAfter,
+                        status = ChannelStatus.Unavailable,
+                        statusReason = ChannelStatusReason.NotFound,
+                        statusUpdatedAt = createdAt.AddMinutes(30)
+                    });
 
                 await using (var targetConnection = targetFixture.CreateConnection())
                 {
@@ -88,10 +98,16 @@ namespace youtubed.Tests.Integration
                 var staleAfter = await Dapper.SqlMapper.QuerySingleAsync<DateTimeOffset>(
                     connection,
                     "SELECT StaleAfter FROM Channel WHERE Id = 'channel-1';");
+                var status = await Dapper.SqlMapper.QuerySingleAsync<(ChannelStatus Status, ChannelStatusReason StatusReason, DateTimeOffset? StatusUpdatedAt)>(
+                    connection,
+                    "SELECT Status, StatusReason, StatusUpdatedAt FROM Channel WHERE Id = 'channel-1';");
 
                 Assert.Equal("Example List", title);
                 Assert.Equal(1.50m, playbackRate);
                 Assert.Equal(expiresAfter, staleAfter);
+                Assert.Equal(ChannelStatus.Unavailable, status.Status);
+                Assert.Equal(ChannelStatusReason.NotFound, status.StatusReason);
+                Assert.Equal(createdAt.AddMinutes(30), status.StatusUpdatedAt);
             }
             finally
             {

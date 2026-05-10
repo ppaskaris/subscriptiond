@@ -22,7 +22,7 @@ namespace youtubed.Services
 
         private YouTubeService Service => _service.Value;
 
-        public async Task<YoutubeChannel> GetChannelAsync(string url)
+        public async Task<YoutubeChannel> GetChannelByUrlAsync(string url)
         {
             var match = Constants.YoutubeChannelExpression.Match(url);
             if (!match.Success)
@@ -34,6 +34,16 @@ namespace youtubed.Services
             var identifier = match.Groups[2].Value;
 
             return await GetChannelByIdentifierAsync(type, identifier);
+        }
+
+        public Task<YoutubeChannel> GetChannelByIdAsync(string id)
+        {
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                throw new ArgumentException(nameof(id), "Invalid format.");
+            }
+
+            return GetChannelByIdentifierAsync("channel", id);
         }
 
         private async Task<YoutubeChannel> GetChannelByIdentifierAsync(string type, string identifier)

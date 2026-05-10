@@ -2,6 +2,7 @@ using Dapper;
 using System;
 using System.Threading.Tasks;
 using youtubed.Data;
+using youtubed.Domain;
 using youtubed.Models;
 
 namespace youtubed.Persistence
@@ -56,7 +57,8 @@ namespace youtubed.Persistence
                 FROM ListChannel
                     INNER JOIN Channel ON Channel.Id = ListChannel.ChannelId
                 WHERE ListChannel.ListId = @id
-                  AND Channel.StaleAfter <= @now;
+                  AND Channel.StaleAfter <= @now
+                  AND Channel.Status = @activeStatus;
 
                 SELECT Channel.Title AS ChannelTitle,
                        Channel.Url AS ChannelUrl,
@@ -75,13 +77,17 @@ namespace youtubed.Persistence
                 SELECT Channel.Id,
                        Channel.Title,
                        Channel.Url,
-                       Channel.Thumbnail
+                       Channel.Thumbnail,
+                       Channel.PlaylistId,
+                       Channel.Status,
+                       Channel.StatusReason,
+                       Channel.StatusUpdatedAt
                 FROM ListChannel
                     INNER JOIN Channel ON Channel.Id = ListChannel.ChannelId
                 WHERE ListChannel.ListId = @id
                 ORDER BY Channel.Title ASC;
                 ",
-                new { id, expiredAfter, now });
+                new { id, expiredAfter, now, activeStatus = ChannelStatus.Active });
             var list = await query.ReadSingleOrDefaultAsync<ListModel>();
             if (list == null)
             {

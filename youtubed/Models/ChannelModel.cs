@@ -1,7 +1,5 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
+using youtubed.Domain;
 
 namespace youtubed.Models
 {
@@ -12,5 +10,8 @@ namespace youtubed.Models
         public string Title { get; set; }
         public string Thumbnail { get; set; }
         public string PlaylistId { get; set; }
+        public ChannelStatus Status { get; set; } = ChannelStatus.Active;
+        public ChannelStatusReason StatusReason { get; set; } = ChannelStatusReason.None;
+        public DateTimeOffset? StatusUpdatedAt { get; set; }
     }
 }

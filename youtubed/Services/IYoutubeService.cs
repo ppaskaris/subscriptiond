@@ -7,7 +7,9 @@ namespace youtubed.Services
 {
     public interface IYoutubeService
     {
-        Task<YoutubeChannel> GetChannelAsync(string url);
+        Task<YoutubeChannel> GetChannelByUrlAsync(string url);
+
+        Task<YoutubeChannel> GetChannelByIdAsync(string id);
 
         Task<YoutubeChannel> GetVideoChannelAsync(string url);
 

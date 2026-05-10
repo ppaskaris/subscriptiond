@@ -39,8 +39,11 @@ namespace youtubed.Services
                     {
                         // Multi-instance coordination happens at claim time in SQL.
                         _logger.LogInformation("Refreshing channel {0}.", channel.Id);
-                        await _channelService.RefreshMetadataAsync(channel);
-                        await _channelVideoService.RefreshVideosAsync(channel);
+                        var refreshedChannel = await _channelService.RefreshMetadataAsync(channel);
+                        if (refreshedChannel != null)
+                        {
+                            await _channelVideoService.RefreshVideosAsync(refreshedChannel);
+                        }
                     }
                 }
                 catch (Exception ex)

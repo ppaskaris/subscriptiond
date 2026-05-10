@@ -11,7 +11,7 @@
     @if (Model.StaleCount > 0)
     {
         <meta http-equiv="refresh"
-              content="@Math.Floor(Constants.RandomlyBetween(Constants.ChannelUpdateFrequencyMin, Constants.ChannelUpdateFrequencyMax).TotalSeconds)">
+              content="@Math.Floor(Model.StaleRefreshAfter.TotalSeconds)">
     }
 }
 

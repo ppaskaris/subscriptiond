@@ -1,3 +1,4 @@
+@inject youtubed.Services.IAppClock AppClock
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -29,7 +30,7 @@
         @RenderBody()
         <hr />
         <footer class="d-sm-flex justify-content-between align-items-center">
-            <span class="d-block mb-2 mb-sm-0">&copy; @DateTime.UtcNow.Year - subscriptiond v@(youtubed.AppVersion.Current)</span>
+            <span class="d-block mb-2 mb-sm-0">&copy; @AppClock.UtcNow.Year - subscriptiond v@(youtubed.AppVersion.Current)</span>
             <a href="https://www.youtube.com" rel="noopener noreferrer" referrerpolicy="no-referrer" target="_blank" class="d-inline-block">
                 <img src="~/images/yt-attribution.png" alt="Developed with YouTube" width="159" height="20" loading="lazy" />
             </a>

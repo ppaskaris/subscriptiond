@@ -10,22 +10,26 @@ namespace youtubed.Services
     {
         private readonly IChannelVideoRepository _channelVideoRepository;
         private readonly IYoutubeService _youtubeService;
+        private readonly IAppClock _clock;
 
         public ChannelVideoService(
             IChannelVideoRepository channelVideoRepository,
-            IYoutubeService youtubeService)
+            IYoutubeService youtubeService,
+            IAppClock clock)
         {
             _channelVideoRepository = channelVideoRepository;
             _youtubeService = youtubeService;
+            _clock = clock;
         }
 
         public async Task RefreshVideosAsync(StaleChannelModel channel)
         {
-            var earliestPublishedAt = DateTimeOffset.Now.Subtract(Constants.VideoMaxAge);
+            var now = _clock.UtcNow;
+            var earliestPublishedAt = now.Subtract(Constants.VideoMaxAge);
             var videos = await _youtubeService.GetVideosAsync(
                 channel.PlaylistId,
                 earliestPublishedAt);
-            var updateMaxAge = Constants.RandomlyBetween(
+            var updateMaxAge = _clock.RandomDelay(
                 Constants.ChannelMaxAgeMin,
                 Constants.ChannelMaxAgeMax);
 
@@ -44,7 +48,7 @@ namespace youtubed.Services
                         Thumbnail = video.Thumbnail
                     })
                     .ToList(),
-                DateTimeOffset.Now.Add(updateMaxAge));
+                now.Add(updateMaxAge));
         }
     }
 }

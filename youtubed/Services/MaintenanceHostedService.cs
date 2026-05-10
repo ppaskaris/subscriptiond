@@ -13,17 +13,20 @@ namespace youtubed.Services
         private readonly IChannelService _channelService;
         private readonly IListService _listService;
         private readonly IShareLinkService _shareLinkService;
+        private readonly IAppClock _clock;
         private readonly ILogger _logger;
 
         public MaintenanceHostedService(
             IChannelService channelService,
             IListService listService,
             IShareLinkService shareLinkService,
+            IAppClock clock,
             ILogger<MaintenanceHostedService> logger)
         {
             _channelService = channelService;
             _listService = listService;
             _shareLinkService = shareLinkService;
+            _clock = clock;
             _logger = logger;
         }
 
@@ -73,7 +76,7 @@ namespace youtubed.Services
                     _logger.LogError("Exception thrown while removing orphan channels.");
                     _logger.LogError(ex.ToString());
                 }
-                var delay = Constants.RandomlyBetween(
+                var delay = _clock.RandomDelay(
                     Constants.MaintenanceFrequencyMin,
                     Constants.MaintenanceFrequencyMax);
                 _logger.LogInformation("Performing maintenance again in {0}.", delay.Humanize());

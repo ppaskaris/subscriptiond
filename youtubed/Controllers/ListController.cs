@@ -15,15 +15,18 @@ namespace youtubed.Controllers
         private readonly IListService _listService;
         private readonly IChannelService _channelService;
         private readonly IShareLinkService _shareLinkService;
+        private readonly IAppClock _clock;
 
         public ListController(
             IListService listService,
             IChannelService channelService,
-            IShareLinkService shareLinkService)
+            IShareLinkService shareLinkService,
+            IAppClock clock)
         {
             _listService = listService;
             _channelService = channelService;
             _shareLinkService = shareLinkService;
+            _clock = clock;
         }
 
         [HttpGet]
@@ -317,7 +320,7 @@ namespace youtubed.Controllers
             }
 
             var shareLinks = await _shareLinkService.GetShareLinksAsync(list.Id);
-            var now = DateTimeOffset.Now;
+            var now = _clock.UtcNow;
 
             return View(new ShareListViewModel
             {

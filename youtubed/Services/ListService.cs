@@ -9,21 +9,24 @@ namespace youtubed.Services
     public class ListService : IListService
     {
         private readonly IListRepository _listRepository;
+        private readonly IAppClock _clock;
 
-        public ListService(IListRepository listRepository)
+        public ListService(IListRepository listRepository, IAppClock clock)
         {
             _listRepository = listRepository;
+            _clock = clock;
         }
 
         public async Task<ListModel> CreateListAsync(string title)
         {
+            var now = _clock.UtcNow;
             var list = new ListModel
             {
                 Id = Guid.NewGuid(),
                 Token = CreateToken(),
                 Title = title,
                 PlaybackRate = Constants.DefaultListPlaybackRate,
-                ExpiredAfter = CreateExpiredAfter()
+                ExpiredAfter = CreateExpiredAfter(now)
             };
 
             await _listRepository.CreateAsync(list);
@@ -37,7 +40,7 @@ namespace youtubed.Services
 
         public Task<ListViewModel> GetListViewAsync(Guid id)
         {
-            return _listRepository.GetViewAsync(id, CreateExpiredAfter(), DateTimeOffset.Now);
+            return GetListViewCoreAsync(id);
         }
 
         public Task AddChannelAsync(Guid listId, string channelId)
@@ -62,7 +65,7 @@ namespace youtubed.Services
 
         public Task<int> RemoveExpiredListsAsync()
         {
-            return _listRepository.RemoveExpiredAsync(DateTimeOffset.Now);
+            return _listRepository.RemoveExpiredAsync(_clock.UtcNow);
         }
 
         private byte[] CreateToken()
@@ -72,12 +75,27 @@ namespace youtubed.Services
             return token;
         }
 
-        private static DateTimeOffset CreateExpiredAfter()
+        private async Task<ListViewModel> GetListViewCoreAsync(Guid id)
         {
-            var maxAge = Constants.RandomlyBetween(
+            var now = _clock.UtcNow;
+            var view = await _listRepository.GetViewAsync(id, CreateExpiredAfter(now), now);
+            if (view == null)
+            {
+                return null;
+            }
+
+            view.MaxAge = view.ExpiredAfter.Subtract(now);
+            view.StaleRefreshAfter = _clock.RandomDelay(
+                Constants.ChannelUpdateFrequencyMin,
+                Constants.ChannelUpdateFrequencyMax);
+            return view;
+        }
+
+        private DateTimeOffset CreateExpiredAfter(DateTimeOffset now)
+        {
+            return now.Add(_clock.RandomDelay(
                 Constants.ListMaxAgeMin,
-                Constants.ListMaxAgeMax);
-            return DateTimeOffset.Now.Add(maxAge);
+                Constants.ListMaxAgeMax));
         }
     }
 }

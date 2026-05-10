@@ -16,23 +16,25 @@ namespace youtubed.Services
         private static readonly Lazy<string[]> PasswordWords = new Lazy<string[]>(LoadPasswordWords);
 
         private readonly IShareLinkRepository _shareLinkRepository;
+        private readonly IAppClock _clock;
 
-        public ShareLinkService(IShareLinkRepository shareLinkRepository)
+        public ShareLinkService(IShareLinkRepository shareLinkRepository, IAppClock clock)
         {
             _shareLinkRepository = shareLinkRepository;
+            _clock = clock;
         }
 
         public async Task<ShareLinkModel> CreateShareLinkAsync(Guid listId)
         {
             for (var attempt = 0; attempt < MaxCreateAttempts; attempt++)
             {
-                var createdAt = DateTimeOffset.Now;
+                var createdAt = _clock.UtcNow;
                 var shareLink = new ShareLinkModel
                 {
                     Password = CreatePassword(),
                     ListId = listId,
                     CreatedAt = createdAt,
-                    ExpiresAfter = createdAt.Add(Constants.RandomlyBetween(
+                    ExpiresAfter = createdAt.Add(_clock.RandomDelay(
                         Constants.ShareLinkMaxAgeMin,
                         Constants.ShareLinkMaxAgeMax))
                 };
@@ -63,13 +65,13 @@ namespace youtubed.Services
 
         public Task<ConsumedShareLinkModel> ConsumeShareLinkAsync(string password)
         {
-            return _shareLinkRepository.ConsumeAsync(password, DateTimeOffset.Now);
+            return _shareLinkRepository.ConsumeAsync(password, _clock.UtcNow);
         }
 
         public Task<int> RemoveExpiredShareLinksAsync()
         {
             return _shareLinkRepository.RemoveExpiredAsync(
-                DateTimeOffset.Now.Subtract(Constants.ShareLinkRetentionAfterExpiration));
+                _clock.UtcNow.Subtract(Constants.ShareLinkRetentionAfterExpiration));
         }
 
         private static string CreatePassword()

@@ -4,6 +4,7 @@
 
 - Preserve the anonymous secret-link model unless the user explicitly asks for authentication or accounts.
 - Treat Git-ignored files as noise when searching or reviewing unless the task is specifically about build or deployment output.
+- Prefer reusing existing utilities and helper functions instead of defining new local helpers or duplicating logic.
 - If changing SQL persistence behavior, inspect both Dapper SQL and [`youtubed/Schema.sql`](youtubed/Schema.sql); behavior is encoded in both places.
 - If changing multi-persistence or Cosmos migration behavior, consult the relevant design docs in [`docs/`](docs/).
 - Keep domain models and repository interfaces storage-agnostic. SQL rows and Cosmos documents should stay inside provider-specific persistence layers.

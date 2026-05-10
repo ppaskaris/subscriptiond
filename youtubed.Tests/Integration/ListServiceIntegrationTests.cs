@@ -13,17 +13,21 @@ namespace youtubed.Tests.Integration
     [Trait("Category", "LocalDb")]
     public sealed class ListServiceIntegrationTests : LocalDbIntegrationTestBase
     {
+        private readonly FakeAppClock _clock;
         private readonly ListService _service;
 
         public ListServiceIntegrationTests(LocalDbTestFixture fixture)
             : base(fixture)
         {
-            _service = new ListService(new ListRepository(fixture.ConnectionFactory));
+            _clock = new FakeAppClock();
+            _service = new ListService(new ListRepository(fixture.ConnectionFactory), _clock);
         }
 
         [LocalDbFact]
         public async Task CreateListAsync_PersistsList()
         {
+            _clock.UtcNow = new DateTimeOffset(2026, 5, 1, 12, 0, 0, TimeSpan.Zero);
+
             var list = await _service.CreateListAsync("Integration List");
 
             var persisted = await QuerySingleAsync<ListModel>(
@@ -42,7 +46,7 @@ namespace youtubed.Tests.Integration
             Assert.Equal(list.Title, persisted.Title);
             Assert.Equal(1.00m, persisted.PlaybackRate);
             Assert.Equal(list.TokenString, persisted.TokenString);
-            Assert.True(persisted.ExpiredAfter > DateTimeOffset.Now.AddDays(40));
+            Assert.Equal(_clock.UtcNow.Add(Constants.ListMaxAgeMin), persisted.ExpiredAfter);
         }
 
         [LocalDbFact]
@@ -64,10 +68,12 @@ namespace youtubed.Tests.Integration
         public async Task GetListViewAsync_RefreshesExpiryAndReturnsOrderedData()
         {
             var listId = Guid.NewGuid();
-            var originalExpiry = DateTimeOffset.UtcNow.AddDays(-1);
+            var now = new DateTimeOffset(2026, 5, 2, 12, 0, 0, TimeSpan.Zero);
+            _clock.UtcNow = now;
+            var originalExpiry = now.AddDays(-1);
             var token = Enumerable.Range(1, 40).Select(value => (byte)value).ToArray();
-            var staleChannelTime = DateTimeOffset.UtcNow.AddMinutes(-5);
-            var freshChannelTime = DateTimeOffset.UtcNow.AddMinutes(5);
+            var staleChannelTime = now.AddMinutes(-5);
+            var freshChannelTime = now.AddMinutes(5);
 
             await ExecuteAsync(
                 @"
@@ -99,11 +105,11 @@ namespace youtubed.Tests.Integration
                     expiredAfter = originalExpiry,
                     staleAfter = staleChannelTime,
                     freshAfter = freshChannelTime,
-                    visibleAfter = DateTimeOffset.UtcNow.AddMinutes(-1),
+                    visibleAfter = now.AddMinutes(-1),
                     duration = TimeSpan.FromMinutes(5).Ticks,
-                    newestPublishedAt = DateTimeOffset.UtcNow.AddHours(-1),
-                    middlePublishedAt = DateTimeOffset.UtcNow.AddHours(-2),
-                    oldestPublishedAt = DateTimeOffset.UtcNow.AddHours(-3)
+                    newestPublishedAt = now.AddHours(-1),
+                    middlePublishedAt = now.AddHours(-2),
+                    oldestPublishedAt = now.AddHours(-3)
                 });
 
             var view = await _service.GetListViewAsync(listId);
@@ -119,7 +125,9 @@ namespace youtubed.Tests.Integration
             Assert.Equal(new[] { "video-new", "video-mid", "video-old" }, view.Videos.Select(video => video.VideoId).ToArray());
             Assert.Equal(TimeSpan.FromMinutes(5), view.Videos.Select(video => video.VideoDuration).First());
             Assert.Equal(new[] { "Alpha", "Beta" }, view.Channels.Select(channel => channel.Title).ToArray());
-            Assert.True(view.ExpiredAfter > originalExpiry);
+            Assert.Equal(now.Add(Constants.ListMaxAgeMin), view.ExpiredAfter);
+            Assert.Equal(Constants.ListMaxAgeMin, view.MaxAge);
+            Assert.Equal(Constants.ChannelUpdateFrequencyMin, view.StaleRefreshAfter);
             Assert.Equal(view.ExpiredAfter, refreshedExpiry);
         }
 
@@ -196,6 +204,9 @@ namespace youtubed.Tests.Integration
         [LocalDbFact]
         public async Task RemoveExpiredListsAsync_DeletesOnlyExpiredRows()
         {
+            var now = new DateTimeOffset(2026, 5, 3, 12, 0, 0, TimeSpan.Zero);
+            _clock.UtcNow = now;
+
             await ExecuteAsync(
                 @"
                 INSERT INTO List (Id, Token, Title, ExpiredAfter)
@@ -209,8 +220,8 @@ namespace youtubed.Tests.Integration
                     activeId = Guid.NewGuid(),
                     expiredToken = Enumerable.Repeat((byte)1, 40).ToArray(),
                     activeToken = Enumerable.Repeat((byte)2, 40).ToArray(),
-                    expiredAfter = DateTimeOffset.UtcNow.AddMinutes(-1),
-                    activeAfter = DateTimeOffset.UtcNow.AddMinutes(10)
+                    expiredAfter = now.AddMinutes(-1),
+                    activeAfter = now.AddMinutes(10)
                 });
 
             var removed = await _service.RemoveExpiredListsAsync();

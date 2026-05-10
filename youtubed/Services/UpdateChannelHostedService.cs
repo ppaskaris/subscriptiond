@@ -12,15 +12,18 @@ namespace youtubed.Services
     {
         private readonly IChannelService _channelService;
         private readonly IChannelVideoService _channelVideoService;
+        private readonly IAppClock _clock;
         private readonly ILogger _logger;
 
         public UpdateChannelHostedService(
             IChannelService channelService,
             IChannelVideoService channelVideoService,
+            IAppClock clock,
             ILogger<UpdateChannelHostedService> logger)
         {
             _channelService = channelService;
             _channelVideoService = channelVideoService;
+            _clock = clock;
             _logger = logger;
         }
 
@@ -45,7 +48,7 @@ namespace youtubed.Services
                     _logger.LogError("Exception thrown while updating channels.");
                     _logger.LogError(ex.ToString());
                 }
-                var delay = Constants.RandomlyBetween(
+                var delay = _clock.RandomDelay(
                     Constants.ChannelUpdateFrequencyMin,
                     Constants.ChannelUpdateFrequencyMax);
                 _logger.LogInformation("Updating channels again in {0}.", delay.Humanize());

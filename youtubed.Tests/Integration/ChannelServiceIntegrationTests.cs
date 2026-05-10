@@ -13,14 +13,16 @@ namespace youtubed.Tests.Integration
     [Trait("Category", "LocalDb")]
     public sealed class ChannelServiceIntegrationTests : LocalDbIntegrationTestBase
     {
+        private readonly FakeAppClock _clock;
         private readonly FakeYoutubeService _youtubeService;
         private readonly ChannelService _service;
 
         public ChannelServiceIntegrationTests(LocalDbTestFixture fixture)
             : base(fixture)
         {
+            _clock = new FakeAppClock();
             _youtubeService = new FakeYoutubeService();
-            _service = new ChannelService(new ChannelRepository(fixture.ConnectionFactory), _youtubeService);
+            _service = new ChannelService(new ChannelRepository(fixture.ConnectionFactory), _youtubeService, _clock);
         }
 
         [LocalDbFact]
@@ -104,7 +106,8 @@ namespace youtubed.Tests.Integration
         public async Task GetNextStaleChannelOrDefaultAsync_ClaimsOnlyEligibleAttachedChannel()
         {
             var listId = Guid.NewGuid();
-            var now = DateTimeOffset.UtcNow;
+            var now = new DateTimeOffset(2026, 5, 6, 12, 0, 0, TimeSpan.Zero);
+            _clock.UtcNow = now;
 
             await ExecuteAsync(
                 @"
@@ -148,13 +151,15 @@ namespace youtubed.Tests.Integration
             Assert.Equal("Eligible Oldest", claimed.Title);
             Assert.Equal("a.png", claimed.Thumbnail);
             Assert.Equal("playlist-a", claimed.PlaylistId);
-            Assert.True(visibleAfter > now);
+            Assert.Equal(now.Add(Constants.VisibilityTimeoutMin), visibleAfter);
         }
 
         [LocalDbFact]
         public async Task GetNextStaleChannelOrDefaultAsync_ChannelCanBeRetriedAfterLeaseExpires()
         {
             var listId = Guid.NewGuid();
+            var now = new DateTimeOffset(2026, 5, 7, 12, 0, 0, TimeSpan.Zero);
+            _clock.UtcNow = now;
 
             await ExecuteAsync(
                 @"
@@ -171,9 +176,9 @@ namespace youtubed.Tests.Integration
                 {
                     listId,
                     token = Enumerable.Repeat((byte)6, 40).ToArray(),
-                    expiredAfter = DateTimeOffset.UtcNow.AddDays(1),
-                    staleAfter = DateTimeOffset.UtcNow.AddMinutes(-10),
-                    visibleAfter = DateTimeOffset.UtcNow.AddMinutes(-1)
+                    expiredAfter = now.AddDays(1),
+                    staleAfter = now.AddMinutes(-10),
+                    visibleAfter = now.AddMinutes(-1)
                 });
 
             var firstClaim = await _service.GetNextStaleChannelOrDefaultAsync();
@@ -188,7 +193,7 @@ namespace youtubed.Tests.Integration
                 SET VisibleAfter = @visibleAfter
                 WHERE Id = N'eligible';
                 ",
-                new { visibleAfter = DateTimeOffset.UtcNow.AddMinutes(-1) });
+                new { visibleAfter = now.AddMinutes(-1) });
 
             var retryClaim = await _service.GetNextStaleChannelOrDefaultAsync();
 
@@ -298,7 +303,8 @@ namespace youtubed.Tests.Integration
         public async Task RemoveOrphanChannelsAsync_DeletesOnlyExpiredOrphans()
         {
             var listId = Guid.NewGuid();
-            var now = DateTimeOffset.UtcNow;
+            var now = new DateTimeOffset(2026, 5, 8, 12, 0, 0, TimeSpan.Zero);
+            _clock.UtcNow = now;
 
             await ExecuteAsync(
                 @"

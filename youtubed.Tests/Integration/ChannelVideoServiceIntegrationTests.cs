@@ -12,20 +12,23 @@ namespace youtubed.Tests.Integration
     [Trait("Category", "LocalDb")]
     public sealed class ChannelVideoServiceIntegrationTests : LocalDbIntegrationTestBase
     {
+        private readonly FakeAppClock _clock;
         private readonly FakeYoutubeService _youtubeService;
         private readonly ChannelVideoService _service;
 
         public ChannelVideoServiceIntegrationTests(LocalDbTestFixture fixture)
             : base(fixture)
         {
+            _clock = new FakeAppClock();
             _youtubeService = new FakeYoutubeService();
-            _service = new ChannelVideoService(new ChannelVideoRepository(fixture.ConnectionFactory), _youtubeService);
+            _service = new ChannelVideoService(new ChannelVideoRepository(fixture.ConnectionFactory), _youtubeService, _clock);
         }
 
         [LocalDbFact]
         public async Task RefreshVideosAsync_InsertsTargetVideosAndAdvancesStaleAfter()
         {
-            var beforeRefresh = DateTimeOffset.UtcNow;
+            var beforeRefresh = new DateTimeOffset(2026, 5, 9, 12, 0, 0, TimeSpan.Zero);
+            _clock.UtcNow = beforeRefresh;
 
             await SeedChannelAsync("channel-1", "playlist-1");
             _youtubeService.SetVideos(
@@ -36,7 +39,7 @@ namespace youtubed.Tests.Integration
                     ChannelId = "channel-1",
                     Title = "Newest",
                     Duration = TimeSpan.FromMinutes(6),
-                    PublishedAt = DateTimeOffset.UtcNow.AddHours(-1),
+                    PublishedAt = beforeRefresh.AddHours(-1),
                     Thumbnail = "newest.png"
                 },
                 new YoutubeVideo
@@ -45,7 +48,7 @@ namespace youtubed.Tests.Integration
                     ChannelId = "channel-1",
                     Title = "Older",
                     Duration = TimeSpan.FromMinutes(4),
-                    PublishedAt = DateTimeOffset.UtcNow.AddHours(-2),
+                    PublishedAt = beforeRefresh.AddHours(-2),
                     Thumbnail = "older.png"
                 },
                 new YoutubeVideo
@@ -54,7 +57,7 @@ namespace youtubed.Tests.Integration
                     ChannelId = "other-channel",
                     Title = "Other Channel",
                     Duration = TimeSpan.FromMinutes(5),
-                    PublishedAt = DateTimeOffset.UtcNow.AddHours(-3),
+                    PublishedAt = beforeRefresh.AddHours(-3),
                     Thumbnail = "other.png"
                 });
 
@@ -70,9 +73,9 @@ namespace youtubed.Tests.Integration
                 "SELECT StaleAfter FROM Channel WHERE Id = N'channel-1';");
 
             Assert.Equal(new[] { "video-1", "video-2" }, storedIds);
-            Assert.True(staleAfter > beforeRefresh);
+            Assert.Equal(beforeRefresh.Add(Constants.ChannelMaxAgeMin), staleAfter);
             Assert.Equal(1, _youtubeService.GetVideosCallCount);
-            Assert.True(_youtubeService.LastPublishedAfter <= DateTimeOffset.UtcNow.Subtract(Constants.VideoMaxAge).AddMinutes(1));
+            Assert.Equal(beforeRefresh.Subtract(Constants.VideoMaxAge), _youtubeService.LastPublishedAfter);
         }
 
         [LocalDbFact]
@@ -123,7 +126,8 @@ namespace youtubed.Tests.Integration
         [LocalDbFact]
         public async Task RefreshVideosAsync_EmptyResultUsesDeleteBranchAndKeepsRecentVideos()
         {
-            var beforeRefresh = DateTimeOffset.UtcNow;
+            var beforeRefresh = new DateTimeOffset(2026, 5, 10, 12, 0, 0, TimeSpan.Zero);
+            _clock.UtcNow = beforeRefresh;
 
             await SeedChannelAsync("channel-3", "playlist-3");
             await ExecuteAsync(
@@ -136,8 +140,8 @@ namespace youtubed.Tests.Integration
                 new
                 {
                     duration = TimeSpan.FromMinutes(3).Ticks,
-                    oldPublishedAt = DateTimeOffset.UtcNow.Subtract(Constants.VideoMaxAge).AddDays(-2),
-                    recentPublishedAt = DateTimeOffset.UtcNow.Subtract(Constants.VideoMaxAge).AddDays(2)
+                    oldPublishedAt = beforeRefresh.Subtract(Constants.VideoMaxAge).AddDays(-2),
+                    recentPublishedAt = beforeRefresh.Subtract(Constants.VideoMaxAge).AddDays(2)
                 });
 
             _youtubeService.SetVideos("playlist-3");
@@ -154,7 +158,7 @@ namespace youtubed.Tests.Integration
                 "SELECT StaleAfter FROM Channel WHERE Id = N'channel-3';");
 
             Assert.Equal(new[] { "video-recent" }, remaining);
-            Assert.True(staleAfter > beforeRefresh);
+            Assert.Equal(beforeRefresh.Add(Constants.ChannelMaxAgeMin), staleAfter);
         }
 
         [LocalDbFact]

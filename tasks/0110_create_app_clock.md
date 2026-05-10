@@ -1,6 +1,6 @@
 # Task 001a: Create App Clock And Replace Ambient Time
 
-Status: Not Started
+Status: Completed
 
 Depends On: 0100_document_target_architecture
 
@@ -31,4 +31,10 @@ Introduce `IAppClock` and use it everywhere application code currently depends o
 
 ## Implementation Summary
 
-Not completed.
+Added `IAppClock` and `AppClock`, registered the clock in dependency injection, and routed app-behavior timestamps and randomized delays through the clock. Services, hosted services, `ListController`, list view refresh timing, list max-age display, and the shared layout footer now use UTC clock values instead of ambient time. Added deterministic `FakeAppClock` coverage for list expiry/renewal, share-link lifecycle and consume timestamps, channel claim leases, and channel video refresh stale times.
+
+Validation passed:
+
+- `dotnet build youtubed.sln`
+- `dotnet test youtubed.sln --no-build --filter "Category!=LocalDb"`: 93 passed
+- `YOUTUBED_RUN_LOCALDB_TESTS=true dotnet test youtubed.sln --no-build`: 131 passed

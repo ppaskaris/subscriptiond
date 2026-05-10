@@ -16,6 +16,7 @@ namespace youtubed.Models
         public IEnumerable<VideoViewModel> Videos { get; set; }
         public IEnumerable<ChannelModel> Channels { get; set; }
 
-        public TimeSpan MaxAge => ExpiredAfter.Subtract(DateTimeOffset.Now);
+        public TimeSpan MaxAge { get; set; }
+        public TimeSpan StaleRefreshAfter { get; set; }
     }
 }

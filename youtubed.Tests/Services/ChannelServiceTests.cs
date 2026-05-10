@@ -4,6 +4,7 @@ using Xunit;
 using youtubed.Models;
 using youtubed.Persistence;
 using youtubed.Services;
+using youtubed.Tests.Infrastructure;
 
 namespace youtubed.Tests.Services
 {
@@ -35,7 +36,7 @@ namespace youtubed.Tests.Services
                     PlaylistId = channel.PlaylistId
                 });
 
-            var service = new ChannelService(repository.Object, youtube.Object);
+            var service = new ChannelService(repository.Object, youtube.Object, new FakeAppClock());
 
             await service.RefreshMetadataAsync(channel);
 
@@ -65,7 +66,7 @@ namespace youtubed.Tests.Services
                     PlaylistId = channel.PlaylistId
                 });
 
-            var service = new ChannelService(repository.Object, youtube.Object);
+            var service = new ChannelService(repository.Object, youtube.Object, new FakeAppClock());
 
             await service.RefreshMetadataAsync(channel);
 
@@ -89,7 +90,7 @@ namespace youtubed.Tests.Services
                 .Setup(value => value.GetChannelAsync(channel.Url))
                 .ReturnsAsync((YoutubeChannel)null);
 
-            var service = new ChannelService(repository.Object, youtube.Object);
+            var service = new ChannelService(repository.Object, youtube.Object, new FakeAppClock());
 
             await service.RefreshMetadataAsync(channel);
 

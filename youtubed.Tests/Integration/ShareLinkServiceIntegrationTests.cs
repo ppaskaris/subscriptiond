@@ -16,22 +16,24 @@ namespace youtubed.Tests.Integration
     {
         private static readonly Regex PasswordPattern = new Regex("^[a-z]+(-[a-z]+){3}$");
 
+        private readonly FakeAppClock _clock;
         private readonly ShareLinkService _service;
 
         public ShareLinkServiceIntegrationTests(LocalDbTestFixture fixture)
             : base(fixture)
         {
-            _service = new ShareLinkService(new ShareLinkRepository(fixture.ConnectionFactory));
+            _clock = new FakeAppClock();
+            _service = new ShareLinkService(new ShareLinkRepository(fixture.ConnectionFactory), _clock);
         }
 
         [LocalDbFact]
         public async Task CreateShareLinkAsync_PersistsUniquePasswordWithExpectedExpiryWindow()
         {
+            _clock.UtcNow = new DateTimeOffset(2026, 5, 4, 12, 0, 0, TimeSpan.Zero);
             var listId = Guid.NewGuid();
 
             await SeedListAsync(listId, Enumerable.Repeat((byte)7, 40).ToArray());
 
-            var beforeCreate = DateTimeOffset.Now;
             var shareLink = await _service.CreateShareLinkAsync(listId);
             var persisted = await QuerySingleAsync<ShareLinkModel>(
                 @"
@@ -49,7 +51,8 @@ namespace youtubed.Tests.Integration
                 persisted.ExpiresAfter - persisted.CreatedAt,
                 Constants.ShareLinkMaxAgeMin,
                 Constants.ShareLinkMaxAgeMax);
-            Assert.True(persisted.CreatedAt >= beforeCreate.AddSeconds(-1));
+            Assert.Equal(_clock.UtcNow, persisted.CreatedAt);
+            Assert.Equal(_clock.UtcNow.Add(Constants.ShareLinkMaxAgeMin), persisted.ExpiresAfter);
         }
 
         [LocalDbFact]
@@ -140,8 +143,37 @@ namespace youtubed.Tests.Integration
         }
 
         [LocalDbFact]
+        public async Task ConsumeShareLinkAsync_UsesClockTime()
+        {
+            _clock.UtcNow = new DateTimeOffset(2026, 5, 6, 12, 0, 0, TimeSpan.Zero);
+            var listId = Guid.NewGuid();
+
+            await SeedListAsync(listId, Enumerable.Repeat((byte)10, 40).ToArray());
+            await ExecuteAsync(
+                @"
+                INSERT INTO ShareLink (Password, ListId, CreatedAt, ExpiresAfter, UsedAt)
+                VALUES (N'consume-link', @listId, @createdAt, @expiresAfter, NULL);
+                ",
+                new
+                {
+                    listId,
+                    createdAt = _clock.UtcNow.AddMinutes(-10),
+                    expiresAfter = _clock.UtcNow.AddMinutes(30)
+                });
+
+            var consumed = await _service.ConsumeShareLinkAsync("consume-link");
+            var usedAt = await ScalarAsync<DateTimeOffset>(
+                "SELECT UsedAt FROM ShareLink WHERE Password = N'consume-link';");
+
+            Assert.NotNull(consumed);
+            Assert.Equal(listId, consumed.ListId);
+            Assert.Equal(_clock.UtcNow, usedAt);
+        }
+
+        [LocalDbFact]
         public async Task RemoveExpiredShareLinksAsync_DeletesOnlyRowsPastRetentionWindow()
         {
+            _clock.UtcNow = new DateTimeOffset(2026, 5, 5, 12, 0, 0, TimeSpan.Zero);
             var listId = Guid.NewGuid();
 
             await SeedListAsync(listId, Enumerable.Repeat((byte)10, 40).ToArray());
@@ -155,9 +187,9 @@ namespace youtubed.Tests.Integration
                 new
                 {
                     listId,
-                    createdAt = DateTimeOffset.UtcNow.AddDays(-3),
-                    keepExpiresAfter = DateTimeOffset.UtcNow.AddHours(-12),
-                    deleteExpiresAfter = DateTimeOffset.UtcNow.Subtract(Constants.ShareLinkRetentionAfterExpiration).AddMinutes(-1)
+                    createdAt = _clock.UtcNow.AddDays(-3),
+                    keepExpiresAfter = _clock.UtcNow.AddHours(-12),
+                    deleteExpiresAfter = _clock.UtcNow.Subtract(Constants.ShareLinkRetentionAfterExpiration).AddMinutes(-1)
                 });
 
             var removed = await _service.RemoveExpiredShareLinksAsync();

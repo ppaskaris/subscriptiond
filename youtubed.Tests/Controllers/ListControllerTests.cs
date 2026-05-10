@@ -7,6 +7,7 @@ using Xunit;
 using youtubed.Controllers;
 using youtubed.Models;
 using youtubed.Services;
+using youtubed.Tests.Infrastructure;
 
 namespace youtubed.Tests.Controllers
 {
@@ -491,6 +492,10 @@ namespace youtubed.Tests.Controllers
             var listService = CreateListServiceReturning(id, list);
             Assert.IsType<NotFoundResult>(await CreateController(listService: listService).Share(id, "wrong"));
 
+            var clock = new FakeAppClock
+            {
+                UtcNow = new DateTimeOffset(2026, 5, 7, 12, 0, 0, TimeSpan.Zero)
+            };
             var shareLinkService = new Mock<IShareLinkService>(MockBehavior.Strict);
             shareLinkService
                 .Setup(service => service.GetShareLinksAsync(id))
@@ -500,17 +505,18 @@ namespace youtubed.Tests.Controllers
                     {
                         Password = "amber-forest-river-sky",
                         ListId = id,
-                        ExpiresAfter = DateTimeOffset.UtcNow.AddMinutes(45)
+                        ExpiresAfter = clock.UtcNow.AddMinutes(45)
                     }
                 });
 
-            var success = await CreateController(listService: listService, shareLinkService: shareLinkService)
+            var success = await CreateController(listService: listService, shareLinkService: shareLinkService, clock: clock)
                 .Share(id, list.TokenString);
 
             var viewResult = Assert.IsType<ViewResult>(success);
             var model = Assert.IsType<ShareListViewModel>(viewResult.Model);
             Assert.True(model.HasLinks);
             Assert.Equal(list.TokenString, model.Token);
+            Assert.Equal("Active", Assert.Single(model.ShareLinks).Status);
         }
 
         [Fact]
@@ -602,12 +608,14 @@ namespace youtubed.Tests.Controllers
         private static ListController CreateController(
             Mock<IListService> listService = null,
             Mock<IChannelService> channelService = null,
-            Mock<IShareLinkService> shareLinkService = null)
+            Mock<IShareLinkService> shareLinkService = null,
+            FakeAppClock clock = null)
         {
             return new ListController(
                 (listService ?? new Mock<IListService>(MockBehavior.Strict)).Object,
                 (channelService ?? new Mock<IChannelService>(MockBehavior.Strict)).Object,
-                (shareLinkService ?? new Mock<IShareLinkService>(MockBehavior.Strict)).Object);
+                (shareLinkService ?? new Mock<IShareLinkService>(MockBehavior.Strict)).Object,
+                clock ?? new FakeAppClock());
         }
 
         private static Mock<IListService> CreateListServiceReturning(Guid id, ListModel list)

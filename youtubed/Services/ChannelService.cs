@@ -9,13 +9,16 @@ namespace youtubed.Services
     {
         private readonly IChannelRepository _channelRepository;
         private readonly IYoutubeService _youtubeService;
+        private readonly IAppClock _clock;
 
         public ChannelService(
             IChannelRepository channelRepository,
-            IYoutubeService youtubeService)
+            IYoutubeService youtubeService,
+            IAppClock clock)
         {
             _channelRepository = channelRepository;
             _youtubeService = youtubeService;
+            _clock = clock;
         }
 
         public async Task<ChannelModel> GetOrCreateChannelAsync(string url)
@@ -64,8 +67,8 @@ namespace youtubed.Services
 
         public Task<StaleChannelModel> GetNextStaleChannelOrDefaultAsync()
         {
-            var now = DateTimeOffset.Now;
-            var visibilityTimeout = Constants.RandomlyBetween(
+            var now = _clock.UtcNow;
+            var visibilityTimeout = _clock.RandomDelay(
                 Constants.VisibilityTimeoutMin,
                 Constants.VisibilityTimeoutMax);
 
@@ -96,7 +99,7 @@ namespace youtubed.Services
 
         public Task<int> RemoveOrphanChannelsAsync()
         {
-            return _channelRepository.RemoveOrphanChannelsAsync(DateTimeOffset.Now);
+            return _channelRepository.RemoveOrphanChannelsAsync(_clock.UtcNow);
         }
     }
 }

@@ -27,7 +27,7 @@ Repository interfaces should return domain objects only. SQL rows and Cosmos doc
 
 ## Domain Concepts
 
-`List` is the list identity, settings, and lifecycle:
+`SubscriptionList` is the list identity, settings, and lifecycle:
 
 - `Id`
 - `Token`
@@ -47,7 +47,7 @@ Repository interfaces should return domain objects only. SQL rows and Cosmos doc
 - `Channels`
   - `Videos`
 
-The domain layer should not mirror either SQL normalization or Cosmos denormalization. It knows about `List`, `Channel`, and `ChannelVideo` as entities/read models. The provider decides whether those relationships come from SQL joins or a denormalized Cosmos document.
+The domain layer should not mirror either SQL normalization or Cosmos denormalization. It knows about `SubscriptionList`, `Channel`, and `ChannelVideo` as entities/read models. The provider decides whether those relationships come from SQL joins or a denormalized Cosmos document.
 
 `Channel` contains fields needed to render channel management and to group videos under the channel:
 

@@ -11,7 +11,7 @@ The signatures are intentionally approximate. Implementation can adjust names an
 ```csharp
 public interface IListRepository
 {
-    Task<List?> GetAsync(Guid id, CancellationToken cancellationToken);
+    Task<SubscriptionList?> GetAsync(Guid id, CancellationToken cancellationToken);
     Task<AuthenticatedListAccess?> GetForAuthenticatedAccessAsync(
         Guid id,
         string token,
@@ -22,7 +22,7 @@ public interface IListRepository
     Task<ListVideoProjection?> GetVideoProjectionAsync(
         Guid id,
         CancellationToken cancellationToken);
-    Task CreateAsync(List list, CancellationToken cancellationToken);
+    Task CreateAsync(SubscriptionList list, CancellationToken cancellationToken);
     Task UpdateSettingsAsync(Guid id, string title, decimal playbackRate, CancellationToken cancellationToken);
     Task AddChannelAsync(Guid listId, Channel channel, CancellationToken cancellationToken);
     Task RemoveChannelAsync(Guid listId, string channelId, CancellationToken cancellationToken);

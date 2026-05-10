@@ -2,7 +2,7 @@
 
 Status: Not Started
 
-Depends On: 012a_implement_cosmos_list_repository, 013a_implement_cosmos_channel_repository
+Depends On: 1100_implement_cosmos_list_repository, 1200_implement_cosmos_channel_repository
 
 ## Goal
 

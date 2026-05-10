@@ -2,7 +2,7 @@
 
 Status: Not Started
 
-Depends On: 006a_add_worker_state_port, 006b_add_expiration_purger_port, 007a_build_batched_channel_refresh_pipeline
+Depends On: 0500_add_worker_state_port, 0510_add_expiration_purger_port, 0600_build_batched_channel_refresh_pipeline
 
 ## Goal
 

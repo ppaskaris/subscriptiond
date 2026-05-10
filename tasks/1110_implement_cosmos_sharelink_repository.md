@@ -2,7 +2,7 @@
 
 Status: Not Started
 
-Depends On: 011_implement_cosmos_documents_and_indexes, 012a_implement_cosmos_list_repository
+Depends On: 1000_implement_cosmos_documents_and_indexes, 1100_implement_cosmos_list_repository
 
 ## Goal
 

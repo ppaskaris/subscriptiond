@@ -52,9 +52,9 @@ Read only the docs relevant to the task, but use this index to know where to loo
 
 ## Tasks Folder
 
-Implementation tasks live in `tasks/NNN_task_name.md`. Some closely related splits use a letter suffix such as `001a_task_name.md` and `001b_task_name.md`.
+Implementation tasks live in `tasks/NNNN_task_name.md`. Task IDs are fixed-width numeric ordering prefixes. New planned tasks usually advance by 100; splits should use available numbers between neighboring tasks, such as `0611_task_name.md` or `0612_task_name.md`.
 
-The prefix is dependency order. Prefer completing lower-numbered tasks first, and complete lettered subtasks in dependency order, unless the current task explicitly says its dependencies are complete or the user asks otherwise.
+The prefix is dependency order. Prefer completing lower-numbered tasks first, including inserted split tasks in numeric order, unless the current task explicitly says its dependencies are complete or the user asks otherwise.
 
 Each task file uses this structure:
 

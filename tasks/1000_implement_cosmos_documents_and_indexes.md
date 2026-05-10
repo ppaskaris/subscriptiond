@@ -2,7 +2,7 @@
 
 Status: Not Started
 
-Depends On: 010_prepare_cosmos_emulator_test_harness
+Depends On: 0900_prepare_cosmos_emulator_test_harness
 
 ## Goal
 

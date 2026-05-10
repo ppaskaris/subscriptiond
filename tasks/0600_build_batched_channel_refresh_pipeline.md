@@ -2,7 +2,7 @@
 
 Status: Not Started
 
-Depends On: 003a_add_channel_status, 003b_add_channel_url_lookup_cache, 004_refactor_list_read_models
+Depends On: 0200_add_channel_status, 0210_add_channel_url_lookup_cache, 0300_refactor_list_read_models
 
 ## Goal
 

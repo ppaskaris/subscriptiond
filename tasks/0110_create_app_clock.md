@@ -2,7 +2,7 @@
 
 Status: Not Started
 
-Depends On: 001_document_target_architecture
+Depends On: 0100_document_target_architecture
 
 ## Goal
 

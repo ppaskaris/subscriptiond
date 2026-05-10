@@ -2,7 +2,7 @@
 
 Status: Not Started
 
-Depends On: 008a_add_provider_contract_test_harness, 006a_add_worker_state_port, 006b_add_expiration_purger_port
+Depends On: 0700_add_provider_contract_test_harness, 0500_add_worker_state_port, 0510_add_expiration_purger_port
 
 ## Goal
 

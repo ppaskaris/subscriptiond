@@ -2,7 +2,7 @@
 
 Status: Not Started
 
-Depends On: 008a_add_provider_contract_test_harness, 003a_add_channel_status, 003b_add_channel_url_lookup_cache
+Depends On: 0700_add_provider_contract_test_harness, 0200_add_channel_status, 0210_add_channel_url_lookup_cache
 
 ## Goal
 

@@ -2,7 +2,7 @@
 
 Status: Not Started
 
-Depends On: 004_refactor_list_read_models, 005_add_daily_authenticated_list_renewal, 006a_add_worker_state_port, 006b_add_expiration_purger_port
+Depends On: 0300_refactor_list_read_models, 0400_add_daily_authenticated_list_renewal, 0500_add_worker_state_port, 0510_add_expiration_purger_port
 
 ## Goal
 

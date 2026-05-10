@@ -2,7 +2,7 @@
 
 Status: Not Started
 
-Depends On: 012a_implement_cosmos_list_repository, 012b_implement_cosmos_sharelink_repository, 013a_implement_cosmos_channel_repository, 013b_implement_cosmos_projection_repository, 014_implement_cosmos_worker_state_and_purger
+Depends On: 1100_implement_cosmos_list_repository, 1110_implement_cosmos_sharelink_repository, 1200_implement_cosmos_channel_repository, 1210_implement_cosmos_projection_repository, 1300_implement_cosmos_worker_state_and_purger
 
 ## Goal
 

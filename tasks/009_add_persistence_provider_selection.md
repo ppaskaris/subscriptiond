@@ -2,7 +2,7 @@
 
 Status: Not Started
 
-Depends On: 008_add_provider_contract_tests
+Depends On: 008a_add_provider_contract_test_harness, 008b_add_list_and_sharelink_contract_tests, 008c_add_channel_and_projection_contract_tests, 008d_add_worker_state_and_purger_contract_tests
 
 ## Goal
 

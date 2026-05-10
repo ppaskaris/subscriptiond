@@ -71,7 +71,7 @@ all videos published within the last 5 days
 plus older videos until at least max(5, ceil(100 / channelCount * 1.33))
 ```
 
-The list page flattens embedded projected channel videos in memory, sorts newest first, and renders 100.
+The Cosmos provider maps embedded projected channels and videos to the hierarchical domain read model. The list page render procedure flattens that hierarchy in memory, sorts newest first, and renders 100.
 
 The exact total video count is not stored.
 

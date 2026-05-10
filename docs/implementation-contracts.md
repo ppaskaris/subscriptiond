@@ -187,4 +187,4 @@ Cancellation logs should distinguish:
 
 ## Implementation Order Recommendation
 
-After Task 002, implement channel status and URL lookup cache first. That is the highest-uncertainty early task because it touches YouTube assumptions and status propagation. Then refactor list read models around the status-aware domain shape. Daily authenticated renewal can follow because it is more isolated.
+After Task 001a and Task 001b, implement channel status before URL lookup cache and list read models. Channel status is the highest-uncertainty early task because it touches YouTube assumptions and status propagation. Then refactor list read models around the status-aware domain shape. Daily authenticated renewal can follow because it is more isolated.

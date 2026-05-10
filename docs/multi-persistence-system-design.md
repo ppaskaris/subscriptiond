@@ -44,11 +44,12 @@ Repository interfaces should return domain objects only. SQL rows and Cosmos doc
 `ListVideoProjection` is the read model for the main list page:
 
 - `List`
-- `ChannelVideos`
+- `Channels`
+  - `Videos`
 
 The domain layer should not mirror either SQL normalization or Cosmos denormalization. It knows about `List`, `Channel`, and `ChannelVideo` as entities/read models. The provider decides whether those relationships come from SQL joins or a denormalized Cosmos document.
 
-`Channel` contains fields needed to render channel management and to relate videos back to the channel:
+`Channel` contains fields needed to render channel management and to group videos under the channel:
 
 - `Id`
 - `Url`

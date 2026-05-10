@@ -2,7 +2,7 @@
 
 Status: Not Started
 
-Depends On: 002_create_domain_time_abstractions, 003_add_channel_status_and_url_lookup_cache
+Depends On: 001a_create_app_clock, 001b_create_domain_models, 003a_add_channel_status
 
 ## Goal
 
@@ -11,7 +11,7 @@ Make list views and domain services consume use-case read models that hide SQL n
 ## Scope
 
 - Add `ListChannelProjection` for channel management.
-- Add `ListVideoProjection` for the main list page.
+- Add hierarchical `ListVideoProjection` for the main list page with channels containing nested videos.
 - Keep `StaleCount`, but compute it from channel context in the read model rather than storing it as a separate aggregate.
 - Remove exact total video count UI.
 - Keep main list page render capped at 100 videos.

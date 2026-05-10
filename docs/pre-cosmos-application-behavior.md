@@ -7,11 +7,12 @@ This document describes behavior changes to make before implementing the Cosmos 
 The main list page should render from a `ListVideoProjection` read model:
 
 - list identity/settings
-- channel videos with enough channel context for rendering
+- channels in the list
+- videos nested under each channel
 
 SQL should build this with a selective query that joins only the fields needed for video rendering. Cosmos can point-read the denormalized list document and reshape embedded channel/video data into the same read model.
 
-The view should sort by `PublishedAt DESC, VideoId ASC` and render at most `Constants.ListRenderMaxItems`.
+The domain read model keeps the hierarchy: list -> channels -> videos. The view or render procedure should flatten that hierarchy, sort by `PublishedAt DESC, VideoId ASC`, and render at most `Constants.ListRenderMaxItems`.
 
 ## Channel Management Page
 
@@ -36,7 +37,7 @@ Showing the 100 most recent videos in this list.
 
 ## Stale Channel Banner
 
-`StaleCount` should be kept, but it should be computed from the read model rather than stored as a separate aggregate. The main list page should count stale active channels from channel context in `ListVideoProjection`:
+`StaleCount` should be kept, but it should be computed from the read model rather than stored as a separate aggregate. The main list page should count stale active channels from the channels in `ListVideoProjection`:
 
 ```text
 channel.Status == Active && channel.StaleAfter <= view.Now
@@ -115,22 +116,18 @@ SQL can compute projections dynamically with joins. Cosmos will store projection
 The domain read models should describe use cases, not storage shape:
 
 - `ListChannelProjection` supports channel management without reading videos.
-- `ListVideoProjection` supports the main list page without reading unneeded channel-management-only data.
+- `ListVideoProjection` supports the main list page as a hierarchy of channels with nested videos.
 - Cosmos denormalization is reshaped in the persistence layer.
 
-Channel video read models include only:
+Nested channel video read models include only:
 
 - video id
-- channel id
-- channel title
-- channel URL
-- channel status fields needed for banners
 - title
 - duration
 - published timestamp
 - thumbnail URL
 
-Channel read models include only fields needed for channel management and membership:
+Channel read models include fields needed for channel management, membership, stale-count computation, and grouping videos:
 
 - id
 - url

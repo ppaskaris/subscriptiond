@@ -65,7 +65,7 @@ Read-model reads:
 
 - point-read list document
 - map embedded channels to `ListChannelProjection` for channel management
-- map embedded channel/video data to `ListVideoProjection` for the main list page
+- map embedded channels with nested videos to hierarchical `ListVideoProjection` for the main list page
 - do not renew expiration
 
 Add channel:

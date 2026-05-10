@@ -2,7 +2,7 @@
 
 Status: Not Started
 
-Depends On: 002_create_domain_time_abstractions, 004_refactor_list_read_models
+Depends On: 001a_create_app_clock, 001b_create_domain_models, 004_refactor_list_read_models
 
 ## Goal
 

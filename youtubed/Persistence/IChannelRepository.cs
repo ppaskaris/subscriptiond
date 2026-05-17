@@ -7,7 +7,7 @@ namespace youtubed.Persistence
 {
     public interface IChannelRepository
     {
-        Task<ChannelModel> GetByUrlAsync(string url);
+        Task<ChannelModel> GetByIdAsync(string id);
         Task SaveDiscoveredChannelAsync(ChannelModel channel, DateTimeOffset staleAfter);
         Task UpdateMetadataAsync(string id, string url, string title, string thumbnail, string playlistId);
         Task MarkUnavailableAsync(string id, ChannelStatusReason reason, DateTimeOffset statusUpdatedAt, DateTimeOffset staleAfter);

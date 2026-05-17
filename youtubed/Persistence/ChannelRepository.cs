@@ -17,16 +17,16 @@ namespace youtubed.Persistence
             _connectionFactory = connectionFactory;
         }
 
-        public async Task<ChannelModel> GetByUrlAsync(string url)
+        public async Task<ChannelModel> GetByIdAsync(string id)
         {
             using var connection = _connectionFactory.CreateConnection();
             return await connection.QueryFirstOrDefaultAsync<ChannelModel>(
                 @"
                 SELECT Id, Url, Title, Thumbnail, PlaylistId, Status, StatusReason, StatusUpdatedAt
                 FROM Channel
-                WHERE Url = @url;
+                WHERE Id = @id;
                 ",
-                new { url });
+                new { id });
         }
 
         public async Task SaveDiscoveredChannelAsync(ChannelModel channel, DateTimeOffset staleAfter)
@@ -55,8 +55,7 @@ namespace youtubed.Persistence
                     Status = @status,
                     StatusReason = @statusReason,
                     StatusUpdatedAt = NULL
-                WHERE Id = @id
-                   OR Url = @url;
+                WHERE Id = @id;
                 ",
                 parameters,
                 transaction);
@@ -71,7 +70,6 @@ namespace youtubed.Persistence
                         SELECT 1
                         FROM Channel WITH (UPDLOCK, HOLDLOCK)
                         WHERE Id = @id
-                           OR Url = @url
                     );
                     ",
                     parameters,
@@ -81,8 +79,7 @@ namespace youtubed.Persistence
                     @"
                     UPDATE Channel
                     SET StaleAfter = @staleAfter
-                    WHERE Id = @id
-                       OR Url = @url;
+                    WHERE Id = @id;
                     ",
                     parameters,
                     transaction);

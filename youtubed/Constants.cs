@@ -18,6 +18,8 @@ namespace youtubed
         public static readonly Regex YoutubeVideoExpression = new Regex(YoutubeVideoPattern);
         public static readonly TimeSpan ChannelMaxAgeMin = TimeSpan.FromMinutes(60);
         public static readonly TimeSpan ChannelMaxAgeMax = TimeSpan.FromMinutes(90);
+        public static readonly TimeSpan ChannelLookupCacheDuration = TimeSpan.FromHours(24);
+        public const int ChannelLookupCacheSizeLimit = 1000;
         public static readonly TimeSpan ChannelUpdateFrequencyMin = TimeSpan.FromSeconds(25);
         public static readonly TimeSpan ChannelUpdateFrequencyMax = TimeSpan.FromSeconds(35);
         public static readonly TimeSpan ChannelUnavailableStaleDelay = TimeSpan.FromDays(36500);

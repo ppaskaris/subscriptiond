@@ -39,7 +39,7 @@ namespace youtubed.Tests.Services
                     PlaylistId = "playlist-updated"
                 });
 
-            var service = new ChannelService(repository.Object, youtube.Object, new FakeAppClock());
+            var service = CreateService(repository.Object, youtube.Object);
 
             var refreshed = await service.RefreshMetadataAsync(channel);
 
@@ -78,7 +78,7 @@ namespace youtubed.Tests.Services
                     PlaylistId = channel.PlaylistId
                 });
 
-            var service = new ChannelService(repository.Object, youtube.Object, new FakeAppClock());
+            var service = CreateService(repository.Object, youtube.Object);
 
             var refreshed = await service.RefreshMetadataAsync(channel);
 
@@ -113,7 +113,7 @@ namespace youtubed.Tests.Services
                     PlaylistId = "playlist-updated"
                 });
 
-            var service = new ChannelService(repository.Object, youtube.Object, new FakeAppClock());
+            var service = CreateService(repository.Object, youtube.Object);
 
             var refreshed = await service.RefreshMetadataAsync(channel);
 
@@ -148,7 +148,7 @@ namespace youtubed.Tests.Services
                 .Setup(value => value.GetChannelByIdAsync(channel.Id))
                 .ReturnsAsync((YoutubeChannel)null);
 
-            var service = new ChannelService(repository.Object, youtube.Object, new FakeAppClock { UtcNow = now });
+            var service = CreateService(repository.Object, youtube.Object, new FakeAppClock { UtcNow = now });
 
             var refreshed = await service.RefreshMetadataAsync(channel);
 
@@ -186,7 +186,7 @@ namespace youtubed.Tests.Services
                 .Setup(value => value.GetChannelByIdAsync(channel.Id))
                 .ReturnsAsync((YoutubeChannel)null);
 
-            var service = new ChannelService(repository.Object, youtube.Object, new FakeAppClock { UtcNow = now });
+            var service = CreateService(repository.Object, youtube.Object, new FakeAppClock { UtcNow = now });
 
             var refreshed = await service.RefreshMetadataAsync(channel);
 
@@ -247,6 +247,19 @@ namespace youtubed.Tests.Services
             {
                 return ExecuteAsync(cancellationToken);
             }
+        }
+
+        private static ChannelService CreateService(
+            IChannelRepository repository,
+            IYoutubeService youtube,
+            FakeAppClock clock = null)
+        {
+            clock ??= new FakeAppClock();
+            return new ChannelService(
+                repository,
+                youtube,
+                clock,
+                new ChannelUrlLookupCache());
         }
     }
 }

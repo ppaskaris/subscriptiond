@@ -23,7 +23,11 @@ namespace youtubed.Tests.Integration
         {
             _clock = new FakeAppClock();
             _youtubeService = new FakeYoutubeService();
-            _service = new ChannelService(new ChannelRepository(fixture.ConnectionFactory), _youtubeService, _clock);
+            _service = new ChannelService(
+                new ChannelRepository(fixture.ConnectionFactory),
+                _youtubeService,
+                _clock,
+                new ChannelUrlLookupCache());
         }
 
         [LocalDbFact]

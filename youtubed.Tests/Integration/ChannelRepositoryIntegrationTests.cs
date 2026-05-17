@@ -22,7 +22,7 @@ namespace youtubed.Tests.Integration
         }
 
         [LocalDbFact]
-        public async Task SaveDiscoveredChannelAsync_DoesNotOverwriteExistingMetadata()
+        public async Task SaveDiscoveredChannelAsync_DoesNotMatchExistingChannelByUrl()
         {
             var originalStaleAfter = DateTimeOffset.UtcNow.AddHours(2);
 
@@ -48,18 +48,25 @@ namespace youtubed.Tests.Integration
                 },
                 DateTimeOffset.MinValue);
 
-            var persisted = await QuerySingleAsync<(string Id, string Title, string Thumbnail, string PlaylistId, DateTimeOffset StaleAfter)>(
+            var existing = await QuerySingleAsync<(string Id, string Title, string Thumbnail, string PlaylistId, DateTimeOffset StaleAfter)>(
                 @"
                 SELECT Id, Title, Thumbnail, PlaylistId, StaleAfter
+                FROM Channel
+                WHERE Id = N'channel-1';
+                ");
+            var count = await ScalarAsync<int>(
+                @"
+                SELECT COUNT(*)
                 FROM Channel
                 WHERE Url = N'https://www.youtube.com/channel/channel-1';
                 ");
 
-            Assert.Equal("channel-1", persisted.Id);
-            Assert.Equal("Original", persisted.Title);
-            Assert.Equal("old.png", persisted.Thumbnail);
-            Assert.Equal("playlist-old", persisted.PlaylistId);
-            Assert.True(persisted.StaleAfter <= DateTimeOffset.UtcNow.AddMinutes(-1));
+            Assert.Equal(2, count);
+            Assert.Equal("channel-1", existing.Id);
+            Assert.Equal("Original", existing.Title);
+            Assert.Equal("old.png", existing.Thumbnail);
+            Assert.Equal("playlist-old", existing.PlaylistId);
+            Assert.Equal(originalStaleAfter, existing.StaleAfter);
         }
 
         [LocalDbFact]
@@ -125,9 +132,9 @@ namespace youtubed.Tests.Integration
         }
 
         [LocalDbFact]
-        public async Task SaveDiscoveredChannelAsync_ConcurrentCallsLeaveSingleRow()
+        public async Task SaveDiscoveredChannelAsync_ConcurrentCallsForSameIdLeaveSingleRow()
         {
-            const string url = "https://www.youtube.com/channel/shared";
+            const string url = "https://www.youtube.com/channel/channel-1";
             var staleAfter = DateTimeOffset.UtcNow.AddMinutes(-2);
 
             var firstSave = _repository.SaveDiscoveredChannelAsync(
@@ -144,7 +151,7 @@ namespace youtubed.Tests.Integration
             var secondSave = _repository.SaveDiscoveredChannelAsync(
                 new ChannelModel
                 {
-                    Id = "channel-2",
+                    Id = "channel-1",
                     Url = url,
                     Title = "Updated",
                     Thumbnail = "updated.png",
@@ -168,21 +175,12 @@ namespace youtubed.Tests.Integration
                 new { url });
 
             Assert.Equal(1, persisted.Count);
-            Assert.Contains(persisted.Id, new[] { "channel-1", "channel-2" });
+            Assert.Equal("channel-1", persisted.Id);
             Assert.True(persisted.StaleAfter >= staleAfter);
 
-            if (persisted.Id == "channel-1")
-            {
-                Assert.Equal("Original", persisted.Title);
-                Assert.Equal("original.png", persisted.Thumbnail);
-                Assert.Equal("playlist-original", persisted.PlaylistId);
-            }
-            else
-            {
-                Assert.Equal("Updated", persisted.Title);
-                Assert.Equal("updated.png", persisted.Thumbnail);
-                Assert.Equal("playlist-updated", persisted.PlaylistId);
-            }
+            Assert.Contains(persisted.Title, new[] { "Original", "Updated" });
+            Assert.Contains(persisted.Thumbnail, new[] { "original.png", "updated.png" });
+            Assert.Contains(persisted.PlaylistId, new[] { "playlist-original", "playlist-updated" });
         }
 
         [LocalDbFact]
@@ -212,7 +210,7 @@ namespace youtubed.Tests.Integration
         }
 
         [LocalDbFact]
-        public async Task GetByUrlAsync_MapsStatusFields()
+        public async Task GetByIdAsync_MapsStatusFields()
         {
             var statusUpdatedAt = DateTimeOffset.UtcNow.AddMinutes(-15);
 
@@ -230,7 +228,7 @@ namespace youtubed.Tests.Integration
                     statusUpdatedAt
                 });
 
-            var channel = await _repository.GetByUrlAsync("https://www.youtube.com/channel/channel-status");
+            var channel = await _repository.GetByIdAsync("channel-status");
 
             Assert.NotNull(channel);
             Assert.Equal(ChannelStatus.Unavailable, channel.Status);

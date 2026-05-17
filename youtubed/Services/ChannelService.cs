@@ -11,59 +11,53 @@ namespace youtubed.Services
         private readonly IChannelRepository _channelRepository;
         private readonly IYoutubeService _youtubeService;
         private readonly IAppClock _clock;
+        private readonly IChannelUrlLookupCache _channelUrlLookupCache;
 
         public ChannelService(
             IChannelRepository channelRepository,
             IYoutubeService youtubeService,
-            IAppClock clock)
+            IAppClock clock,
+            IChannelUrlLookupCache channelUrlLookupCache)
         {
             _channelRepository = channelRepository;
             _youtubeService = youtubeService;
             _clock = clock;
+            _channelUrlLookupCache = channelUrlLookupCache;
         }
 
         public async Task<ChannelModel> GetOrCreateChannelAsync(string url)
         {
-            YoutubeChannel channel;
-
-            // Vanity URLs cannot be mapped to Channel ID using the API. To
-            // work around this, support adding channels by video URL instead.
-            if (Constants.YoutubeVideoExpression.IsMatch(url))
+            if (_channelUrlLookupCache.TryGetChannelId(url, out var cachedChannelId))
             {
-                channel = await _youtubeService.GetVideoChannelAsync(url);
-                if (channel == null)
+                if (cachedChannelId == null)
                 {
                     return null;
                 }
 
-                url = string.Format(Constants.YoutubeChannelUrl, channel.Id);
-            }
-            else
-            {
-                var cached = await _channelRepository.GetByUrlAsync(url);
+                var cached = await _channelRepository.GetByIdAsync(cachedChannelId);
                 if (cached != null)
                 {
                     return cached;
                 }
 
-                channel = await _youtubeService.GetChannelByUrlAsync(url);
-                if (channel == null)
+                var cachedChannel = await _youtubeService.GetChannelByIdAsync(cachedChannelId);
+                if (cachedChannel != null)
                 {
-                    return null;
+                    return await SaveDiscoveredChannelAsync(cachedChannel);
                 }
+
+                _channelUrlLookupCache.Set(url, null);
+                return null;
             }
 
-            var model = new ChannelModel
+            var channel = await ResolveSubmittedUrlAsync(url);
+            _channelUrlLookupCache.Set(url, channel?.Id);
+            if (channel == null)
             {
-                Id = channel.Id,
-                Url = url,
-                Title = channel.Title,
-                Thumbnail = channel.Thumbnail,
-                PlaylistId = channel.PlaylistId
-            };
+                return null;
+            }
 
-            await _channelRepository.SaveDiscoveredChannelAsync(model, DateTimeOffset.MinValue);
-            return model;
+            return await SaveDiscoveredChannelAsync(channel);
         }
 
         public Task<StaleChannelModel> GetNextStaleChannelOrDefaultAsync()
@@ -128,6 +122,33 @@ namespace youtubed.Services
         public Task<int> RemoveOrphanChannelsAsync()
         {
             return _channelRepository.RemoveOrphanChannelsAsync(_clock.UtcNow);
+        }
+
+        private async Task<YoutubeChannel> ResolveSubmittedUrlAsync(string url)
+        {
+            // Vanity URLs cannot be mapped to Channel ID using the API. To
+            // work around this, support adding channels by video URL instead.
+            if (Constants.YoutubeVideoExpression.IsMatch(url))
+            {
+                return await _youtubeService.GetVideoChannelAsync(url);
+            }
+
+            return await _youtubeService.GetChannelByUrlAsync(url);
+        }
+
+        private async Task<ChannelModel> SaveDiscoveredChannelAsync(YoutubeChannel channel)
+        {
+            var model = new ChannelModel
+            {
+                Id = channel.Id,
+                Url = string.Format(Constants.YoutubeChannelUrl, channel.Id),
+                Title = channel.Title,
+                Thumbnail = channel.Thumbnail,
+                PlaylistId = channel.PlaylistId
+            };
+
+            await _channelRepository.SaveDiscoveredChannelAsync(model, DateTimeOffset.MinValue);
+            return model;
         }
     }
 }

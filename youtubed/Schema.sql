@@ -49,7 +49,6 @@ CREATE TABLE Channel (
 	StatusUpdatedAt DATETIMEOFFSET NULL,
 
 	CONSTRAINT PK_Channel PRIMARY KEY (Id),
-	CONSTRAINT UK_Channel_Url UNIQUE (Url),
 	CONSTRAINT FK_Channel_ChannelStatus FOREIGN KEY (Status) REFERENCES ChannelStatus (Id),
 	CONSTRAINT FK_Channel_ChannelStatusReason FOREIGN KEY (StatusReason) REFERENCES ChannelStatusReason (Id)
 );

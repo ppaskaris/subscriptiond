@@ -66,7 +66,7 @@ namespace youtubed.Controllers
                 return BadRequest();
             }
 
-            var listView = await _listService.GetListViewAsync(id.Value);
+            var listView = await _listService.GetListChannelViewAsync(id.Value);
             if (listView == null)
             {
                 return NotFound();

@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using youtubed.Domain;
 using youtubed.Models;
 
 namespace youtubed.Persistence
@@ -8,7 +9,8 @@ namespace youtubed.Persistence
     {
         Task CreateAsync(ListModel list);
         Task<ListModel> GetAsync(Guid id);
-        Task<ListViewModel> GetViewAsync(Guid id, DateTimeOffset expiredAfter, DateTimeOffset now);
+        Task<ListVideoProjection> GetVideoProjectionAsync(Guid id, DateTimeOffset expiredAfter, int videoLimit);
+        Task<ListChannelProjection> GetChannelProjectionAsync(Guid id, DateTimeOffset expiredAfter);
         Task AddChannelAsync(Guid listId, string channelId);
         Task RemoveChannelAsync(Guid listId, string channelId);
         Task UpdateAsync(Guid id, string title, decimal playbackRate);

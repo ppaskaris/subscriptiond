@@ -11,7 +11,7 @@
     @if (Model.StaleCount > 0)
     {
         <meta http-equiv="refresh"
-              content="@Math.Floor(Model.StaleRefreshAfter.TotalSeconds)">
+              content="15">
     }
 }
 
@@ -64,10 +64,9 @@
     </div>
 }
 @{
-    var videoCount = Model.Videos.Count();
-    var renderedVideos = Model.Videos.Take(Constants.ListRenderMaxItems).ToList();
+    var renderedVideos = Model.Videos.ToList();
 }
-@if (videoCount > 0)
+@if (renderedVideos.Any())
 {
     <ol class="list-unstyled video-list">
         @foreach (var video in renderedVideos)
@@ -81,15 +80,15 @@
                     <span class="video-title">@WebUtility.HtmlDecode(video.VideoTitle)</span>
                 </a>
                 <a class="video-channel-link" href="@video.ChannelUrl" rel="noopener noreferrer" referrerpolicy="no-referrer">@video.ChannelTitle</a>
-                <time class="video-published-at" datetime="@video.VideoPublishedAt.ToString("o")" title="@video.VideoPublishedAt.ToString("g")">@video.VideoPublishedAt.Humanize()</time>
+                <time class="video-published-at" datetime="@video.VideoPublishedAt.ToString("o")" title="@video.VideoPublishedAt.ToString("g")">@video.VideoPublishedAt.Humanize(dateToCompareAgainst: Model.Now)</time>
             </li>
         }
         <li class="video-item video-item-filler" aria-hidden="true"></li>
     </ol>
-    @if (videoCount > Constants.ListRenderMaxItems)
+    @if (Model.HasMoreVideos)
     {
         <div class="alert alert-info">
-            Showing <strong>@Constants.ListRenderMaxItems</strong> of <strong>@videoCount</strong> total videos in this list.
+            Showing the <strong>@Constants.ListRenderMaxItems</strong> most recent videos in this list.
         </div>
     }
 }

@@ -12,11 +12,12 @@ namespace youtubed.Models
         public string Title { get; set; }
         public decimal PlaybackRate { get; set; } = Constants.DefaultListPlaybackRate;
         public DateTimeOffset ExpiredAfter { get; set; }
+        public DateTimeOffset Now { get; set; }
         public int StaleCount { get; set; }
-        public IEnumerable<VideoViewModel> Videos { get; set; }
-        public IEnumerable<ChannelModel> Channels { get; set; }
+        public bool HasMoreVideos { get; set; }
+        public IEnumerable<VideoViewModel> Videos { get; set; } = Enumerable.Empty<VideoViewModel>();
+        public IEnumerable<ChannelModel> Channels { get; set; } = Enumerable.Empty<ChannelModel>();
 
         public TimeSpan MaxAge { get; set; }
-        public TimeSpan StaleRefreshAfter { get; set; }
     }
 }

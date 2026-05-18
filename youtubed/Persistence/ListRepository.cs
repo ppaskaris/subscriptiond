@@ -1,5 +1,6 @@
 using Dapper;
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using youtubed.Data;
 using youtubed.Domain;
@@ -39,7 +40,7 @@ namespace youtubed.Persistence
                 new { id });
         }
 
-        public async Task<ListViewModel> GetViewAsync(Guid id, DateTimeOffset expiredAfter, DateTimeOffset now)
+        public async Task<ListVideoProjection> GetVideoProjectionAsync(Guid id, DateTimeOffset expiredAfter, int videoLimit)
         {
             using var connection = _connectionFactory.CreateConnection();
             using var query = await connection.QueryMultipleAsync(
@@ -53,32 +54,74 @@ namespace youtubed.Persistence
                        inserted.ExpiredAfter
                 WHERE Id = @id;
 
-                SELECT COUNT(*)
+                SELECT Channel.Id,
+                       Channel.Title,
+                       Channel.Url,
+                       Channel.Thumbnail,
+                       Channel.StaleAfter,
+                       Channel.Status,
+                       Channel.StatusReason,
+                       Channel.StatusUpdatedAt
                 FROM ListChannel
                     INNER JOIN Channel ON Channel.Id = ListChannel.ChannelId
                 WHERE ListChannel.ListId = @id
-                  AND Channel.StaleAfter <= @now
-                  AND Channel.Status = @activeStatus;
+                ORDER BY Channel.Id ASC;
 
-                SELECT Channel.Title AS ChannelTitle,
-                       Channel.Url AS ChannelUrl,
+                SELECT TOP (@videoLimit)
+                       ChannelVideo.ChannelId,
                        ChannelVideo.Id AS VideoId,
-                       ChannelVideo.Title AS VideoTitle,
-                       ChannelVideo.Duration AS VideoDuration,
-                       ChannelVideo.PublishedAt AS VideoPublishedAt,
-                       ChannelVideo.Thumbnail AS VideoThumbnail
+                       ChannelVideo.Title,
+                       ChannelVideo.Duration,
+                       ChannelVideo.PublishedAt,
+                       ChannelVideo.Thumbnail AS ThumbnailUrl
                 FROM ListChannel
-                    INNER JOIN Channel ON Channel.Id = ListChannel.ChannelId
-                    INNER JOIN ChannelVideo ON ChannelVideo.ChannelId = Channel.Id
+                    INNER JOIN ChannelVideo ON ChannelVideo.ChannelId = ListChannel.ChannelId
                 WHERE ListChannel.ListId = @id
                 ORDER BY ChannelVideo.PublishedAt DESC,
                          ChannelVideo.Id ASC;
+                ",
+                new { id, expiredAfter, videoLimit });
+            var list = await query.ReadSingleOrDefaultAsync<SubscriptionList>();
+            if (list == null)
+            {
+                return null;
+            }
+
+            var channels = (await query.ReadAsync<ListVideoProjection.Channel>()).AsList();
+            var videosByChannelId = (await query.ReadAsync<ChannelVideo>())
+                .ToLookup(video => video.ChannelId, StringComparer.Ordinal);
+
+            foreach (var channel in channels)
+            {
+                channel.Videos = videosByChannelId[channel.Id].AsList();
+            }
+
+            return new ListVideoProjection
+            {
+                List = list,
+                Channels = channels
+            };
+        }
+
+        public async Task<ListChannelProjection> GetChannelProjectionAsync(Guid id, DateTimeOffset expiredAfter)
+        {
+            using var connection = _connectionFactory.CreateConnection();
+            using var query = await connection.QueryMultipleAsync(
+                @"
+                UPDATE List
+                SET ExpiredAfter = @expiredAfter
+                OUTPUT inserted.Id,
+                       inserted.Token,
+                       inserted.Title,
+                       inserted.PlaybackRate,
+                       inserted.ExpiredAfter
+                WHERE Id = @id;
 
                 SELECT Channel.Id,
                        Channel.Title,
                        Channel.Url,
                        Channel.Thumbnail,
-                       Channel.PlaylistId,
+                       Channel.StaleAfter,
                        Channel.Status,
                        Channel.StatusReason,
                        Channel.StatusUpdatedAt
@@ -87,23 +130,17 @@ namespace youtubed.Persistence
                 WHERE ListChannel.ListId = @id
                 ORDER BY Channel.Title ASC;
                 ",
-                new { id, expiredAfter, now, activeStatus = ChannelStatus.Active });
-            var list = await query.ReadSingleOrDefaultAsync<ListModel>();
+                new { id, expiredAfter });
+            var list = await query.ReadSingleOrDefaultAsync<SubscriptionList>();
             if (list == null)
             {
                 return null;
             }
 
-            return new ListViewModel
+            return new ListChannelProjection
             {
-                Id = list.Id,
-                Token = list.TokenString,
-                Title = list.Title,
-                PlaybackRate = list.PlaybackRate,
-                ExpiredAfter = list.ExpiredAfter,
-                StaleCount = await query.ReadSingleOrDefaultAsync<int>(),
-                Videos = await query.ReadAsync<VideoViewModel>(),
-                Channels = await query.ReadAsync<ChannelModel>()
+                List = list,
+                Channels = (await query.ReadAsync<ListChannelProjection.Channel>()).AsList()
             };
         }
 

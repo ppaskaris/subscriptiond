@@ -140,9 +140,47 @@ namespace youtubed.Tests.Integration
             Assert.Equal(ChannelStatus.Unavailable, view.Channels.Single(channel => channel.Id == "channel-g").Status);
             Assert.Equal(ChannelStatusReason.NotFound, view.Channels.Single(channel => channel.Id == "channel-g").StatusReason);
             Assert.Equal(now.Add(Constants.ListMaxAgeMin), view.ExpiredAfter);
+            Assert.Equal(now, view.Now);
             Assert.Equal(Constants.ListMaxAgeMin, view.MaxAge);
-            Assert.Equal(Constants.ChannelUpdateFrequencyMin, view.StaleRefreshAfter);
+            Assert.False(view.HasMoreVideos);
             Assert.Equal(view.ExpiredAfter, refreshedExpiry);
+        }
+
+        [LocalDbFact]
+        public async Task GetListChannelViewAsync_ReturnsChannelsWithoutVideos()
+        {
+            var listId = Guid.NewGuid();
+            var now = new DateTimeOffset(2026, 5, 18, 12, 0, 0, TimeSpan.Zero);
+            _clock.UtcNow = now;
+
+            await ExecuteAsync(
+                @"
+                INSERT INTO List (Id, Token, Title, ExpiredAfter)
+                VALUES (@listId, @token, N'Channel View', @expiredAfter);
+
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
+                VALUES (N'channel-1', N'https://www.youtube.com/channel/channel-1', N'Channel', N'thumb.png', N'playlist-1', @staleAfter, @visibleAfter);
+
+                INSERT INTO ListChannel (ListId, ChannelId)
+                VALUES (@listId, N'channel-1');
+                ",
+                new
+                {
+                    listId,
+                    token = Enumerable.Repeat((byte)5, 40).ToArray(),
+                    expiredAfter = now.AddDays(1),
+                    staleAfter = now.AddMinutes(-1),
+                    visibleAfter = now.AddMinutes(-1)
+                });
+
+            var view = await _service.GetListChannelViewAsync(listId);
+
+            Assert.NotNull(view);
+            Assert.Empty(view.Videos);
+            var channel = Assert.Single(view.Channels);
+            Assert.Equal("channel-1", channel.Id);
+            Assert.Equal(now.AddMinutes(-1), channel.StaleAfter);
+            Assert.Equal(1, view.StaleCount);
         }
 
         [LocalDbFact]

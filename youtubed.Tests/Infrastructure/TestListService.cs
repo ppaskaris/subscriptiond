@@ -81,6 +81,21 @@ namespace youtubed.Tests.Infrastructure
                 : null);
         }
 
+        public Task<ListViewModel> GetListChannelViewAsync(Guid id)
+        {
+            return Task.FromResult(id == ExistingListId
+                ? new ListViewModel
+                {
+                    Id = ExistingList.Id,
+                    Title = ExistingList.Title,
+                    PlaybackRate = ExistingList.PlaybackRate,
+                    Token = ExistingList.TokenString,
+                    Channels = Array.Empty<ChannelModel>(),
+                    ExpiredAfter = DateTimeOffset.UtcNow.AddDays(7)
+                }
+                : null);
+        }
+
         public Task AddChannelAsync(Guid listId, string channelId) => Task.CompletedTask;
 
         public Task RemoveChannelAsync(Guid listId, string channelId) => Task.CompletedTask;

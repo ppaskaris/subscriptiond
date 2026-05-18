@@ -107,7 +107,7 @@ namespace youtubed.Tests.Controllers
         {
             var id = Guid.NewGuid();
             var listService = new Mock<IListService>(MockBehavior.Strict);
-            listService.Setup(service => service.GetListViewAsync(id)).ReturnsAsync((ListViewModel)null);
+            listService.Setup(service => service.GetListChannelViewAsync(id)).ReturnsAsync((ListViewModel)null);
 
             var result = await CreateController(listService: listService).Channels(id, "token");
 
@@ -120,7 +120,7 @@ namespace youtubed.Tests.Controllers
             var id = Guid.NewGuid();
             var listService = new Mock<IListService>(MockBehavior.Strict);
             listService
-                .Setup(service => service.GetListViewAsync(id))
+                .Setup(service => service.GetListChannelViewAsync(id))
                 .ReturnsAsync(new ListViewModel { Id = id, Token = "expected" });
 
             var result = await CreateController(listService: listService).Channels(id, "wrong");
@@ -140,7 +140,7 @@ namespace youtubed.Tests.Controllers
                 Channels = new[] { new ChannelModel { Id = "channel-1", Title = "Channel" } }
             };
             var listService = new Mock<IListService>(MockBehavior.Strict);
-            listService.Setup(service => service.GetListViewAsync(id)).ReturnsAsync(model);
+            listService.Setup(service => service.GetListChannelViewAsync(id)).ReturnsAsync(model);
 
             var result = await CreateController(listService: listService).Channels(id, "expected");
 

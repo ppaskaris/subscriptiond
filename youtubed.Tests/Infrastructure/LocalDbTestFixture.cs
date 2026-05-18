@@ -103,6 +103,7 @@ namespace youtubed.Tests.Infrastructure
             if (Interlocked.Exchange(ref _isTimeSpanHandlerConfigured, 1) == 0)
             {
                 SqlMapper.AddTypeHandler(new TimeSpanTypeHandler());
+                SqlMapper.AddTypeHandler(new DateOnlyTypeHandler());
             }
         }
 

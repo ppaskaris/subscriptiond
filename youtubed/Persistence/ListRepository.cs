@@ -22,8 +22,8 @@ namespace youtubed.Persistence
             using var connection = _connectionFactory.CreateConnection();
             await connection.ExecuteAsync(
                 @"
-                INSERT INTO List (Id, Token, Title, PlaybackRate, ExpiredAfter)
-                VALUES (@Id, @Token, @Title, @PlaybackRate, @ExpiredAfter);
+                INSERT INTO List (Id, Token, Title, PlaybackRate, ExpiredAfter, ExpirationRenewedOn)
+                VALUES (@Id, @Token, @Title, @PlaybackRate, @ExpiredAfter, @ExpirationRenewedOn);
                 ",
                 list);
         }
@@ -33,27 +33,32 @@ namespace youtubed.Persistence
             using var connection = _connectionFactory.CreateConnection();
             return await connection.QueryFirstOrDefaultAsync<ListModel>(
                 @"
-                SELECT Id, Token, Title, PlaybackRate, ExpiredAfter
+                SELECT Id, Token, Title, PlaybackRate, ExpiredAfter, ExpirationRenewedOn
                 FROM List
                 WHERE Id = @id;
                 ",
                 new { id });
         }
 
-        public async Task<ListVideoProjection> GetVideoProjectionAsync(Guid id, DateTimeOffset expiredAfter, int videoLimit)
+        public async Task RenewExpirationAsync(Guid id, DateTimeOffset expiredAfter, DateOnly renewedOn)
+        {
+            using var connection = _connectionFactory.CreateConnection();
+            await connection.ExecuteAsync(
+                @"
+                UPDATE List
+                SET ExpiredAfter = @expiredAfter,
+                    ExpirationRenewedOn = @renewedOn
+                WHERE Id = @id
+                  AND (ExpirationRenewedOn IS NULL OR ExpirationRenewedOn <> @renewedOn);
+                ",
+                new { id, expiredAfter, renewedOn });
+        }
+
+        public async Task<ListVideoProjection> GetVideoProjectionAsync(SubscriptionList list, int videoLimit)
         {
             using var connection = _connectionFactory.CreateConnection();
             using var query = await connection.QueryMultipleAsync(
                 @"
-                UPDATE List
-                SET ExpiredAfter = @expiredAfter
-                OUTPUT inserted.Id,
-                       inserted.Token,
-                       inserted.Title,
-                       inserted.PlaybackRate,
-                       inserted.ExpiredAfter
-                WHERE Id = @id;
-
                 SELECT Channel.Id,
                        Channel.Title,
                        Channel.Url,
@@ -80,12 +85,7 @@ namespace youtubed.Persistence
                 ORDER BY ChannelVideo.PublishedAt DESC,
                          ChannelVideo.Id ASC;
                 ",
-                new { id, expiredAfter, videoLimit });
-            var list = await query.ReadSingleOrDefaultAsync<SubscriptionList>();
-            if (list == null)
-            {
-                return null;
-            }
+                new { id = list.Id, videoLimit });
 
             var channels = (await query.ReadAsync<ListVideoProjection.Channel>()).AsList();
             var videosByChannelId = (await query.ReadAsync<ChannelVideo>())
@@ -103,20 +103,11 @@ namespace youtubed.Persistence
             };
         }
 
-        public async Task<ListChannelProjection> GetChannelProjectionAsync(Guid id, DateTimeOffset expiredAfter)
+        public async Task<ListChannelProjection> GetChannelProjectionAsync(SubscriptionList list)
         {
             using var connection = _connectionFactory.CreateConnection();
             using var query = await connection.QueryMultipleAsync(
                 @"
-                UPDATE List
-                SET ExpiredAfter = @expiredAfter
-                OUTPUT inserted.Id,
-                       inserted.Token,
-                       inserted.Title,
-                       inserted.PlaybackRate,
-                       inserted.ExpiredAfter
-                WHERE Id = @id;
-
                 SELECT Channel.Id,
                        Channel.Title,
                        Channel.Url,
@@ -130,12 +121,7 @@ namespace youtubed.Persistence
                 WHERE ListChannel.ListId = @id
                 ORDER BY Channel.Title ASC;
                 ",
-                new { id, expiredAfter });
-            var list = await query.ReadSingleOrDefaultAsync<SubscriptionList>();
-            if (list == null)
-            {
-                return null;
-            }
+                new { id = list.Id });
 
             return new ListChannelProjection
             {

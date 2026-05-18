@@ -5,7 +5,6 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using youtubed.Services;
 using youtubed.Models;
-using youtubed.SecurityTheatre;
 
 namespace youtubed.Controllers
 {
@@ -41,16 +40,13 @@ namespace youtubed.Controllers
                 return BadRequest();
             }
 
-            var listView = await _listService.GetListViewAsync(id.Value);
-            if (listView == null)
-            {
-                return NotFound();
-            }
-            if (TokenUtils.NotEqual(token, listView.Token))
+            var list = await _listService.GetAuthenticatedListAsync(id.Value, token);
+            if (list == null)
             {
                 return NotFound();
             }
 
+            var listView = await _listService.GetListViewAsync(list);
             return View(listView);
         }
 
@@ -66,16 +62,13 @@ namespace youtubed.Controllers
                 return BadRequest();
             }
 
-            var listView = await _listService.GetListChannelViewAsync(id.Value);
-            if (listView == null)
-            {
-                return NotFound();
-            }
-            if (TokenUtils.NotEqual(token, listView.Token))
+            var list = await _listService.GetAuthenticatedListAsync(id.Value, token);
+            if (list == null)
             {
                 return NotFound();
             }
 
+            var listView = await _listService.GetListChannelViewAsync(list);
             return View(listView);
         }
 
@@ -91,12 +84,8 @@ namespace youtubed.Controllers
                 return BadRequest();
             }
 
-            var list = await _listService.GetListAsync(id.Value);
+            var list = await _listService.GetAuthenticatedListAsync(id.Value, token);
             if (list == null)
-            {
-                return NotFound();
-            }
-            if (TokenUtils.NotEqual(token, list.TokenString))
             {
                 return NotFound();
             }
@@ -117,12 +106,8 @@ namespace youtubed.Controllers
                 return BadRequest();
             }
 
-            var list = await _listService.GetListAsync(id.Value);
+            var list = await _listService.GetAuthenticatedListAsync(id.Value, token);
             if (list == null)
-            {
-                return BadRequest();
-            }
-            if (TokenUtils.NotEqual(token, list.TokenString))
             {
                 return BadRequest();
             }
@@ -156,12 +141,8 @@ namespace youtubed.Controllers
                 return BadRequest();
             }
 
-            var list = await _listService.GetListAsync(id.Value);
+            var list = await _listService.GetAuthenticatedListAsync(id.Value, token);
             if (list == null)
-            {
-                return NotFound();
-            }
-            if (TokenUtils.NotEqual(token, list.TokenString))
             {
                 return NotFound();
             }
@@ -190,12 +171,8 @@ namespace youtubed.Controllers
                 return View(model);
             }
 
-            var list = await _listService.GetListAsync(id.Value);
+            var list = await _listService.GetAuthenticatedListAsync(id.Value, token);
             if (list == null)
-            {
-                return NotFound();
-            }
-            if (TokenUtils.NotEqual(token, list.TokenString))
             {
                 return NotFound();
             }
@@ -220,12 +197,8 @@ namespace youtubed.Controllers
                 return BadRequest();
             }
 
-            var list = await _listService.GetListAsync(id.Value);
+            var list = await _listService.GetAuthenticatedListAsync(id.Value, token);
             if (list == null)
-            {
-                return NotFound();
-            }
-            if (TokenUtils.NotEqual(token, list.TokenString))
             {
                 return NotFound();
             }
@@ -250,12 +223,8 @@ namespace youtubed.Controllers
                 return View(model);
             }
 
-            var list = await _listService.GetListAsync(id.Value);
+            var list = await _listService.GetAuthenticatedListAsync(id.Value, token);
             if (list == null)
-            {
-                return NotFound();
-            }
-            if (TokenUtils.NotEqual(token, list.TokenString))
             {
                 return NotFound();
             }
@@ -282,12 +251,8 @@ namespace youtubed.Controllers
                 return View(model);
             }
 
-            var list = await _listService.GetListAsync(id.Value);
+            var list = await _listService.GetAuthenticatedListAsync(id.Value, token);
             if (list == null)
-            {
-                return NotFound();
-            }
-            if (TokenUtils.NotEqual(token, list.TokenString))
             {
                 return NotFound();
             }
@@ -309,12 +274,8 @@ namespace youtubed.Controllers
                 return BadRequest();
             }
 
-            var list = await _listService.GetListAsync(id.Value);
+            var list = await _listService.GetAuthenticatedListAsync(id.Value, token);
             if (list == null)
-            {
-                return NotFound();
-            }
-            if (TokenUtils.NotEqual(token, list.TokenString))
             {
                 return NotFound();
             }
@@ -350,12 +311,8 @@ namespace youtubed.Controllers
                 return BadRequest();
             }
 
-            var list = await _listService.GetListAsync(id.Value);
+            var list = await _listService.GetAuthenticatedListAsync(id.Value, token);
             if (list == null)
-            {
-                return NotFound();
-            }
-            if (TokenUtils.NotEqual(token, list.TokenString))
             {
                 return NotFound();
             }
@@ -377,12 +334,8 @@ namespace youtubed.Controllers
                 return BadRequest();
             }
 
-            var list = await _listService.GetListAsync(id.Value);
+            var list = await _listService.GetAuthenticatedListAsync(id.Value, token);
             if (list == null)
-            {
-                return NotFound();
-            }
-            if (TokenUtils.NotEqual(token, list.TokenString))
             {
                 return NotFound();
             }
@@ -404,12 +357,8 @@ namespace youtubed.Controllers
                 return BadRequest();
             }
 
-            var list = await _listService.GetListAsync(id.Value);
+            var list = await _listService.GetAuthenticatedListAsync(id.Value, token);
             if (list == null)
-            {
-                return NotFound();
-            }
-            if (TokenUtils.NotEqual(token, list.TokenString))
             {
                 return NotFound();
             }

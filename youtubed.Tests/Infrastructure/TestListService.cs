@@ -53,15 +53,25 @@ namespace youtubed.Tests.Infrastructure
             return Task.FromResult(id == ExistingListId ? ExistingList : null);
         }
 
+        public Task<ListModel> GetAuthenticatedListAsync(Guid id, string token)
+        {
+            return Task.FromResult(id == ExistingListId && token == ExistingList.TokenString ? ExistingList : null);
+        }
+
         public Task<ListViewModel> GetListViewAsync(Guid id)
         {
-            return Task.FromResult(id == ExistingListId
+            return GetListViewAsync(id == ExistingListId ? ExistingList : null);
+        }
+
+        public Task<ListViewModel> GetListViewAsync(ListModel list)
+        {
+            return Task.FromResult(list != null
                 ? new ListViewModel
                 {
-                    Id = ExistingList.Id,
-                    Title = ExistingList.Title,
-                    PlaybackRate = ExistingList.PlaybackRate,
-                    Token = ExistingList.TokenString,
+                    Id = list.Id,
+                    Title = list.Title,
+                    PlaybackRate = list.PlaybackRate,
+                    Token = list.TokenString,
                     Videos = new[]
                     {
                         new VideoViewModel
@@ -83,13 +93,18 @@ namespace youtubed.Tests.Infrastructure
 
         public Task<ListViewModel> GetListChannelViewAsync(Guid id)
         {
-            return Task.FromResult(id == ExistingListId
+            return GetListChannelViewAsync(id == ExistingListId ? ExistingList : null);
+        }
+
+        public Task<ListViewModel> GetListChannelViewAsync(ListModel list)
+        {
+            return Task.FromResult(list != null
                 ? new ListViewModel
                 {
-                    Id = ExistingList.Id,
-                    Title = ExistingList.Title,
-                    PlaybackRate = ExistingList.PlaybackRate,
-                    Token = ExistingList.TokenString,
+                    Id = list.Id,
+                    Title = list.Title,
+                    PlaybackRate = list.PlaybackRate,
+                    Token = list.TokenString,
                     Channels = Array.Empty<ChannelModel>(),
                     ExpiredAfter = DateTimeOffset.UtcNow.AddDays(7)
                 }

@@ -38,7 +38,7 @@ namespace youtubed.Tests.Controllers
         {
             var id = Guid.NewGuid();
             var listService = new Mock<IListService>(MockBehavior.Strict);
-            listService.Setup(service => service.GetListViewAsync(id)).ReturnsAsync((ListViewModel)null);
+            listService.Setup(service => service.GetAuthenticatedListAsync(id, "token")).ReturnsAsync((ListModel)null);
 
             var result = await CreateController(listService: listService).Index(id, "token");
 
@@ -51,8 +51,8 @@ namespace youtubed.Tests.Controllers
             var id = Guid.NewGuid();
             var listService = new Mock<IListService>(MockBehavior.Strict);
             listService
-                .Setup(service => service.GetListViewAsync(id))
-                .ReturnsAsync(new ListViewModel { Id = id, Token = "expected" });
+                .Setup(service => service.GetAuthenticatedListAsync(id, "wrong"))
+                .ReturnsAsync((ListModel)null);
 
             var result = await CreateController(listService: listService).Index(id, "wrong");
 
@@ -63,6 +63,7 @@ namespace youtubed.Tests.Controllers
         public async Task Index_ValidRequest_ReturnsViewWithStaleCount()
         {
             var id = Guid.NewGuid();
+            var list = CreateList(id);
             var model = new ListViewModel
             {
                 Id = id,
@@ -72,7 +73,8 @@ namespace youtubed.Tests.Controllers
                 Videos = new[] { new VideoViewModel { VideoId = "video-1", VideoTitle = "Video" } }
             };
             var listService = new Mock<IListService>(MockBehavior.Strict);
-            listService.Setup(service => service.GetListViewAsync(id)).ReturnsAsync(model);
+            listService.Setup(service => service.GetAuthenticatedListAsync(id, "expected")).ReturnsAsync(list);
+            listService.Setup(service => service.GetListViewAsync(list)).ReturnsAsync(model);
 
             var result = await CreateController(listService: listService).Index(id, "expected");
 
@@ -107,7 +109,7 @@ namespace youtubed.Tests.Controllers
         {
             var id = Guid.NewGuid();
             var listService = new Mock<IListService>(MockBehavior.Strict);
-            listService.Setup(service => service.GetListChannelViewAsync(id)).ReturnsAsync((ListViewModel)null);
+            listService.Setup(service => service.GetAuthenticatedListAsync(id, "token")).ReturnsAsync((ListModel)null);
 
             var result = await CreateController(listService: listService).Channels(id, "token");
 
@@ -120,8 +122,8 @@ namespace youtubed.Tests.Controllers
             var id = Guid.NewGuid();
             var listService = new Mock<IListService>(MockBehavior.Strict);
             listService
-                .Setup(service => service.GetListChannelViewAsync(id))
-                .ReturnsAsync(new ListViewModel { Id = id, Token = "expected" });
+                .Setup(service => service.GetAuthenticatedListAsync(id, "wrong"))
+                .ReturnsAsync((ListModel)null);
 
             var result = await CreateController(listService: listService).Channels(id, "wrong");
 
@@ -132,6 +134,7 @@ namespace youtubed.Tests.Controllers
         public async Task Channels_ValidRequest_ReturnsViewWithModel()
         {
             var id = Guid.NewGuid();
+            var list = CreateList(id);
             var model = new ListViewModel
             {
                 Id = id,
@@ -140,7 +143,8 @@ namespace youtubed.Tests.Controllers
                 Channels = new[] { new ChannelModel { Id = "channel-1", Title = "Channel" } }
             };
             var listService = new Mock<IListService>(MockBehavior.Strict);
-            listService.Setup(service => service.GetListChannelViewAsync(id)).ReturnsAsync(model);
+            listService.Setup(service => service.GetAuthenticatedListAsync(id, "expected")).ReturnsAsync(list);
+            listService.Setup(service => service.GetListChannelViewAsync(list)).ReturnsAsync(model);
 
             var result = await CreateController(listService: listService).Channels(id, "expected");
 
@@ -169,7 +173,7 @@ namespace youtubed.Tests.Controllers
         {
             var id = Guid.NewGuid();
             var listService = new Mock<IListService>(MockBehavior.Strict);
-            listService.Setup(service => service.GetListAsync(id)).ReturnsAsync((ListModel)null);
+            listService.Setup(service => service.GetAuthenticatedListAsync(id, "token")).ReturnsAsync((ListModel)null);
 
             var result = await CreateController(listService: listService).AddChannel(id, "token");
 
@@ -222,7 +226,7 @@ namespace youtubed.Tests.Controllers
         {
             var id = Guid.NewGuid();
             var listService = new Mock<IListService>(MockBehavior.Strict);
-            listService.Setup(service => service.GetListAsync(id)).ReturnsAsync((ListModel)null);
+            listService.Setup(service => service.GetAuthenticatedListAsync(id, "token")).ReturnsAsync((ListModel)null);
 
             var result = await CreateController(listService: listService)
                 .AddChannel(id, "token", new AddChannelModel());
@@ -309,7 +313,7 @@ namespace youtubed.Tests.Controllers
 
             var id = Guid.NewGuid();
             var missingListService = new Mock<IListService>(MockBehavior.Strict);
-            missingListService.Setup(service => service.GetListAsync(id)).ReturnsAsync((ListModel)null);
+            missingListService.Setup(service => service.GetAuthenticatedListAsync(id, "token")).ReturnsAsync((ListModel)null);
             Assert.IsType<NotFoundResult>(await CreateController(listService: missingListService).Edit(id, "token"));
 
             var list = CreateList(id, "Original");
@@ -344,7 +348,7 @@ namespace youtubed.Tests.Controllers
 
             var id = Guid.NewGuid();
             var missingListService = new Mock<IListService>(MockBehavior.Strict);
-            missingListService.Setup(service => service.GetListAsync(id)).ReturnsAsync((ListModel)null);
+            missingListService.Setup(service => service.GetAuthenticatedListAsync(id, "token")).ReturnsAsync((ListModel)null);
             Assert.IsType<NotFoundResult>(await CreateController(listService: missingListService)
                 .Edit(id, "token", new EditListModel { Title = "Updated" }));
 
@@ -386,7 +390,7 @@ namespace youtubed.Tests.Controllers
 
             var id = Guid.NewGuid();
             var missingListService = new Mock<IListService>(MockBehavior.Strict);
-            missingListService.Setup(service => service.GetListAsync(id)).ReturnsAsync((ListModel)null);
+            missingListService.Setup(service => service.GetAuthenticatedListAsync(id, "token")).ReturnsAsync((ListModel)null);
             Assert.IsType<NotFoundResult>(await CreateController(listService: missingListService).Delete(id, "token"));
 
             var list = CreateList(id);
@@ -419,7 +423,7 @@ namespace youtubed.Tests.Controllers
 
             var id = Guid.NewGuid();
             var missingListService = new Mock<IListService>(MockBehavior.Strict);
-            missingListService.Setup(service => service.GetListAsync(id)).ReturnsAsync((ListModel)null);
+            missingListService.Setup(service => service.GetAuthenticatedListAsync(id, "token")).ReturnsAsync((ListModel)null);
             Assert.IsType<NotFoundResult>(await CreateController(listService: missingListService)
                 .Delete(id, "token", new DeleteListModel { Confirm = true }));
 
@@ -458,7 +462,7 @@ namespace youtubed.Tests.Controllers
 
             var id = Guid.NewGuid();
             var missingListService = new Mock<IListService>(MockBehavior.Strict);
-            missingListService.Setup(service => service.GetListAsync(id)).ReturnsAsync((ListModel)null);
+            missingListService.Setup(service => service.GetAuthenticatedListAsync(id, "token")).ReturnsAsync((ListModel)null);
             Assert.IsType<NotFoundResult>(await CreateController(listService: missingListService)
                 .RemoveChannel(id, "token", new RemoveChannelModel { ChannelId = "channel-1" }));
 
@@ -485,7 +489,7 @@ namespace youtubed.Tests.Controllers
 
             var id = Guid.NewGuid();
             var missingListService = new Mock<IListService>(MockBehavior.Strict);
-            missingListService.Setup(service => service.GetListAsync(id)).ReturnsAsync((ListModel)null);
+            missingListService.Setup(service => service.GetAuthenticatedListAsync(id, "token")).ReturnsAsync((ListModel)null);
             Assert.IsType<NotFoundResult>(await CreateController(listService: missingListService).Share(id, "token"));
 
             var list = CreateList(id);
@@ -527,7 +531,7 @@ namespace youtubed.Tests.Controllers
 
             var id = Guid.NewGuid();
             var missingListService = new Mock<IListService>(MockBehavior.Strict);
-            missingListService.Setup(service => service.GetListAsync(id)).ReturnsAsync((ListModel)null);
+            missingListService.Setup(service => service.GetAuthenticatedListAsync(id, "token")).ReturnsAsync((ListModel)null);
             Assert.IsType<NotFoundResult>(await CreateController(listService: missingListService).CreateShareLink(id, "token"));
 
             var list = CreateList(id);
@@ -556,7 +560,7 @@ namespace youtubed.Tests.Controllers
 
             var id = Guid.NewGuid();
             var missingListService = new Mock<IListService>(MockBehavior.Strict);
-            missingListService.Setup(service => service.GetListAsync(id)).ReturnsAsync((ListModel)null);
+            missingListService.Setup(service => service.GetAuthenticatedListAsync(id, "token")).ReturnsAsync((ListModel)null);
             Assert.IsType<NotFoundResult>(await CreateController(listService: missingListService).DeleteAllShareLinks(id, "token"));
 
             var list = CreateList(id);
@@ -584,7 +588,7 @@ namespace youtubed.Tests.Controllers
 
             var id = Guid.NewGuid();
             var missingListService = new Mock<IListService>(MockBehavior.Strict);
-            missingListService.Setup(service => service.GetListAsync(id)).ReturnsAsync((ListModel)null);
+            missingListService.Setup(service => service.GetAuthenticatedListAsync(id, "token")).ReturnsAsync((ListModel)null);
             Assert.IsType<NotFoundResult>(await CreateController(listService: missingListService).DeleteShareLink(id, "token", "password"));
 
             var list = CreateList(id);
@@ -621,7 +625,8 @@ namespace youtubed.Tests.Controllers
         private static Mock<IListService> CreateListServiceReturning(Guid id, ListModel list)
         {
             var listService = new Mock<IListService>(MockBehavior.Strict);
-            listService.Setup(service => service.GetListAsync(id)).ReturnsAsync(list);
+            listService.Setup(service => service.GetAuthenticatedListAsync(id, list.TokenString)).ReturnsAsync(list);
+            listService.Setup(service => service.GetAuthenticatedListAsync(id, "wrong")).ReturnsAsync((ListModel)null);
             return listService;
         }
 

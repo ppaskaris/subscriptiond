@@ -9,8 +9,9 @@ namespace youtubed.Persistence
     {
         Task CreateAsync(ListModel list);
         Task<ListModel> GetAsync(Guid id);
-        Task<ListVideoProjection> GetVideoProjectionAsync(Guid id, DateTimeOffset expiredAfter, int videoLimit);
-        Task<ListChannelProjection> GetChannelProjectionAsync(Guid id, DateTimeOffset expiredAfter);
+        Task RenewExpirationAsync(Guid id, DateTimeOffset expiredAfter, DateOnly renewedOn);
+        Task<ListVideoProjection> GetVideoProjectionAsync(SubscriptionList list, int videoLimit);
+        Task<ListChannelProjection> GetChannelProjectionAsync(SubscriptionList list);
         Task AddChannelAsync(Guid listId, string channelId);
         Task RemoveChannelAsync(Guid listId, string channelId);
         Task UpdateAsync(Guid id, string title, decimal playbackRate);

@@ -32,6 +32,7 @@ builder.Services.AddLogging(loggingBuilder =>
 builder.Services.Configure<YoutubeOptions>(builder.Configuration.GetSection("Youtube"));
 
 SqlMapper.AddTypeHandler(new TimeSpanTypeHandler());
+SqlMapper.AddTypeHandler(new DateOnlyTypeHandler());
 
 builder.Services.AddSingleton<IConnectionFactory>(
     new ConnectionStringConnectionFactory(builder.Configuration.GetConnectionString("Main")));

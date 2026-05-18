@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using youtubed.Domain;
 using youtubed.Models;
 using youtubed.Persistence;
+using youtubed.SecurityTheatre;
 
 namespace youtubed.Services
 {
@@ -42,14 +43,46 @@ namespace youtubed.Services
             return _listRepository.GetAsync(id);
         }
 
-        public Task<ListViewModel> GetListViewAsync(Guid id)
+        public async Task<ListModel> GetAuthenticatedListAsync(Guid id, string token)
         {
-            return GetListViewCoreAsync(id);
+            var list = await GetListAsync(id);
+            if (list == null || token == null || TokenUtils.NotEqual(token, list.TokenString))
+            {
+                return null;
+            }
+
+            var today = _clock.UtcToday;
+            if (list.ExpirationRenewedOn != today)
+            {
+                await _listRepository.RenewExpirationAsync(
+                    id,
+                    CreateExpiredAfter(_clock.UtcNow),
+                    today);
+            }
+
+            return list;
         }
 
-        public Task<ListViewModel> GetListChannelViewAsync(Guid id)
+        public async Task<ListViewModel> GetListViewAsync(Guid id)
         {
-            return GetListChannelViewCoreAsync(id);
+            var list = await GetListAsync(id);
+            return await GetListViewAsync(list);
+        }
+
+        public Task<ListViewModel> GetListViewAsync(ListModel list)
+        {
+            return GetListViewCoreAsync(list);
+        }
+
+        public async Task<ListViewModel> GetListChannelViewAsync(Guid id)
+        {
+            var list = await GetListAsync(id);
+            return await GetListChannelViewAsync(list);
+        }
+
+        public Task<ListViewModel> GetListChannelViewAsync(ListModel list)
+        {
+            return GetListChannelViewCoreAsync(list);
         }
 
         public Task AddChannelAsync(Guid listId, string channelId)
@@ -84,17 +117,17 @@ namespace youtubed.Services
             return token;
         }
 
-        private async Task<ListViewModel> GetListViewCoreAsync(Guid id)
+        private async Task<ListViewModel> GetListViewCoreAsync(ListModel list)
         {
-            var now = _clock.UtcNow;
-            var projection = await _listRepository.GetVideoProjectionAsync(
-                id,
-                CreateExpiredAfter(now),
-                Constants.ListRenderMaxItems + 1);
-            if (projection == null)
+            if (list == null)
             {
                 return null;
             }
+
+            var now = _clock.UtcNow;
+            var projection = await _listRepository.GetVideoProjectionAsync(
+                ToSubscriptionList(list),
+                Constants.ListRenderMaxItems + 1);
 
             var videos = projection.Channels
                 .SelectMany(channel => channel.Videos.Select(video => new VideoViewModel
@@ -119,14 +152,15 @@ namespace youtubed.Services
                 now);
         }
 
-        private async Task<ListViewModel> GetListChannelViewCoreAsync(Guid id)
+        private async Task<ListViewModel> GetListChannelViewCoreAsync(ListModel list)
         {
-            var now = _clock.UtcNow;
-            var projection = await _listRepository.GetChannelProjectionAsync(id, CreateExpiredAfter(now));
-            if (projection == null)
+            if (list == null)
             {
                 return null;
             }
+
+            var now = _clock.UtcNow;
+            var projection = await _listRepository.GetChannelProjectionAsync(ToSubscriptionList(list));
 
             return CreateViewModel(
                 projection.List,
@@ -196,6 +230,19 @@ namespace youtubed.Services
             return now.Add(_clock.RandomDelay(
                 Constants.ListMaxAgeMin,
                 Constants.ListMaxAgeMax));
+        }
+
+        private static SubscriptionList ToSubscriptionList(ListModel list)
+        {
+            return new SubscriptionList
+            {
+                Id = list.Id,
+                Token = list.Token,
+                Title = list.Title,
+                PlaybackRate = list.PlaybackRate,
+                ExpiredAfter = list.ExpiredAfter,
+                ExpirationRenewedOn = list.ExpirationRenewedOn
+            };
         }
     }
 }

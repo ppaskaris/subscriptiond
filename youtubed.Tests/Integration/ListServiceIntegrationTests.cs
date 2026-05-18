@@ -33,7 +33,7 @@ namespace youtubed.Tests.Integration
 
             var persisted = await QuerySingleAsync<ListModel>(
                 @"
-                SELECT Id, Token, Title, PlaybackRate, ExpiredAfter
+                SELECT Id, Token, Title, PlaybackRate, ExpiredAfter, ExpirationRenewedOn
                 FROM List
                 WHERE Id = @id;
                 ",
@@ -48,6 +48,7 @@ namespace youtubed.Tests.Integration
             Assert.Equal(1.00m, persisted.PlaybackRate);
             Assert.Equal(list.TokenString, persisted.TokenString);
             Assert.Equal(_clock.UtcNow.Add(Constants.ListMaxAgeMin), persisted.ExpiredAfter);
+            Assert.Null(persisted.ExpirationRenewedOn);
         }
 
         [LocalDbFact]
@@ -66,7 +67,7 @@ namespace youtubed.Tests.Integration
         }
 
         [LocalDbFact]
-        public async Task GetListViewAsync_RefreshesExpiryAndReturnsOrderedData()
+        public async Task GetListViewAsync_ReturnsOrderedDataWithoutRenewingExpiry()
         {
             var listId = Guid.NewGuid();
             var now = new DateTimeOffset(2026, 5, 2, 12, 0, 0, TimeSpan.Zero);
@@ -139,11 +140,94 @@ namespace youtubed.Tests.Integration
             Assert.Equal(new[] { "Alpha", "Beta", "Gamma" }, view.Channels.Select(channel => channel.Title).ToArray());
             Assert.Equal(ChannelStatus.Unavailable, view.Channels.Single(channel => channel.Id == "channel-g").Status);
             Assert.Equal(ChannelStatusReason.NotFound, view.Channels.Single(channel => channel.Id == "channel-g").StatusReason);
-            Assert.Equal(now.Add(Constants.ListMaxAgeMin), view.ExpiredAfter);
+            Assert.Equal(originalExpiry, view.ExpiredAfter);
             Assert.Equal(now, view.Now);
-            Assert.Equal(Constants.ListMaxAgeMin, view.MaxAge);
+            Assert.Equal(originalExpiry.Subtract(now), view.MaxAge);
             Assert.False(view.HasMoreVideos);
-            Assert.Equal(view.ExpiredAfter, refreshedExpiry);
+            Assert.Equal(originalExpiry, refreshedExpiry);
+        }
+
+        [LocalDbFact]
+        public async Task GetAuthenticatedListAsync_RenewsExpiryOncePerUtcDay()
+        {
+            var now = new DateTimeOffset(2026, 5, 18, 12, 0, 0, TimeSpan.Zero);
+            _clock.UtcNow = now;
+            var listId = Guid.NewGuid();
+            var token = Enumerable.Range(1, 40).Select(value => (byte)value).ToArray();
+            var originalExpiry = now.AddDays(-1);
+
+            await ExecuteAsync(
+                @"
+                INSERT INTO List (Id, Token, Title, ExpiredAfter)
+                VALUES (@listId, @token, N'Authenticated', @expiredAfter);
+                ",
+                new
+                {
+                    listId,
+                    token,
+                    expiredAfter = originalExpiry
+                });
+
+            var tokenString = new ListModel { Token = token }.TokenString;
+
+            var first = await _service.GetAuthenticatedListAsync(listId, tokenString);
+            var firstPersisted = await QuerySingleAsync<ListModel>(
+                "SELECT Id, Token, Title, ExpiredAfter, ExpirationRenewedOn FROM List WHERE Id = @listId;",
+                new { listId });
+            _clock.UtcNow = now.AddMinutes(30);
+            var second = await _service.GetAuthenticatedListAsync(listId, tokenString);
+            var secondPersisted = await QuerySingleAsync<ListModel>(
+                "SELECT Id, Token, Title, ExpiredAfter, ExpirationRenewedOn FROM List WHERE Id = @listId;",
+                new { listId });
+            _clock.UtcNow = now.AddDays(1);
+            var third = await _service.GetAuthenticatedListAsync(listId, tokenString);
+            var thirdPersisted = await QuerySingleAsync<ListModel>(
+                "SELECT Id, Token, Title, ExpiredAfter, ExpirationRenewedOn FROM List WHERE Id = @listId;",
+                new { listId });
+
+            Assert.NotNull(first);
+            Assert.Equal(originalExpiry, first.ExpiredAfter);
+            Assert.Null(first.ExpirationRenewedOn);
+            Assert.Equal(now.Add(Constants.ListMaxAgeMin), firstPersisted.ExpiredAfter);
+            Assert.Equal(DateOnly.FromDateTime(now.UtcDateTime), firstPersisted.ExpirationRenewedOn);
+            Assert.NotNull(second);
+            Assert.Equal(firstPersisted.ExpiredAfter, second.ExpiredAfter);
+            Assert.Equal(firstPersisted.ExpiredAfter, secondPersisted.ExpiredAfter);
+            Assert.NotNull(third);
+            Assert.Equal(firstPersisted.ExpiredAfter, third.ExpiredAfter);
+            Assert.Equal(now.AddDays(1).Add(Constants.ListMaxAgeMin), thirdPersisted.ExpiredAfter);
+            Assert.Equal(DateOnly.FromDateTime(now.UtcDateTime).AddDays(1), thirdPersisted.ExpirationRenewedOn);
+        }
+
+        [LocalDbFact]
+        public async Task GetAuthenticatedListAsync_InvalidTokenDoesNotRenew()
+        {
+            var now = new DateTimeOffset(2026, 5, 18, 12, 0, 0, TimeSpan.Zero);
+            _clock.UtcNow = now;
+            var listId = Guid.NewGuid();
+            var token = Enumerable.Range(1, 40).Select(value => (byte)value).ToArray();
+            var originalExpiry = now.AddDays(-1);
+
+            await ExecuteAsync(
+                @"
+                INSERT INTO List (Id, Token, Title, ExpiredAfter)
+                VALUES (@listId, @token, N'Authenticated', @expiredAfter);
+                ",
+                new
+                {
+                    listId,
+                    token,
+                    expiredAfter = originalExpiry
+                });
+
+            var result = await _service.GetAuthenticatedListAsync(listId, "wrong");
+            var persisted = await QuerySingleAsync<ListModel>(
+                "SELECT Id, Token, Title, ExpiredAfter, ExpirationRenewedOn FROM List WHERE Id = @listId;",
+                new { listId });
+
+            Assert.Null(result);
+            Assert.Equal(originalExpiry, persisted.ExpiredAfter);
+            Assert.Null(persisted.ExpirationRenewedOn);
         }
 
         [LocalDbFact]

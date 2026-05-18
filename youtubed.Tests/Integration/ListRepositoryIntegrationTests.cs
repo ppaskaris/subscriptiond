@@ -22,18 +22,24 @@ namespace youtubed.Tests.Integration
         }
 
         [LocalDbFact]
-        public async Task ProjectionReads_ReturnNullForMissingList()
+        public async Task ProjectionReads_ReturnEmptyChannelsWhenListHasNoChannels()
         {
+            var list = new SubscriptionList
+            {
+                Id = Guid.NewGuid(),
+                Token = Enumerable.Repeat((byte)1, 40).ToArray(),
+                Title = "No Channels",
+                ExpiredAfter = DateTimeOffset.UtcNow.AddDays(1)
+            };
+
             var videoProjection = await _repository.GetVideoProjectionAsync(
-                Guid.NewGuid(),
-                DateTimeOffset.UtcNow.AddDays(1),
+                list,
                 Constants.ListRenderMaxItems + 1);
             var channelProjection = await _repository.GetChannelProjectionAsync(
-                Guid.NewGuid(),
-                DateTimeOffset.UtcNow.AddDays(1));
+                list);
 
-            Assert.Null(videoProjection);
-            Assert.Null(channelProjection);
+            Assert.Empty(videoProjection.Channels);
+            Assert.Empty(channelProjection.Channels);
         }
 
         [LocalDbFact]
@@ -77,10 +83,19 @@ namespace youtubed.Tests.Integration
                     oldestPublishedAt = now.AddMinutes(-2)
                 });
 
-            var projection = await _repository.GetVideoProjectionAsync(listId, now.AddDays(45), videoLimit: 2);
+            var list = new SubscriptionList
+            {
+                Id = listId,
+                Token = Enumerable.Repeat((byte)1, 40).ToArray(),
+                Title = "Projection List",
+                ExpiredAfter = now.AddDays(1)
+            };
+
+            var projection = await _repository.GetVideoProjectionAsync(list, videoLimit: 2);
 
             Assert.NotNull(projection);
-            Assert.Equal(now.AddDays(45), projection.List.ExpiredAfter);
+            Assert.Equal(now.AddDays(1), projection.List.ExpiredAfter);
+            Assert.Null(projection.List.ExpirationRenewedOn);
             Assert.Equal(new[] { "Alpha", "Beta", "Empty" }, projection.Channels.Select(channel => channel.Title).ToArray());
             Assert.Empty(projection.Channels.Single(channel => channel.Id == "channel-empty").Videos);
             Assert.Equal(new[] { "video-a", "video-b" }, projection.Channels.SelectMany(channel => channel.Videos).Select(video => video.VideoId).ToArray());
@@ -115,13 +130,65 @@ namespace youtubed.Tests.Integration
                     now
                 });
 
-            var projection = await _repository.GetChannelProjectionAsync(listId, now.AddDays(45));
+            var list = new SubscriptionList
+            {
+                Id = listId,
+                Token = Enumerable.Repeat((byte)2, 40).ToArray(),
+                Title = "Channels",
+                ExpiredAfter = now.AddDays(1)
+            };
+
+            var projection = await _repository.GetChannelProjectionAsync(list);
 
             var channel = Assert.Single(projection.Channels);
             Assert.Equal("channel-1", channel.Id);
             Assert.Equal(ChannelStatus.Unavailable, channel.Status);
             Assert.Equal(ChannelStatusReason.NotFound, channel.StatusReason);
-            Assert.Equal(now.AddDays(45), projection.List.ExpiredAfter);
+            Assert.Equal(now.AddDays(1), projection.List.ExpiredAfter);
+            Assert.Null(projection.List.ExpirationRenewedOn);
+        }
+
+        [LocalDbFact]
+        public async Task RenewExpirationAsync_RenewsAtMostOncePerUtcDay()
+        {
+            var listId = Guid.NewGuid();
+            var now = new DateTimeOffset(2026, 5, 18, 12, 0, 0, TimeSpan.Zero);
+            var token = Enumerable.Range(1, 40).Select(value => (byte)value).ToArray();
+            var originalExpiry = now.AddDays(-1);
+            var firstRenewedExpiry = now.AddDays(45);
+            var secondRenewedExpiry = now.AddDays(46);
+            var nextDayExpiry = now.AddDays(47);
+            var renewedOn = DateOnly.FromDateTime(now.UtcDateTime);
+            var nextRenewedOn = renewedOn.AddDays(1);
+
+            await ExecuteAsync(
+                @"
+                INSERT INTO List (Id, Token, Title, ExpiredAfter)
+                VALUES (@listId, @token, N'Renew Me', @expiredAfter);
+                ",
+                new
+                {
+                    listId,
+                    token,
+                    expiredAfter = originalExpiry
+                });
+
+            await _repository.RenewExpirationAsync(listId, firstRenewedExpiry, renewedOn);
+            var first = await _repository.GetAsync(listId);
+            await _repository.RenewExpirationAsync(listId, secondRenewedExpiry, renewedOn);
+            var second = await _repository.GetAsync(listId);
+            await _repository.RenewExpirationAsync(listId, nextDayExpiry, nextRenewedOn);
+            var third = await _repository.GetAsync(listId);
+
+            Assert.NotNull(first);
+            Assert.Equal(firstRenewedExpiry, first.ExpiredAfter);
+            Assert.Equal(renewedOn, first.ExpirationRenewedOn);
+            Assert.NotNull(second);
+            Assert.Equal(firstRenewedExpiry, second.ExpiredAfter);
+            Assert.Equal(renewedOn, second.ExpirationRenewedOn);
+            Assert.NotNull(third);
+            Assert.Equal(nextDayExpiry, third.ExpiredAfter);
+            Assert.Equal(nextRenewedOn, third.ExpirationRenewedOn);
         }
 
         [LocalDbFact]

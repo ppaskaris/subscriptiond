@@ -5,27 +5,22 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using youtubed.Persistence;
 
 namespace youtubed.Services
 {
     public class MaintenanceHostedService : HostedService
     {
-        private readonly IChannelService _channelService;
-        private readonly IListService _listService;
-        private readonly IShareLinkService _shareLinkService;
+        private readonly IExpirationPurger _expirationPurger;
         private readonly IAppClock _clock;
         private readonly ILogger _logger;
 
         public MaintenanceHostedService(
-            IChannelService channelService,
-            IListService listService,
-            IShareLinkService shareLinkService,
+            IExpirationPurger expirationPurger,
             IAppClock clock,
             ILogger<MaintenanceHostedService> logger)
         {
-            _channelService = channelService;
-            _listService = listService;
-            _shareLinkService = shareLinkService;
+            _expirationPurger = expirationPurger;
             _clock = clock;
             _logger = logger;
         }
@@ -37,11 +32,15 @@ namespace youtubed.Services
                 try
                 {
                     _logger.LogInformation("Checking for expired lists.");
-                    var removeCount = await _listService.RemoveExpiredListsAsync();
+                    var removeCount = await _expirationPurger.PurgeExpiredListsAsync(cancellationToken);
                     if (removeCount > 0)
                     {
                         _logger.LogInformation("Removed {0} expired lists.", removeCount);
                     }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    return;
                 }
                 catch (Exception ex)
                 {
@@ -51,11 +50,15 @@ namespace youtubed.Services
                 try
                 {
                     _logger.LogInformation("Checking for expired share links.");
-                    var removeCount = await _shareLinkService.RemoveExpiredShareLinksAsync();
+                    var removeCount = await _expirationPurger.PurgeExpiredShareLinksAsync(cancellationToken);
                     if (removeCount > 0)
                     {
                         _logger.LogInformation("Removed {0} expired share links.", removeCount);
                     }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    return;
                 }
                 catch (Exception ex)
                 {
@@ -65,11 +68,15 @@ namespace youtubed.Services
                 try
                 {
                     _logger.LogInformation("Checking for orphan channels.");
-                    var removeCount = await _channelService.RemoveOrphanChannelsAsync();
+                    var removeCount = await _expirationPurger.PurgeExpiredChannelsAsync(cancellationToken);
                     if (removeCount > 0)
                     {
                         _logger.LogInformation("Removed {0} orphan channels.", removeCount);
                     }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    return;
                 }
                 catch (Exception ex)
                 {

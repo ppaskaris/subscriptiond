@@ -21,7 +21,5 @@ namespace youtubed.Services
 
         Task UpdateListAsync(Guid id, string title, decimal playbackRate);
         Task DeleteListAsync(Guid id);
-
-        Task<int> RemoveExpiredListsAsync();
     }
 }

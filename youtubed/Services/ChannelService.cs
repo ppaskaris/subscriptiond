@@ -119,11 +119,6 @@ namespace youtubed.Services
             };
         }
 
-        public Task<int> RemoveOrphanChannelsAsync()
-        {
-            return _channelRepository.RemoveOrphanChannelsAsync(_clock.UtcNow);
-        }
-
         private async Task<YoutubeChannel> ResolveSubmittedUrlAsync(string url)
         {
             // Vanity URLs cannot be mapped to Channel ID using the API. To

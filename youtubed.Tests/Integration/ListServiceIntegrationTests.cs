@@ -337,34 +337,5 @@ namespace youtubed.Tests.Integration
             Assert.Equal(0, mappingCount);
         }
 
-        [LocalDbFact]
-        public async Task RemoveExpiredListsAsync_DeletesOnlyExpiredRows()
-        {
-            var now = new DateTimeOffset(2026, 5, 3, 12, 0, 0, TimeSpan.Zero);
-            _clock.UtcNow = now;
-
-            await ExecuteAsync(
-                @"
-                INSERT INTO List (Id, Token, Title, ExpiredAfter)
-                VALUES
-                    (@expiredId, @expiredToken, N'Expired', @expiredAfter),
-                    (@activeId, @activeToken, N'Active', @activeAfter);
-                ",
-                new
-                {
-                    expiredId = Guid.NewGuid(),
-                    activeId = Guid.NewGuid(),
-                    expiredToken = Enumerable.Repeat((byte)1, 40).ToArray(),
-                    activeToken = Enumerable.Repeat((byte)2, 40).ToArray(),
-                    expiredAfter = now.AddMinutes(-1),
-                    activeAfter = now.AddMinutes(10)
-                });
-
-            var removed = await _service.RemoveExpiredListsAsync();
-            var remainingTitles = await QueryAsync<string>("SELECT Title FROM List ORDER BY Title;");
-
-            Assert.Equal(1, removed);
-            Assert.Equal(new[] { "Active" }, remainingTitles);
-        }
     }
 }

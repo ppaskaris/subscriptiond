@@ -12,6 +12,5 @@ namespace youtubed.Services
         Task DeleteShareLinkInListAsync(Guid listId, string password);
         Task DeleteShareLinksAsync(Guid listId);
         Task<ConsumedShareLinkModel> ConsumeShareLinkAsync(string password);
-        Task<int> RemoveExpiredShareLinksAsync();
     }
 }

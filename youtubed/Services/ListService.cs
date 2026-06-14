@@ -105,11 +105,6 @@ namespace youtubed.Services
             return _listRepository.DeleteAsync(id);
         }
 
-        public Task<int> RemoveExpiredListsAsync()
-        {
-            return _listRepository.RemoveExpiredAsync(_clock.UtcNow);
-        }
-
         private byte[] CreateToken()
         {
             var token = new byte[40];

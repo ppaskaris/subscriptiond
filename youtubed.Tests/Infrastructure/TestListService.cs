@@ -118,7 +118,5 @@ namespace youtubed.Tests.Infrastructure
         public Task UpdateListAsync(Guid id, string title, decimal playbackRate) => Task.CompletedTask;
 
         public Task DeleteListAsync(Guid id) => Task.CompletedTask;
-
-        public Task<int> RemoveExpiredListsAsync() => Task.FromResult(0);
     }
 }

@@ -42,6 +42,7 @@ builder.Services.AddSingleton<IShareLinkRepository, ShareLinkRepository>();
 builder.Services.AddSingleton<IChannelRepository, ChannelRepository>();
 builder.Services.AddSingleton<IChannelVideoRepository, ChannelVideoRepository>();
 builder.Services.AddSingleton<IWorkerStateStore, WorkerStateRepository>();
+builder.Services.AddSingleton<IExpirationPurger, SqlExpirationPurger>();
 
 builder.Services.AddSingleton<IAppClock, AppClock>();
 builder.Services.AddSingleton<IChannelUrlLookupCache, ChannelUrlLookupCache>();

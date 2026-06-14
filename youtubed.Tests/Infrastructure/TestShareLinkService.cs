@@ -57,7 +57,5 @@ namespace youtubed.Tests.Infrastructure
                 Token = TestListService.ExistingTokenBytes
             });
         }
-
-        public Task<int> RemoveExpiredShareLinksAsync() => Task.FromResult(0);
     }
 }

@@ -112,13 +112,13 @@ public interface IWorkerStateStore
 ```csharp
 public interface IExpirationPurger
 {
-    Task PurgeExpiredListsAsync(CancellationToken cancellationToken);
-    Task PurgeExpiredShareLinksAsync(CancellationToken cancellationToken);
-    Task PurgeExpiredChannelsAsync(CancellationToken cancellationToken);
+    Task<int> PurgeExpiredListsAsync(CancellationToken cancellationToken);
+    Task<int> PurgeExpiredShareLinksAsync(CancellationToken cancellationToken);
+    Task<int> PurgeExpiredChannelsAsync(CancellationToken cancellationToken);
 }
 ```
 
-SQL deletes expired data. Cosmos no-ops because TTL handles physical deletion.
+SQL deletes expired data and returns the number of deleted rows. Cosmos no-ops and returns `0` because TTL handles physical deletion.
 
 ## Conflict Policy
 

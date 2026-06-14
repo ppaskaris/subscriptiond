@@ -68,12 +68,6 @@ namespace youtubed.Services
             return _shareLinkRepository.ConsumeAsync(password, _clock.UtcNow);
         }
 
-        public Task<int> RemoveExpiredShareLinksAsync()
-        {
-            return _shareLinkRepository.RemoveExpiredAsync(
-                _clock.UtcNow.Subtract(Constants.ShareLinkRetentionAfterExpiration));
-        }
-
         private static string CreatePassword()
         {
             var words = new string[PasswordWordCount];

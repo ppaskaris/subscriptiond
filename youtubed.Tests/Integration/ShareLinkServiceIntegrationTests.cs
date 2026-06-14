@@ -170,35 +170,6 @@ namespace youtubed.Tests.Integration
             Assert.Equal(_clock.UtcNow, usedAt);
         }
 
-        [LocalDbFact]
-        public async Task RemoveExpiredShareLinksAsync_DeletesOnlyRowsPastRetentionWindow()
-        {
-            _clock.UtcNow = new DateTimeOffset(2026, 5, 5, 12, 0, 0, TimeSpan.Zero);
-            var listId = Guid.NewGuid();
-
-            await SeedListAsync(listId, Enumerable.Repeat((byte)10, 40).ToArray());
-            await ExecuteAsync(
-                @"
-                INSERT INTO ShareLink (Password, ListId, CreatedAt, ExpiresAfter, UsedAt)
-                VALUES
-                    (N'keep-link', @listId, @createdAt, @keepExpiresAfter, NULL),
-                    (N'delete-link', @listId, @createdAt, @deleteExpiresAfter, NULL);
-                ",
-                new
-                {
-                    listId,
-                    createdAt = _clock.UtcNow.AddDays(-3),
-                    keepExpiresAfter = _clock.UtcNow.AddHours(-12),
-                    deleteExpiresAfter = _clock.UtcNow.Subtract(Constants.ShareLinkRetentionAfterExpiration).AddMinutes(-1)
-                });
-
-            var removed = await _service.RemoveExpiredShareLinksAsync();
-            var remaining = await QueryAsync<string>("SELECT Password FROM ShareLink ORDER BY Password;");
-
-            Assert.Equal(1, removed);
-            Assert.Equal(new[] { "keep-link" }, remaining);
-        }
-
         private Task SeedListAsync(Guid listId, byte[] token)
         {
             return ExecuteAsync(

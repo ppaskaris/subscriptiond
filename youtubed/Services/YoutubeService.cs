@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace youtubed.Services
@@ -44,6 +45,37 @@ namespace youtubed.Services
             }
 
             return GetChannelByIdentifierAsync("channel", id);
+        }
+
+        public async Task<IReadOnlyDictionary<string, YoutubeChannel>> GetChannelsByIdAsync(
+            IReadOnlyCollection<string> ids,
+            CancellationToken cancellationToken)
+        {
+            var normalizedIds = ids
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            if (normalizedIds.Count == 0)
+            {
+                return new Dictionary<string, YoutubeChannel>(StringComparer.Ordinal);
+            }
+
+            var request = Service.Channels.List("id,snippet,contentDetails");
+            request.MaxResults = normalizedIds.Count;
+            request.Fields = "items(id,snippet(title,thumbnails(medium,default)),contentDetails(relatedPlaylists(uploads)))";
+            request.Id = string.Join(",", normalizedIds);
+
+            var response = await request.ExecuteAsync(cancellationToken);
+            return response.Items.ToDictionary(
+                item => item.Id,
+                item => new YoutubeChannel
+                {
+                    Id = item.Id,
+                    Title = item.Snippet.Title,
+                    Thumbnail = PickThumbnail(item.Snippet.Thumbnails),
+                    PlaylistId = item.ContentDetails.RelatedPlaylists.Uploads
+                },
+                StringComparer.Ordinal);
         }
 
         private async Task<YoutubeChannel> GetChannelByIdentifierAsync(string type, string identifier)
@@ -105,98 +137,137 @@ namespace youtubed.Services
             return await GetChannelByIdentifierAsync("channel", item.Snippet.ChannelId);
         }
 
-        public async Task<IEnumerable<YoutubeVideo>> GetVideosAsync(string playlistId, DateTimeOffset publishedAfter)
+        public async Task<IEnumerable<YoutubeVideo>> GetPlaylistVideosAsync(string playlistId, DateTimeOffset publishedAfter)
         {
             string nextPageToken = null;
             var results = new List<YoutubeVideo>();
 
             do
             {
-                var request = Service.PlaylistItems.List("snippet,contentDetails");
-                request.PlaylistId = playlistId;
-                request.MaxResults = 50;
-                request.Fields = "nextPageToken,items(snippet(resourceId(kind, videoId),channelId,title,description,thumbnails(medium,default)),contentDetails(videoPublishedAt))";
-                if (nextPageToken != null)
-                {
-                    request.PageToken = nextPageToken;
-                }
-
-                var response = await request.ExecuteAsync();
-                nextPageToken = response.NextPageToken;
-                var itemsToEnrich = new List<(PlaylistItem Item, DateTimeOffset PublishedAt)>();
-                foreach (var item in response.Items)
-                {
-                    if (item.Snippet.ResourceId.Kind != "youtube#video")
-                    {
-                        continue;
-                    }
-
-                    //
-                    // Snippet.PublishedAt is the time the video was added to
-                    // the uploads playlist.
-                    //
-                    // ContentDetails.VideoPublishedAt is the time the video
-                    // was published to YouTube.
-                    //
-
-                    var publishedAt = item.ContentDetails.VideoPublishedAtDateTimeOffset;
-                    if (publishedAt == null || publishedAt < publishedAfter)
-                    {
-                        // Stop after this page. We might as well finish
-                        // reading the current page since we already paid for
-                        // the API call with our quota.
-                        nextPageToken = null;
-                        continue;
-                    }
-
-                    itemsToEnrich.Add((item, publishedAt.Value));
-                }
-
-                var durationsById = await GetDurationsByIdAsync(
-                    itemsToEnrich
-                        .Select(value => value.Item.Snippet.ResourceId.VideoId)
-                        .Where(value => !string.IsNullOrWhiteSpace(value))
-                        .ToList());
-
-                foreach (var (item, publishedAt) in itemsToEnrich)
-                {
-                    var videoId = item.Snippet.ResourceId.VideoId;
-                    if (!durationsById.TryGetValue(videoId, out var duration))
-                    {
-                        continue;
-                    }
-
-                    results.Add(new YoutubeVideo
-                    {
-                        ChannelId = item.Snippet.ChannelId,
-                        Id = videoId,
-                        Title = item.Snippet.Title,
-                        Duration = duration,
-                        PublishedAt = publishedAt,
-                        Thumbnail = PickThumbnail(item.Snippet.Thumbnails)
-                    });
-                }
+                var page = await GetPlaylistVideoPageAsync(
+                    playlistId,
+                    publishedAfter,
+                    nextPageToken,
+                    CancellationToken.None);
+                results.AddRange(page.Videos);
+                nextPageToken = page.NextPageToken;
             } while (nextPageToken != null);
 
             return results;
         }
 
-        private async Task<IReadOnlyDictionary<string, TimeSpan>> GetDurationsByIdAsync(IReadOnlyCollection<string> videoIds)
+        public async Task<YoutubePlaylistVideoPage> GetPlaylistVideoPageAsync(
+            string playlistId,
+            DateTimeOffset publishedAfter,
+            string pageToken,
+            CancellationToken cancellationToken)
         {
-            if (videoIds.Count == 0)
+            var request = Service.PlaylistItems.List("snippet,contentDetails");
+            request.PlaylistId = playlistId;
+            request.MaxResults = 50;
+            request.Fields = "nextPageToken,items(snippet(resourceId(kind, videoId),channelId,title,description,thumbnails(medium,default)),contentDetails(videoPublishedAt))";
+            if (pageToken != null)
+            {
+                request.PageToken = pageToken;
+            }
+
+            var response = await request.ExecuteAsync(cancellationToken);
+            var nextPageToken = response.NextPageToken;
+            var videos = new List<YoutubeVideo>();
+            foreach (var item in response.Items)
+            {
+                if (item.Snippet.ResourceId.Kind != "youtube#video")
+                {
+                    continue;
+                }
+
+                //
+                // Snippet.PublishedAt is the time the video was added to
+                // the uploads playlist.
+                //
+                // ContentDetails.VideoPublishedAt is the time the video
+                // was published to YouTube.
+                //
+
+                var publishedAt = item.ContentDetails.VideoPublishedAtDateTimeOffset;
+                if (publishedAt == null || publishedAt < publishedAfter)
+                {
+                    // Stop after this page. We might as well finish reading
+                    // the current page since we already paid for the API call.
+                    nextPageToken = null;
+                    continue;
+                }
+
+                videos.Add(new YoutubeVideo
+                {
+                    ChannelId = item.Snippet.ChannelId,
+                    Id = item.Snippet.ResourceId.VideoId,
+                    Title = item.Snippet.Title,
+                    PublishedAt = publishedAt.Value,
+                    Thumbnail = PickThumbnail(item.Snippet.Thumbnails)
+                });
+            }
+
+            return new YoutubePlaylistVideoPage
+            {
+                Videos = videos,
+                NextPageToken = nextPageToken
+            };
+        }
+
+        public async Task<IReadOnlyDictionary<string, TimeSpan>> GetVideoDurationsByIdAsync(
+            IReadOnlyCollection<string> videoIds,
+            CancellationToken cancellationToken)
+        {
+            var normalizedIds = videoIds
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            if (normalizedIds.Count == 0)
             {
                 return new Dictionary<string, TimeSpan>(StringComparer.Ordinal);
             }
 
+            if (normalizedIds.Count > 50)
+            {
+                throw new ArgumentException("At most 50 video ids can be fetched in one YouTube API call.", nameof(videoIds));
+            }
+
             var request = Service.Videos.List("contentDetails");
             request.Fields = "items(id,contentDetails(duration))";
-            request.Id = string.Join(",", videoIds);
+            request.Id = string.Join(",", normalizedIds);
 
-            var response = await request.ExecuteAsync();
+            var response = await request.ExecuteAsync(cancellationToken);
             return YoutubeVideoDurationParser.ParseById(
                 response.Items.Select(item => new KeyValuePair<string, string>(
                     item.Id,
                     item.ContentDetails?.Duration)));
+        }
+
+        public async Task<IEnumerable<YoutubeVideo>> GetVideosAsync(string playlistId, DateTimeOffset publishedAfter)
+        {
+            var videos = (await GetPlaylistVideosAsync(playlistId, publishedAfter)).ToList();
+            var durationsById = new Dictionary<string, TimeSpan>(StringComparer.Ordinal);
+            foreach (var chunk in videos
+                .Select(video => video.Id)
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Distinct(StringComparer.Ordinal)
+                .Chunk(50))
+            {
+                foreach (var duration in await GetVideoDurationsByIdAsync(chunk, CancellationToken.None))
+                {
+                    durationsById[duration.Key] = duration.Value;
+                }
+            }
+
+            return videos
+                .Where(video => durationsById.ContainsKey(video.Id))
+                .Select(video =>
+                {
+                    video.Duration = durationsById[video.Id];
+                    return video;
+                })
+                .ToList();
         }
 
         private string PickThumbnail(ThumbnailDetails thumbnailDetails)

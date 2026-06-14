@@ -43,11 +43,14 @@ builder.Services.AddSingleton<IChannelRepository, ChannelRepository>();
 builder.Services.AddSingleton<IChannelVideoRepository, ChannelVideoRepository>();
 builder.Services.AddSingleton<IWorkerStateStore, WorkerStateRepository>();
 builder.Services.AddSingleton<IExpirationPurger, SqlExpirationPurger>();
+builder.Services.AddSingleton<IListProjectionRepository, SqlListProjectionRepository>();
 
 builder.Services.AddSingleton<IAppClock, AppClock>();
+builder.Services.AddSingleton<IYoutubeCallDelay, YoutubeCallDelay>();
 builder.Services.AddSingleton<IChannelUrlLookupCache, ChannelUrlLookupCache>();
 builder.Services.AddSingleton<IChannelService, ChannelService>();
 builder.Services.AddSingleton<IChannelVideoService, ChannelVideoService>();
+builder.Services.AddSingleton<IChannelRefreshPipeline, ChannelRefreshPipeline>();
 builder.Services.AddSingleton<IListService, ListService>();
 builder.Services.AddSingleton<IShareLinkService, ShareLinkService>();
 

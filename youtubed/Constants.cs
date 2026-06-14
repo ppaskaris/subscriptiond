@@ -23,6 +23,10 @@ namespace youtubed
         public static readonly TimeSpan ChannelUpdateFrequencyMin = TimeSpan.FromSeconds(25);
         public static readonly TimeSpan ChannelUpdateFrequencyMax = TimeSpan.FromSeconds(35);
         public static readonly TimeSpan ChannelUnavailableStaleDelay = TimeSpan.FromDays(36500);
+        public const int ChannelRefreshBatchSize = 10;
+        public const int ChannelRefreshLookaheadMultiplier = 10;
+        public const int ChannelRefreshLookaheadCount = ChannelRefreshBatchSize * ChannelRefreshLookaheadMultiplier;
+        public static readonly TimeSpan YoutubeCallDelay = TimeSpan.FromSeconds(5);
         public static readonly TimeSpan ListMaxAgeMin = TimeSpan.FromDays(45);
         public static readonly TimeSpan ListMaxAgeMax = TimeSpan.FromDays(47);
         public static readonly TimeSpan MaintenanceFrequencyMin = TimeSpan.FromMinutes(8);

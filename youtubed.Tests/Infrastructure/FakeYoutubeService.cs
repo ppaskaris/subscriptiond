@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using youtubed.Services;
 
@@ -16,12 +17,22 @@ namespace youtubed.Tests.Infrastructure
             new Dictionary<string, YoutubeChannel>(StringComparer.Ordinal);
         private readonly Dictionary<string, IReadOnlyList<YoutubeVideo>> _videosByPlaylist =
             new Dictionary<string, IReadOnlyList<YoutubeVideo>>(StringComparer.Ordinal);
+        private readonly Dictionary<string, IReadOnlyList<YoutubePlaylistVideoPage>> _pagesByPlaylist =
+            new Dictionary<string, IReadOnlyList<YoutubePlaylistVideoPage>>(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> _pageIndexesByPlaylist =
+            new Dictionary<string, int>(StringComparer.Ordinal);
 
         public int GetChannelCallCount { get; private set; }
 
         public int GetChannelByIdCallCount { get; private set; }
 
+        public int GetChannelsByIdCallCount { get; private set; }
+
         public int GetVideoChannelCallCount { get; private set; }
+
+        public int GetPlaylistVideosCallCount { get; private set; }
+
+        public int GetVideoDurationsCallCount { get; private set; }
 
         public int GetVideosCallCount { get; private set; }
 
@@ -30,6 +41,19 @@ namespace youtubed.Tests.Infrastructure
         public string LastChannelUrl { get; private set; }
 
         public string LastChannelId { get; private set; }
+
+        public IReadOnlyCollection<string> LastChannelIds { get; private set; }
+
+        public IReadOnlyCollection<string> LastVideoDurationIds { get; private set; }
+
+        public IReadOnlyList<IReadOnlyCollection<string>> VideoDurationRequestIds { get; private set; } =
+            new List<IReadOnlyCollection<string>>();
+
+        public string LastPlaylistPageToken { get; private set; }
+
+        public Action BeforePlaylistPageResponse { get; set; }
+
+        public Action<int> BeforeDurationResponse { get; set; }
 
         public void SetChannel(string url, YoutubeChannel channel)
         {
@@ -53,6 +77,21 @@ namespace youtubed.Tests.Infrastructure
         public void SetVideos(string playlistId, params YoutubeVideo[] videos)
         {
             _videosByPlaylist[playlistId] = videos.ToList();
+            _pagesByPlaylist[playlistId] = new[]
+            {
+                new YoutubePlaylistVideoPage
+                {
+                    Videos = videos.ToList()
+                }
+            };
+        }
+
+        public void SetPlaylistPages(string playlistId, params YoutubePlaylistVideoPage[] pages)
+        {
+            _pagesByPlaylist[playlistId] = pages.ToList();
+            _videosByPlaylist[playlistId] = pages
+                .SelectMany(page => page.Videos)
+                .ToList();
         }
 
         public Task<YoutubeChannel> GetChannelByUrlAsync(string url)
@@ -71,6 +110,18 @@ namespace youtubed.Tests.Infrastructure
             return Task.FromResult(channel);
         }
 
+        public Task<IReadOnlyDictionary<string, YoutubeChannel>> GetChannelsByIdAsync(
+            IReadOnlyCollection<string> ids,
+            CancellationToken cancellationToken)
+        {
+            GetChannelsByIdCallCount++;
+            LastChannelIds = ids.ToList();
+            var channels = ids
+                .Where(id => _channelsById.ContainsKey(id))
+                .ToDictionary(id => id, id => _channelsById[id], StringComparer.Ordinal);
+            return Task.FromResult<IReadOnlyDictionary<string, YoutubeChannel>>(channels);
+        }
+
         public Task<YoutubeChannel> GetVideoChannelAsync(string url)
         {
             GetVideoChannelCallCount++;
@@ -78,9 +129,39 @@ namespace youtubed.Tests.Infrastructure
             return Task.FromResult(channel);
         }
 
-        public Task<IEnumerable<YoutubeVideo>> GetVideosAsync(string playlistId, DateTimeOffset publishedAfter)
+        public Task<YoutubePlaylistVideoPage> GetPlaylistVideoPageAsync(
+            string playlistId,
+            DateTimeOffset publishedAfter,
+            string pageToken,
+            CancellationToken cancellationToken)
         {
-            GetVideosCallCount++;
+            GetPlaylistVideosCallCount++;
+            LastPublishedAfter = publishedAfter;
+            LastPlaylistPageToken = pageToken;
+            BeforePlaylistPageResponse?.Invoke();
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!_pagesByPlaylist.TryGetValue(playlistId, out var pages))
+            {
+                return Task.FromResult(new YoutubePlaylistVideoPage());
+            }
+
+            var index = pageToken == null
+                ? 0
+                : _pageIndexesByPlaylist.TryGetValue(playlistId, out var savedIndex)
+                    ? savedIndex
+                    : 0;
+            _pageIndexesByPlaylist[playlistId] = index + 1;
+
+            if (index >= pages.Count)
+            {
+                return Task.FromResult(new YoutubePlaylistVideoPage());
+            }
+
+            return Task.FromResult(pages[index]);
+        }
+
+        public Task<IEnumerable<YoutubeVideo>> GetPlaylistVideosAsync(string playlistId, DateTimeOffset publishedAfter)
+        {
             LastPublishedAfter = publishedAfter;
             if (_videosByPlaylist.TryGetValue(playlistId, out var videos))
             {
@@ -88,6 +169,30 @@ namespace youtubed.Tests.Infrastructure
             }
 
             return Task.FromResult(Enumerable.Empty<YoutubeVideo>());
+        }
+
+        public Task<IReadOnlyDictionary<string, TimeSpan>> GetVideoDurationsByIdAsync(
+            IReadOnlyCollection<string> videoIds,
+            CancellationToken cancellationToken)
+        {
+            GetVideoDurationsCallCount++;
+            LastVideoDurationIds = videoIds.ToList();
+            VideoDurationRequestIds = VideoDurationRequestIds
+                .Concat(new[] { videoIds.ToList() })
+                .ToList();
+            BeforeDurationResponse?.Invoke(GetVideoDurationsCallCount);
+            cancellationToken.ThrowIfCancellationRequested();
+            var durations = _videosByPlaylist
+                .SelectMany(value => value.Value)
+                .Where(video => videoIds.Contains(video.Id))
+                .ToDictionary(video => video.Id, video => video.Duration, StringComparer.Ordinal);
+            return Task.FromResult<IReadOnlyDictionary<string, TimeSpan>>(durations);
+        }
+
+        public async Task<IEnumerable<YoutubeVideo>> GetVideosAsync(string playlistId, DateTimeOffset publishedAfter)
+        {
+            GetVideosCallCount++;
+            return await GetPlaylistVideosAsync(playlistId, publishedAfter);
         }
     }
 }

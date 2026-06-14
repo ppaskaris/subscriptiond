@@ -57,6 +57,7 @@ namespace youtubed.Tests.Infrastructure
                 DELETE FROM ShareLink;
                 DELETE FROM ListChannel;
                 DELETE FROM ChannelVideo;
+                DELETE FROM WorkerState;
                 DELETE FROM List;
                 DELETE FROM Channel;
                 ");

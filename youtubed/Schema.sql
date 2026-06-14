@@ -1,4 +1,5 @@
 DROP TYPE IF EXISTS [ChannelVideoType];
+DROP TABLE IF EXISTS [WorkerState];
 DROP TABLE IF EXISTS [ShareLink];
 DROP TABLE IF EXISTS [ListChannel];
 DROP TABLE IF EXISTS [ChannelVideo];
@@ -96,6 +97,15 @@ CREATE TABLE ListChannel (
 	CONSTRAINT PK_ListChannel PRIMARY KEY (ListId, ChannelId),
 	CONSTRAINT FK_ListChannel_List FOREIGN KEY (ListId) REFERENCES List (Id) ON DELETE CASCADE,
 	CONSTRAINT FK_ListChannel_Channel FOREIGN KEY (ChannelId) REFERENCES Channel (Id)
+);
+
+CREATE TABLE WorkerState (
+	Id INT NOT NULL,
+	NextChannelRefreshAt DATETIMEOFFSET NULL,
+	NextPurgeAt DATETIMEOFFSET NOT NULL,
+
+	CONSTRAINT PK_WorkerState PRIMARY KEY (Id),
+	CONSTRAINT CK_WorkerState_Id CHECK (Id = 1)
 );
 
 CREATE TYPE ChannelVideoType AS TABLE (

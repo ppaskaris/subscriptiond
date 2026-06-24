@@ -157,7 +157,7 @@ Persistence.Provider = SqlServer | Cosmos
 ChannelRefreshBatchSize = 10
 ChannelRefreshLookaheadMultiplier = 10
 ChannelRefreshLookaheadCount = 100
-YoutubeCallDelay = 5 seconds
+YoutubeCallDelay = 2 seconds
 PurgeInterval = 10 minutes
 
 ListRenderMaxItems = 100

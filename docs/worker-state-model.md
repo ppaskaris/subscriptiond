@@ -131,7 +131,7 @@ Suggested defaults:
 - `ChannelRefreshBatchSize = 10`
 - `ChannelRefreshLookaheadMultiplier = 10`
 - `ChannelRefreshLookaheadCount = 100`
-- `YoutubeCallDelay = 5 seconds`
+- `YoutubeCallDelay = 2 seconds`
 - `PurgeInterval = 10 minutes`
 
 The worker should query lightweight stale-channel lookahead records, then point-read full channel documents for each batch.

@@ -44,6 +44,8 @@ Channel scheduling now uses the provider-reported next effective active subscrib
 
 Added `ChannelRefreshForceCount` to worker state so completion cannot erase a forced refresh that happens during an already-forced pass. SQL increments the counter on every `ForceChannelRefreshAsync` call and `CompleteChannelRefreshPassAsync` now compares both the observed refresh time and observed force counter before updating `NextChannelRefreshAt`. Added a SQL migration and updated SQL/Cosmos design notes for the new force generation field. Bumped `AssemblyVersion` to `2.12.0.1` for the corrective follow-up.
 
+Reduced the fixed YouTube call delay from 5 seconds to 2 seconds after reviewing the deployed quota limits and current workload. With batches of 10 and lookahead of 100 unchanged, this approximates at most 30 delayed playlist/duration calls per minute while allowing the expected channel refresh workload to complete within 10 minutes. Bumped `AssemblyVersion` to `2.12.0.2`.
+
 Validation:
 
 - `dotnet build youtubed.sln`: passed.

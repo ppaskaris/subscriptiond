@@ -38,8 +38,14 @@ namespace youtubed.Services
                 Constants.ChannelRefreshLookaheadCount,
                 cancellationToken);
 
-            var selectedIds = lookahead
-                .Take(Constants.ChannelRefreshBatchSize)
+            var claimed = await _channelRepository.ClaimStaleBatchAsync(
+                now,
+                now.Add(_clock.RandomDelay(
+                    Constants.VisibilityTimeoutMin,
+                    Constants.VisibilityTimeoutMax)),
+                Constants.ChannelRefreshBatchSize,
+                cancellationToken);
+            var selectedIds = claimed
                 .Select(channel => channel.Id)
                 .ToList();
             var channels = await _channelRepository.GetBatchAsync(selectedIds, cancellationToken);
@@ -51,22 +57,30 @@ namespace youtubed.Services
 
             if (channels.Count == 0)
             {
+                result.NextChannelRefreshAt =
+                    await _channelRepository.GetNextActiveSubscribedRefreshAtAsync(cancellationToken);
                 return result;
             }
 
             var refreshResults = await ProcessBatchAsync(channels, result, cancellationToken);
             if (refreshResults.Count == 0)
             {
+                result.NextChannelRefreshAt =
+                    await _channelRepository.GetNextActiveSubscribedRefreshAtAsync(CancellationToken.None);
                 return result;
             }
 
             await _channelRepository.SaveRefreshResultsAsync(refreshResults, CancellationToken.None);
+            result.ProjectionUpdateAttemptCount = 1;
             await _projectionRepository.UpdateProjectedChannelsAsync(
                 refreshResults.Select(value => value.Channel).ToList(),
                 CancellationToken.None);
+            result.ProjectionUpdateSuccessCount = 1;
 
             result.RefreshedChannelCount = refreshResults.Count(value => value.VideosRefreshed);
             result.UnavailableChannelCount = refreshResults.Count(value => value.Channel.Status == ChannelStatus.Unavailable);
+            result.NextChannelRefreshAt =
+                await _channelRepository.GetNextActiveSubscribedRefreshAtAsync(CancellationToken.None);
             return result;
         }
 

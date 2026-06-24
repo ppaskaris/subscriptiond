@@ -18,6 +18,13 @@ namespace youtubed.Persistence
             DateTimeOffset now,
             int take,
             CancellationToken cancellationToken);
+        Task<IReadOnlyList<StaleChannelReference>> ClaimStaleBatchAsync(
+            DateTimeOffset now,
+            DateTimeOffset visibleAfter,
+            int take,
+            CancellationToken cancellationToken);
+        Task<DateTimeOffset?> GetNextActiveSubscribedRefreshAtAsync(
+            CancellationToken cancellationToken);
         Task<IReadOnlyList<Channel>> GetBatchAsync(
             IReadOnlyCollection<string> channelIds,
             CancellationToken cancellationToken);

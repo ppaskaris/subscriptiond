@@ -102,6 +102,7 @@ CREATE TABLE ListChannel (
 CREATE TABLE WorkerState (
 	Id INT NOT NULL,
 	NextChannelRefreshAt DATETIMEOFFSET NULL,
+	ChannelRefreshForceCount BIGINT NOT NULL CONSTRAINT DF_WorkerState_ChannelRefreshForceCount DEFAULT (0),
 	NextPurgeAt DATETIMEOFFSET NOT NULL,
 
 	CONSTRAINT PK_WorkerState PRIMARY KEY (Id),

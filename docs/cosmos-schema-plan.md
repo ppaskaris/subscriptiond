@@ -172,6 +172,7 @@ Scheduler document:
 {
   "id": "scheduler",
   "nextChannelRefreshAt": "2026-05-09T13:00:00Z",
+  "channelRefreshForceCount": 0,
   "nextPurgeAt": "2026-05-09T13:10:00Z"
 }
 ```

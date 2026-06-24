@@ -13,6 +13,7 @@ namespace youtubed.Persistence
 
         Task CompleteChannelRefreshPassAsync(
             DateTimeOffset? observedNextChannelRefreshAt,
+            long observedChannelRefreshForceCount,
             DateTimeOffset? nextChannelRefreshAt,
             CancellationToken cancellationToken);
 

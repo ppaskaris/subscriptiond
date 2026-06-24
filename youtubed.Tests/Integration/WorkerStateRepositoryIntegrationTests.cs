@@ -33,8 +33,10 @@ namespace youtubed.Tests.Integration
             var rowCount = await ScalarAsync<int>("SELECT COUNT(*) FROM WorkerState;");
 
             Assert.Equal(new DateTimeOffset(2026, 5, 20, 12, 0, 0, TimeSpan.Zero), state.NextChannelRefreshAt);
+            Assert.Equal(0, state.ChannelRefreshForceCount);
             Assert.Equal(new DateTimeOffset(2026, 5, 20, 12, 0, 0, TimeSpan.Zero), state.NextPurgeAt);
             Assert.Equal(state.NextChannelRefreshAt, existing.NextChannelRefreshAt);
+            Assert.Equal(state.ChannelRefreshForceCount, existing.ChannelRefreshForceCount);
             Assert.Equal(state.NextPurgeAt, existing.NextPurgeAt);
             Assert.Equal(1, rowCount);
         }
@@ -47,6 +49,7 @@ namespace youtubed.Tests.Integration
             var state = await _repository.GetOrCreateAsync(CancellationToken.None);
 
             Assert.Equal(DateTimeOffset.MinValue, state.NextChannelRefreshAt);
+            Assert.Equal(1, state.ChannelRefreshForceCount);
             Assert.Equal(_clock.UtcNow, state.NextPurgeAt);
         }
 
@@ -58,6 +61,7 @@ namespace youtubed.Tests.Integration
 
             await _repository.CompleteChannelRefreshPassAsync(
                 observed.NextChannelRefreshAt,
+                observed.ChannelRefreshForceCount,
                 next,
                 CancellationToken.None);
             var state = await _repository.GetOrCreateAsync(CancellationToken.None);
@@ -73,11 +77,31 @@ namespace youtubed.Tests.Integration
 
             await _repository.CompleteChannelRefreshPassAsync(
                 observed.NextChannelRefreshAt,
+                observed.ChannelRefreshForceCount,
                 _clock.UtcNow.AddMinutes(30),
                 CancellationToken.None);
             var state = await _repository.GetOrCreateAsync(CancellationToken.None);
 
             Assert.Equal(DateTimeOffset.MinValue, state.NextChannelRefreshAt);
+            Assert.Equal(1, state.ChannelRefreshForceCount);
+        }
+
+        [LocalDbFact]
+        public async Task CompleteChannelRefreshPassAsync_DoesNotOverwriteRepeatedForcedRefresh()
+        {
+            await _repository.ForceChannelRefreshAsync(CancellationToken.None);
+            var observed = await _repository.GetOrCreateAsync(CancellationToken.None);
+            await _repository.ForceChannelRefreshAsync(CancellationToken.None);
+
+            await _repository.CompleteChannelRefreshPassAsync(
+                observed.NextChannelRefreshAt,
+                observed.ChannelRefreshForceCount,
+                null,
+                CancellationToken.None);
+            var state = await _repository.GetOrCreateAsync(CancellationToken.None);
+
+            Assert.Equal(DateTimeOffset.MinValue, state.NextChannelRefreshAt);
+            Assert.Equal(observed.ChannelRefreshForceCount + 1, state.ChannelRefreshForceCount);
         }
 
         [LocalDbFact]
@@ -86,11 +110,13 @@ namespace youtubed.Tests.Integration
             var observed = await _repository.GetOrCreateAsync(CancellationToken.None);
             await _repository.CompleteChannelRefreshPassAsync(
                 observed.NextChannelRefreshAt,
+                observed.ChannelRefreshForceCount,
                 null,
                 CancellationToken.None);
 
             await _repository.CompleteChannelRefreshPassAsync(
                 null,
+                observed.ChannelRefreshForceCount,
                 _clock.UtcNow.AddMinutes(45),
                 CancellationToken.None);
             var state = await _repository.GetOrCreateAsync(CancellationToken.None);

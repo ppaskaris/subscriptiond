@@ -5,6 +5,7 @@ namespace youtubed.Domain
     public class WorkerState
     {
         public DateTimeOffset? NextChannelRefreshAt { get; set; }
+        public long ChannelRefreshForceCount { get; set; }
         public DateTimeOffset NextPurgeAt { get; set; }
 
         public bool IsChannelRefreshDue(DateTimeOffset now)

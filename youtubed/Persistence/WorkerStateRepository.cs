@@ -31,13 +31,14 @@ namespace youtubed.Persistence
                 USING (
                     SELECT @id AS Id,
                            @now AS NextChannelRefreshAt,
+                           0 AS ChannelRefreshForceCount,
                            @now AS NextPurgeAt
                 ) source ON source.Id = target.Id
                 WHEN NOT MATCHED THEN
-                    INSERT (Id, NextChannelRefreshAt, NextPurgeAt)
-                    VALUES (source.Id, source.NextChannelRefreshAt, source.NextPurgeAt);
+                    INSERT (Id, NextChannelRefreshAt, ChannelRefreshForceCount, NextPurgeAt)
+                    VALUES (source.Id, source.NextChannelRefreshAt, source.ChannelRefreshForceCount, source.NextPurgeAt);
 
-                SELECT NextChannelRefreshAt, NextPurgeAt
+                SELECT NextChannelRefreshAt, ChannelRefreshForceCount, NextPurgeAt
                 FROM WorkerState
                 WHERE Id = @id;
                 ",
@@ -55,7 +56,8 @@ namespace youtubed.Persistence
             var command = new CommandDefinition(
                 @"
                 UPDATE WorkerState
-                SET NextChannelRefreshAt = @nextChannelRefreshAt
+                SET NextChannelRefreshAt = @nextChannelRefreshAt,
+                    ChannelRefreshForceCount = ChannelRefreshForceCount + 1
                 WHERE Id = @id;
                 ",
                 new
@@ -70,6 +72,7 @@ namespace youtubed.Persistence
 
         public async Task CompleteChannelRefreshPassAsync(
             DateTimeOffset? observedNextChannelRefreshAt,
+            long observedChannelRefreshForceCount,
             DateTimeOffset? nextChannelRefreshAt,
             CancellationToken cancellationToken)
         {
@@ -84,12 +87,14 @@ namespace youtubed.Persistence
                   AND (
                     (NextChannelRefreshAt IS NULL AND @observedNextChannelRefreshAt IS NULL)
                     OR NextChannelRefreshAt = @observedNextChannelRefreshAt
-                  );
+                  )
+                  AND ChannelRefreshForceCount = @observedChannelRefreshForceCount;
                 ",
                 new
                 {
                     id = WorkerStateId,
                     observedNextChannelRefreshAt,
+                    observedChannelRefreshForceCount,
                     nextChannelRefreshAt
                 },
                 cancellationToken: cancellationToken);

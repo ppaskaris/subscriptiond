@@ -161,10 +161,11 @@ Use the `system` container.
 `ForceChannelRefreshAsync`:
 
 - set `nextChannelRefreshAt` to `DateTimeOffset.MinValue`
+- increment `channelRefreshForceCount`
 
 `CompleteChannelRefreshPassAsync`:
 
-- conditionally update `nextChannelRefreshAt` only if the stored value still matches the worker's observed value
+- conditionally update `nextChannelRefreshAt` only if the stored value and `channelRefreshForceCount` still match the worker's observed values
 - if the condition fails, leave the forced or newer state intact
 
 `CompletePurgeAsync`:

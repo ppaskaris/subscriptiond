@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
 using youtubed.Domain;
@@ -437,6 +438,106 @@ namespace youtubed.Tests.Integration
             Assert.Null(beforeExpiryClaim);
             Assert.NotNull(afterExpiryClaim);
             Assert.Equal("eligible", afterExpiryClaim.Id);
+        }
+
+        [LocalDbFact]
+        public async Task ClaimStaleBatchAsync_LeasesOnlyEligibleSubscribedActiveChannels()
+        {
+            var listId = Guid.NewGuid();
+            var now = DateTimeOffset.UtcNow;
+            var leaseExpiresAt = now.AddMinutes(5);
+
+            await ExecuteAsync(
+                @"
+                INSERT INTO List (Id, Token, Title, ExpiredAfter)
+                VALUES (@listId, @token, N'List', @expiredAfter);
+
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
+                VALUES
+                    (N'eligible-a', N'https://www.youtube.com/channel/eligible-a', N'A', N'a.png', N'playlist-a', @staleAfter1, @visibleAfter),
+                    (N'eligible-b', N'https://www.youtube.com/channel/eligible-b', N'B', N'b.png', N'playlist-b', @staleAfter2, @visibleAfter),
+                    (N'fresh', N'https://www.youtube.com/channel/fresh', N'Fresh', N'f.png', N'playlist-f', @futureStaleAfter, @visibleAfter),
+                    (N'leased', N'https://www.youtube.com/channel/leased', N'Leased', N'l.png', N'playlist-l', @staleAfter1, @futureVisibleAfter),
+                    (N'orphan', N'https://www.youtube.com/channel/orphan', N'Orphan', N'o.png', N'playlist-o', @staleAfter1, @visibleAfter);
+
+                INSERT INTO ListChannel (ListId, ChannelId)
+                VALUES
+                    (@listId, N'eligible-a'),
+                    (@listId, N'eligible-b'),
+                    (@listId, N'fresh'),
+                    (@listId, N'leased');
+                ",
+                new
+                {
+                    listId,
+                    token = Enumerable.Repeat((byte)4, 40).ToArray(),
+                    expiredAfter = now.AddDays(1),
+                    staleAfter1 = now.AddMinutes(-10),
+                    staleAfter2 = now.AddMinutes(-5),
+                    futureStaleAfter = now.AddMinutes(10),
+                    visibleAfter = now.AddMinutes(-1),
+                    futureVisibleAfter = now.AddMinutes(10)
+                });
+
+            var claimed = await _repository.ClaimStaleBatchAsync(
+                now,
+                leaseExpiresAt,
+                10,
+                CancellationToken.None);
+            var visibleAfter = await QueryAsync<(string Id, DateTimeOffset VisibleAfter)>(
+                @"
+                SELECT Id, VisibleAfter
+                FROM Channel
+                WHERE Id IN (N'eligible-a', N'eligible-b', N'fresh', N'leased', N'orphan');
+                ");
+
+            Assert.Equal(new[] { "eligible-a", "eligible-b" }, claimed.Select(channel => channel.Id).ToArray());
+            Assert.Equal(
+                new[] { "eligible-a", "eligible-b" },
+                visibleAfter
+                    .Where(channel => channel.VisibleAfter == leaseExpiresAt)
+                    .Select(channel => channel.Id)
+                    .OrderBy(id => id, StringComparer.Ordinal)
+                    .ToArray());
+        }
+
+        [LocalDbFact]
+        public async Task GetNextActiveSubscribedRefreshAtAsync_UsesLaterOfStaleAndVisibleTimes()
+        {
+            var listId = Guid.NewGuid();
+            var now = DateTimeOffset.UtcNow;
+            var staleSoonVisibleLater = now.AddMinutes(10);
+            var staleLaterVisibleSoon = now.AddMinutes(20);
+
+            await ExecuteAsync(
+                @"
+                INSERT INTO List (Id, Token, Title, ExpiredAfter)
+                VALUES (@listId, @token, N'List', @expiredAfter);
+
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
+                VALUES
+                    (N'leased-first', N'https://www.youtube.com/channel/leased-first', N'Leased', N'l.png', N'playlist-l', @now, @staleSoonVisibleLater),
+                    (N'stale-later', N'https://www.youtube.com/channel/stale-later', N'Stale Later', N's.png', N'playlist-s', @staleLaterVisibleSoon, @now),
+                    (N'orphan-now', N'https://www.youtube.com/channel/orphan-now', N'Orphan', N'o.png', N'playlist-o', @now, @now);
+
+                INSERT INTO ListChannel (ListId, ChannelId)
+                VALUES
+                    (@listId, N'leased-first'),
+                    (@listId, N'stale-later');
+                ",
+                new
+                {
+                    listId,
+                    token = Enumerable.Repeat((byte)5, 40).ToArray(),
+                    expiredAfter = now.AddDays(1),
+                    now,
+                    staleSoonVisibleLater,
+                    staleLaterVisibleSoon
+                });
+
+            var next = await _repository.GetNextActiveSubscribedRefreshAtAsync(CancellationToken.None);
+
+            Assert.Equal(staleSoonVisibleLater, next);
         }
     }
 }

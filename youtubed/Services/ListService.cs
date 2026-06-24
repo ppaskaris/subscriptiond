@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.AspNetCore.WebUtilities;
 using System.Security.Cryptography;
+using System.Threading;
 using System.Threading.Tasks;
 using youtubed.Domain;
 using youtubed.Models;
@@ -15,11 +16,19 @@ namespace youtubed.Services
     {
         private readonly IListRepository _listRepository;
         private readonly IAppClock _clock;
+        private readonly IWorkerStateStore _workerStateStore;
+        private readonly IWorkerWakeSignal _wakeSignal;
 
-        public ListService(IListRepository listRepository, IAppClock clock)
+        public ListService(
+            IListRepository listRepository,
+            IAppClock clock,
+            IWorkerStateStore workerStateStore = null,
+            IWorkerWakeSignal wakeSignal = null)
         {
             _listRepository = listRepository;
             _clock = clock;
+            _workerStateStore = workerStateStore;
+            _wakeSignal = wakeSignal;
         }
 
         public async Task<ListModel> CreateListAsync(string title)
@@ -85,9 +94,14 @@ namespace youtubed.Services
             return GetListChannelViewCoreAsync(list);
         }
 
-        public Task AddChannelAsync(Guid listId, string channelId)
+        public async Task AddChannelAsync(Guid listId, string channelId)
         {
-            return _listRepository.AddChannelAsync(listId, channelId);
+            await _listRepository.AddChannelAsync(listId, channelId);
+            if (_workerStateStore != null)
+            {
+                await _workerStateStore.ForceChannelRefreshAsync(CancellationToken.None);
+                _wakeSignal?.Pulse();
+            }
         }
 
         public Task RemoveChannelAsync(Guid listId, string channelId)

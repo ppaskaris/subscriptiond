@@ -31,6 +31,7 @@ namespace youtubed
         public static readonly TimeSpan ListMaxAgeMax = TimeSpan.FromDays(47);
         public static readonly TimeSpan MaintenanceFrequencyMin = TimeSpan.FromMinutes(8);
         public static readonly TimeSpan MaintenanceFrequencyMax = TimeSpan.FromMinutes(12);
+        public static readonly TimeSpan PurgeInterval = TimeSpan.FromMinutes(10);
         public static readonly TimeSpan ShareLinkMaxAgeMin = TimeSpan.FromMinutes(65);
         public static readonly TimeSpan ShareLinkMaxAgeMax = TimeSpan.FromMinutes(75);
         public static readonly TimeSpan ShareLinkRetentionAfterExpiration = TimeSpan.FromDays(1);

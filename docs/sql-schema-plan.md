@@ -81,13 +81,9 @@ Known permanent YouTube failures should set:
 - `StatusUpdatedAt = now`
 - `StaleAfter = DateTimeOffset.MaxValue`
 
-## VisibleAfter Removal
+## VisibleAfter
 
-When the unified worker replaces SQL lease claiming, remove `VisibleAfter` from SQL.
-
-This removes the old multi-worker claim model. The new worker is a single-worker design that uses `StaleAfter` for both normal refresh scheduling and failure backoff.
-
-Migration should drop `VisibleAfter` only after code no longer reads or writes it.
+SQL keeps `VisibleAfter` while it remains the SQL provider's worker lease field. The unified worker claims a stale batch by advancing `VisibleAfter` before starting YouTube work so multiple SQL-backed app instances do not process the same channel batch concurrently.
 
 ## WorkerState
 
@@ -97,6 +93,7 @@ Add a unit table:
 CREATE TABLE WorkerState (
     Id INT NOT NULL,
     NextChannelRefreshAt DATETIMEOFFSET NULL,
+    ChannelRefreshForceCount BIGINT NOT NULL,
     NextPurgeAt DATETIMEOFFSET NOT NULL,
 
     CONSTRAINT PK_WorkerState PRIMARY KEY (Id),

@@ -25,6 +25,7 @@ SQL Server uses a unit table:
 CREATE TABLE WorkerState (
     Id INT NOT NULL CONSTRAINT PK_WorkerState PRIMARY KEY,
     NextChannelRefreshAt DATETIMEOFFSET NULL,
+    ChannelRefreshForceCount BIGINT NOT NULL,
     NextPurgeAt DATETIMEOFFSET NOT NULL,
     CONSTRAINT CK_WorkerState_Id CHECK (Id = 1)
 );
@@ -36,6 +37,7 @@ Cosmos DB uses a singleton system document:
 {
   "id": "scheduler",
   "nextChannelRefreshAt": "2026-05-09T13:00:00Z",
+  "channelRefreshForceCount": 0,
   "nextPurgeAt": "2026-05-09T13:10:00Z"
 }
 ```
@@ -60,7 +62,7 @@ Request paths that add a new or stale channel should call:
 Task ForceChannelRefreshAsync(CancellationToken cancellationToken);
 ```
 
-That method sets `NextChannelRefreshAt = DateTimeOffset.MinValue`.
+That method sets `NextChannelRefreshAt = DateTimeOffset.MinValue` and advances a force generation/counter.
 
 The web process should also pulse an in-process wake signal so the worker wakes immediately if it is sleeping. The durable state handles restarts and missed signals.
 
@@ -76,6 +78,7 @@ public interface IWorkerStateStore
 
     Task CompleteChannelRefreshPassAsync(
         DateTimeOffset? observedNextChannelRefreshAt,
+        long observedChannelRefreshForceCount,
         DateTimeOffset? nextChannelRefreshAt,
         CancellationToken cancellationToken);
 
@@ -85,7 +88,7 @@ public interface IWorkerStateStore
 }
 ```
 
-`CompleteChannelRefreshPassAsync` must not erase a forced refresh that happened while the worker was processing. It should only move channel refresh later if the stored value still matches the value observed by the worker.
+`CompleteChannelRefreshPassAsync` must not erase a forced refresh that happened while the worker was processing. It should only move channel refresh later if the stored value and force generation still match the state observed by the worker. The generation matters when the worker observed `DateTimeOffset.MinValue` and another force writes the same sentinel during the pass.
 
 `CompletePurgeAsync` can simply set `NextPurgeAt`.
 
@@ -103,8 +106,8 @@ stateDiagram-v2
     CompletePurge --> Sleep: no channel due
 
     ChannelDue --> QueryLookahead
-    QueryLookahead --> NoChannelWork: no stale subscribed active channels
-    QueryLookahead --> ReadBatch: stale ids found
+QueryLookahead --> NoChannelWork: no stale subscribed active channels
+    QueryLookahead --> ReadBatch: stale ids claimed
 
     ReadBatch --> YouTubePhase
     YouTubePhase --> PersistencePhase: batch complete
@@ -132,6 +135,7 @@ Suggested defaults:
 - `PurgeInterval = 10 minutes`
 
 The worker should query lightweight stale-channel lookahead records, then point-read full channel documents for each batch.
+The selected batch should be claimed before YouTube work starts. SQL does this by advancing `VisibleAfter`; other providers should use equivalent provider-specific coordination.
 
 Lookahead shape:
 

@@ -43,6 +43,13 @@ public interface IChannelRepository
         DateTimeOffset now,
         int take,
         CancellationToken cancellationToken);
+    Task<IReadOnlyList<StaleChannelReference>> ClaimStaleBatchAsync(
+        DateTimeOffset now,
+        DateTimeOffset visibleAfter,
+        int take,
+        CancellationToken cancellationToken);
+    Task<DateTimeOffset?> GetNextActiveSubscribedRefreshAtAsync(
+        CancellationToken cancellationToken);
     Task<IReadOnlyList<Channel>> GetBatchAsync(
         IReadOnlyCollection<string> channelIds,
         CancellationToken cancellationToken);
@@ -57,6 +64,8 @@ public interface IChannelRepository
 ```
 
 The provider must keep `subscribedListIds` and `subscriptionCount` consistent. If optimistic concurrency fails, retry once, then throw.
+
+`ClaimStaleBatchAsync` is the provider-specific coordination point before YouTube work begins. SQL advances `VisibleAfter` while selecting the batch; later providers should use their own lease or optimistic coordination mechanism. `GetNextActiveSubscribedRefreshAtAsync` returns the next effective refresh time for active subscribed channels, or `null` when no active subscribed channel work is known.
 
 ### List Projection Updates
 
@@ -97,6 +106,7 @@ public interface IWorkerStateStore
     Task ForceChannelRefreshAsync(CancellationToken cancellationToken);
     Task CompleteChannelRefreshPassAsync(
         DateTimeOffset? observedNextChannelRefreshAt,
+        long observedChannelRefreshForceCount,
         DateTimeOffset? nextChannelRefreshAt,
         CancellationToken cancellationToken);
     Task CompletePurgeAsync(DateTimeOffset nextPurgeAt, CancellationToken cancellationToken);
@@ -105,7 +115,7 @@ public interface IWorkerStateStore
 
 `ForceChannelRefreshAsync` sets `NextChannelRefreshAt = DateTimeOffset.MinValue`.
 
-`CompleteChannelRefreshPassAsync` must not overwrite a forced refresh that happened during the worker pass.
+`CompleteChannelRefreshPassAsync` must not overwrite a forced refresh that happened during the worker pass. Providers should compare both the observed channel refresh time and an observed force generation/counter so a second force is not erased when the pass itself observed the forced sentinel value.
 
 ### Expiration Purger
 

@@ -38,8 +38,41 @@ namespace youtubed.Tests.Services
             Assert.Equal(12, result.StaleLookaheadCount);
             Assert.Equal(Constants.ChannelRefreshBatchSize, result.SelectedChannelCount);
             Assert.Equal(Constants.ChannelRefreshLookaheadCount, repository.LastLookaheadTake);
+            Assert.Equal(Constants.ChannelRefreshBatchSize, repository.LastClaimTake);
             Assert.Equal(repository.StaleIds.Take(Constants.ChannelRefreshBatchSize), repository.LastBatchIds);
             Assert.Equal(Constants.ChannelRefreshBatchSize, repository.SavedResults.Count);
+        }
+
+        [Fact]
+        public async Task RefreshStaleChannelsAsync_ClaimsBatchBeforeLoadingFullChannels()
+        {
+            var now = new DateTimeOffset(2026, 6, 14, 12, 0, 0, TimeSpan.Zero);
+            var repository = new FakeChannelRepository();
+            repository.AddStaleChannel("channel-1", 0);
+            repository.AddStaleChannel("channel-2", 1);
+            repository.SkipClaim("channel-2");
+            var youtube = new FakeYoutubeService();
+            youtube.SetChannelById("channel-1", new YoutubeChannel
+            {
+                Id = "channel-1",
+                Title = "Updated",
+                Thumbnail = "updated.png"
+            });
+            var pipeline = CreatePipeline(
+                repository,
+                youtube,
+                clock: new FakeAppClock
+                {
+                    UtcNow = now,
+                    RandomDelayValue = TimeSpan.FromMinutes(4)
+                });
+
+            var result = await pipeline.RefreshStaleChannelsAsync(CancellationToken.None);
+
+            Assert.Equal(new[] { "channel-1" }, repository.LastBatchIds);
+            Assert.Equal(now.AddMinutes(4), repository.LastVisibleAfter);
+            Assert.Equal(1, result.SelectedChannelCount);
+            Assert.DoesNotContain("channel-2", repository.SavedResults.Select(value => value.Channel.Id));
         }
 
         [Fact]
@@ -492,6 +525,8 @@ namespace youtubed.Tests.Services
             private readonly List<StaleChannelReference> _staleReferences = new List<StaleChannelReference>();
             private readonly Dictionary<string, Channel> _channelsById =
                 new Dictionary<string, Channel>(StringComparer.Ordinal);
+            private readonly HashSet<string> _skipClaimIds =
+                new HashSet<string>(StringComparer.Ordinal);
             private readonly List<string> _events;
 
             public FakeChannelRepository(List<string> events = null)
@@ -501,6 +536,8 @@ namespace youtubed.Tests.Services
 
             public IReadOnlyList<string> StaleIds => _staleReferences.Select(channel => channel.Id).ToList();
             public int LastLookaheadTake { get; private set; }
+            public int LastClaimTake { get; private set; }
+            public DateTimeOffset? LastVisibleAfter { get; private set; }
             public IReadOnlyList<string> LastBatchIds { get; private set; } = Array.Empty<string>();
             public IReadOnlyList<ChannelRefreshResult> SavedResults { get; private set; } =
                 Array.Empty<ChannelRefreshResult>();
@@ -525,6 +562,11 @@ namespace youtubed.Tests.Services
                 };
             }
 
+            public void SkipClaim(string id)
+            {
+                _skipClaimIds.Add(id);
+            }
+
             public Task<IReadOnlyList<StaleChannelReference>> GetStaleLookaheadAsync(
                 DateTimeOffset now,
                 int take,
@@ -537,6 +579,35 @@ namespace youtubed.Tests.Services
                         .ThenBy(channel => channel.Id, StringComparer.Ordinal)
                         .Take(take)
                         .ToList());
+            }
+
+            public Task<IReadOnlyList<StaleChannelReference>> ClaimStaleBatchAsync(
+                DateTimeOffset now,
+                DateTimeOffset visibleAfter,
+                int take,
+                CancellationToken cancellationToken)
+            {
+                LastClaimTake = take;
+                LastVisibleAfter = visibleAfter;
+                return Task.FromResult<IReadOnlyList<StaleChannelReference>>(
+                    _staleReferences
+                        .Where(channel => !_skipClaimIds.Contains(channel.Id))
+                        .OrderBy(channel => channel.StaleAfter)
+                        .ThenBy(channel => channel.Id, StringComparer.Ordinal)
+                        .Take(take)
+                        .ToList());
+            }
+
+            public Task<DateTimeOffset?> GetNextActiveSubscribedRefreshAtAsync(
+                CancellationToken cancellationToken)
+            {
+                DateTimeOffset? next = null;
+                if (_staleReferences.Count > 0)
+                {
+                    next = _staleReferences.Min(channel => channel.StaleAfter);
+                }
+
+                return Task.FromResult(next);
             }
 
             public Task<IReadOnlyList<Channel>> GetBatchAsync(

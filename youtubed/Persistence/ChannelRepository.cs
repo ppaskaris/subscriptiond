@@ -196,6 +196,64 @@ namespace youtubed.Persistence
             return channels.AsList();
         }
 
+        public async Task<IReadOnlyList<StaleChannelReference>> ClaimStaleBatchAsync(
+            DateTimeOffset now,
+            DateTimeOffset visibleAfter,
+            int take,
+            CancellationToken cancellationToken)
+        {
+            using var connection = _connectionFactory.CreateConnection();
+            var channels = await connection.QueryAsync<StaleChannelReference>(
+                new CommandDefinition(
+                    @"
+                    ;WITH claimed AS (
+                        SELECT TOP (@take) Id, StaleAfter, VisibleAfter
+                        FROM Channel WITH (UPDLOCK, ROWLOCK)
+                        WHERE StaleAfter <= @now
+                          AND VisibleAfter <= @now
+                          AND Status = @status
+                          AND EXISTS(SELECT * FROM ListChannel WHERE ListChannel.ChannelId = Channel.Id)
+                        ORDER BY StaleAfter ASC,
+                                 VisibleAfter ASC,
+                                 Id ASC
+                    )
+                    UPDATE claimed
+                    SET VisibleAfter = @visibleAfter
+                    OUTPUT inserted.Id,
+                           inserted.StaleAfter;
+                    ",
+                    new { now, visibleAfter, take, status = ChannelStatus.Active },
+                    cancellationToken: cancellationToken));
+
+            return channels.AsList();
+        }
+
+        public async Task<DateTimeOffset?> GetNextActiveSubscribedRefreshAtAsync(
+            CancellationToken cancellationToken)
+        {
+            using var connection = _connectionFactory.CreateConnection();
+            return await connection.ExecuteScalarAsync<DateTimeOffset?>(
+                new CommandDefinition(
+                    @"
+                    SELECT TOP (1)
+                        CASE
+                            WHEN StaleAfter > VisibleAfter THEN StaleAfter
+                            ELSE VisibleAfter
+                        END
+                    FROM Channel
+                    WHERE Status = @status
+                      AND EXISTS(SELECT * FROM ListChannel WHERE ListChannel.ChannelId = Channel.Id)
+                    ORDER BY
+                        CASE
+                            WHEN StaleAfter > VisibleAfter THEN StaleAfter
+                            ELSE VisibleAfter
+                        END ASC,
+                        Id ASC;
+                    ",
+                    new { status = ChannelStatus.Active },
+                    cancellationToken: cancellationToken));
+        }
+
         public async Task<IReadOnlyList<Channel>> GetBatchAsync(
             IReadOnlyCollection<string> channelIds,
             CancellationToken cancellationToken)

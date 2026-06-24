@@ -300,6 +300,43 @@ namespace youtubed.Tests.Integration
         }
 
         [LocalDbFact]
+        public async Task AddChannelAsync_ForcesSqlWorkerChannelRefresh()
+        {
+            var listId = Guid.NewGuid();
+            var now = new DateTimeOffset(2026, 6, 15, 12, 0, 0, TimeSpan.Zero);
+            _clock.UtcNow = now;
+            var service = new ListService(
+                new ListRepository(Fixture.ConnectionFactory),
+                _clock,
+                new WorkerStateRepository(Fixture.ConnectionFactory, _clock),
+                new InProcessWorkerWakeSignal());
+
+            await ExecuteAsync(
+                @"
+                INSERT INTO List (Id, Token, Title, ExpiredAfter)
+                VALUES (@listId, @token, N'List', @expiredAfter);
+
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
+                VALUES (N'channel-1', N'https://www.youtube.com/channel/channel-1', N'Channel', N'thumb.png', N'playlist-1', @staleAfter, @visibleAfter);
+                ",
+                new
+                {
+                    listId,
+                    token = Enumerable.Repeat((byte)7, 40).ToArray(),
+                    expiredAfter = now.AddDays(1),
+                    staleAfter = now.AddMinutes(-1),
+                    visibleAfter = now.AddMinutes(-1)
+                });
+
+            await service.AddChannelAsync(listId, "channel-1");
+
+            var nextChannelRefreshAt = await ScalarAsync<DateTimeOffset>(
+                "SELECT NextChannelRefreshAt FROM WorkerState WHERE Id = 1;");
+
+            Assert.Equal(DateTimeOffset.MinValue, nextChannelRefreshAt);
+        }
+
+        [LocalDbFact]
         public async Task UpdateRemoveAndDeleteList_UpdatePersistedRows()
         {
             var listId = Guid.NewGuid();

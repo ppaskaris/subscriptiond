@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.WebUtilities;
 using Moq;
@@ -235,6 +236,33 @@ namespace youtubed.Tests.Services
                 It.IsAny<Guid>(),
                 It.IsAny<DateTimeOffset>(),
                 It.IsAny<DateOnly>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task AddChannelAsync_ForcesAndSignalsChannelRefresh()
+        {
+            var listId = Guid.NewGuid();
+            var repository = new Mock<IListRepository>(MockBehavior.Strict);
+            repository
+                .Setup(value => value.AddChannelAsync(listId, "channel-1"))
+                .Returns(Task.CompletedTask);
+            var workerStateStore = new Mock<IWorkerStateStore>(MockBehavior.Strict);
+            workerStateStore
+                .Setup(value => value.ForceChannelRefreshAsync(CancellationToken.None))
+                .Returns(Task.CompletedTask);
+            var wakeSignal = new InProcessWorkerWakeSignal();
+            var observedVersion = wakeSignal.Version;
+            var service = new ListService(
+                repository.Object,
+                new FakeAppClock(),
+                workerStateStore.Object,
+                wakeSignal);
+
+            await service.AddChannelAsync(listId, "channel-1");
+
+            repository.Verify(value => value.AddChannelAsync(listId, "channel-1"), Times.Once);
+            workerStateStore.Verify(value => value.ForceChannelRefreshAsync(CancellationToken.None), Times.Once);
+            Assert.True(wakeSignal.Version > observedVersion);
         }
 
         private static IEnumerable<ChannelVideo> CreateVideos(string channelId, DateTimeOffset now)

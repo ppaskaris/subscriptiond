@@ -81,9 +81,9 @@ Known permanent YouTube failures should set:
 - `StatusUpdatedAt = now`
 - `StaleAfter = DateTimeOffset.MaxValue`
 
-## VisibleAfter
+## Stale Channel Selection
 
-SQL keeps `VisibleAfter` while it remains the SQL provider's worker lease field. The unified worker claims a stale batch by advancing `VisibleAfter` before starting YouTube work so multiple SQL-backed app instances do not process the same channel batch concurrently.
+SQL no longer stores a channel lease field. The unified worker selects stale work from active subscribed channels ordered by `StaleAfter`, then refreshes the first configured batch. `GetNextActiveSubscribedRefreshAtAsync` uses the earliest active subscribed `StaleAfter` to schedule the next channel pass.
 
 ## WorkerState
 

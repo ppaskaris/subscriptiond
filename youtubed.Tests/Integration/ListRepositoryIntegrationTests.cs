@@ -53,11 +53,11 @@ namespace youtubed.Tests.Integration
                 INSERT INTO List (Id, Token, Title, ExpiredAfter)
                 VALUES (@listId, @token, N'Projection List', @expiredAfter);
 
-                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter)
                 VALUES
-                    (N'channel-b', N'https://www.youtube.com/channel/channel-b', N'Beta', N'beta.png', N'playlist-b', @staleAfter, @visibleAfter),
-                    (N'channel-a', N'https://www.youtube.com/channel/channel-a', N'Alpha', N'alpha.png', N'playlist-a', @staleAfter, @visibleAfter),
-                    (N'channel-empty', N'https://www.youtube.com/channel/channel-empty', N'Empty', N'empty.png', N'playlist-empty', @staleAfter, @visibleAfter);
+                    (N'channel-b', N'https://www.youtube.com/channel/channel-b', N'Beta', N'beta.png', N'playlist-b', @staleAfter),
+                    (N'channel-a', N'https://www.youtube.com/channel/channel-a', N'Alpha', N'alpha.png', N'playlist-a', @staleAfter),
+                    (N'channel-empty', N'https://www.youtube.com/channel/channel-empty', N'Empty', N'empty.png', N'playlist-empty', @staleAfter);
 
                 INSERT INTO ListChannel (ListId, ChannelId)
                 VALUES
@@ -77,7 +77,6 @@ namespace youtubed.Tests.Integration
                     token = Enumerable.Repeat((byte)1, 40).ToArray(),
                     expiredAfter = now.AddDays(1),
                     staleAfter = now.AddMinutes(-5),
-                    visibleAfter = now.AddMinutes(-1),
                     duration = TimeSpan.FromMinutes(5).Ticks,
                     newestPublishedAt = now.AddMinutes(-1),
                     oldestPublishedAt = now.AddMinutes(-2)
@@ -112,8 +111,8 @@ namespace youtubed.Tests.Integration
                 INSERT INTO List (Id, Token, Title, ExpiredAfter)
                 VALUES (@listId, @token, N'Channels', @expiredAfter);
 
-                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter, Status, StatusReason, StatusUpdatedAt)
-                VALUES (N'channel-1', N'https://www.youtube.com/channel/channel-1', N'Channel', N'thumb.png', N'playlist-1', @staleAfter, @visibleAfter, @status, @statusReason, @now);
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, Status, StatusReason, StatusUpdatedAt)
+                VALUES (N'channel-1', N'https://www.youtube.com/channel/channel-1', N'Channel', N'thumb.png', N'playlist-1', @staleAfter, @status, @statusReason, @now);
 
                 INSERT INTO ListChannel (ListId, ChannelId)
                 VALUES (@listId, N'channel-1');
@@ -124,7 +123,6 @@ namespace youtubed.Tests.Integration
                     token = Enumerable.Repeat((byte)2, 40).ToArray(),
                     expiredAfter = now.AddDays(1),
                     staleAfter = now.AddMinutes(-5),
-                    visibleAfter = now.AddMinutes(-1),
                     status = ChannelStatus.Unavailable,
                     statusReason = ChannelStatusReason.NotFound,
                     now

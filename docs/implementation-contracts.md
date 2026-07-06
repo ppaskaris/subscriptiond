@@ -43,11 +43,6 @@ public interface IChannelRepository
         DateTimeOffset now,
         int take,
         CancellationToken cancellationToken);
-    Task<IReadOnlyList<StaleChannelReference>> ClaimStaleBatchAsync(
-        DateTimeOffset now,
-        DateTimeOffset visibleAfter,
-        int take,
-        CancellationToken cancellationToken);
     Task<DateTimeOffset?> GetNextActiveSubscribedRefreshAtAsync(
         CancellationToken cancellationToken);
     Task<IReadOnlyList<Channel>> GetBatchAsync(
@@ -65,7 +60,7 @@ public interface IChannelRepository
 
 The provider must keep `subscribedListIds` and `subscriptionCount` consistent. If optimistic concurrency fails, retry once, then throw.
 
-`ClaimStaleBatchAsync` is the provider-specific coordination point before YouTube work begins. SQL advances `VisibleAfter` while selecting the batch; later providers should use their own lease or optimistic coordination mechanism. `GetNextActiveSubscribedRefreshAtAsync` returns the next effective refresh time for active subscribed channels, or `null` when no active subscribed channel work is known.
+`GetStaleLookaheadAsync` returns active subscribed channels whose stale time is due, ordered by stale time. The unified worker selects the first configured batch from that lookahead before YouTube work begins. `GetNextActiveSubscribedRefreshAtAsync` returns the next active subscribed channel stale time, or `null` when no active subscribed channel work is known.
 
 ### List Projection Updates
 

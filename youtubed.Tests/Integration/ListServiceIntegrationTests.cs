@@ -82,11 +82,11 @@ namespace youtubed.Tests.Integration
                 INSERT INTO List (Id, Token, Title, PlaybackRate, ExpiredAfter)
                 VALUES (@listId, @token, @title, @playbackRate, @expiredAfter);
 
-                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter)
                 VALUES
-                    (N'channel-b', N'https://www.youtube.com/channel/channel-b', N'Beta', N'beta.png', N'playlist-b', @staleAfter, @visibleAfter),
-                    (N'channel-a', N'https://www.youtube.com/channel/channel-a', N'Alpha', N'alpha.png', N'playlist-a', @freshAfter, @visibleAfter),
-                    (N'channel-g', N'https://www.youtube.com/channel/channel-g', N'Gamma', N'gamma.png', N'playlist-g', @staleAfter, @visibleAfter);
+                    (N'channel-b', N'https://www.youtube.com/channel/channel-b', N'Beta', N'beta.png', N'playlist-b', @staleAfter),
+                    (N'channel-a', N'https://www.youtube.com/channel/channel-a', N'Alpha', N'alpha.png', N'playlist-a', @freshAfter),
+                    (N'channel-g', N'https://www.youtube.com/channel/channel-g', N'Gamma', N'gamma.png', N'playlist-g', @staleAfter);
 
                 UPDATE Channel
                 SET Status = @status,
@@ -115,7 +115,6 @@ namespace youtubed.Tests.Integration
                     expiredAfter = originalExpiry,
                     staleAfter = staleChannelTime,
                     freshAfter = freshChannelTime,
-                    visibleAfter = now.AddMinutes(-1),
                     status = ChannelStatus.Unavailable,
                     statusReason = ChannelStatusReason.NotFound,
                     now,
@@ -242,8 +241,8 @@ namespace youtubed.Tests.Integration
                 INSERT INTO List (Id, Token, Title, ExpiredAfter)
                 VALUES (@listId, @token, N'Channel View', @expiredAfter);
 
-                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
-                VALUES (N'channel-1', N'https://www.youtube.com/channel/channel-1', N'Channel', N'thumb.png', N'playlist-1', @staleAfter, @visibleAfter);
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter)
+                VALUES (N'channel-1', N'https://www.youtube.com/channel/channel-1', N'Channel', N'thumb.png', N'playlist-1', @staleAfter);
 
                 INSERT INTO ListChannel (ListId, ChannelId)
                 VALUES (@listId, N'channel-1');
@@ -254,7 +253,6 @@ namespace youtubed.Tests.Integration
                     token = Enumerable.Repeat((byte)5, 40).ToArray(),
                     expiredAfter = now.AddDays(1),
                     staleAfter = now.AddMinutes(-1),
-                    visibleAfter = now.AddMinutes(-1)
                 });
 
             var view = await _service.GetListChannelViewAsync(listId);
@@ -277,8 +275,8 @@ namespace youtubed.Tests.Integration
                 INSERT INTO List (Id, Token, Title, ExpiredAfter)
                 VALUES (@listId, @token, N'List', @expiredAfter);
 
-                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
-                VALUES (N'channel-1', N'https://www.youtube.com/channel/channel-1', N'Channel', N'thumb.png', N'playlist-1', @staleAfter, @visibleAfter);
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter)
+                VALUES (N'channel-1', N'https://www.youtube.com/channel/channel-1', N'Channel', N'thumb.png', N'playlist-1', @staleAfter);
                 ",
                 new
                 {
@@ -286,7 +284,6 @@ namespace youtubed.Tests.Integration
                     token = Enumerable.Repeat((byte)7, 40).ToArray(),
                     expiredAfter = DateTimeOffset.UtcNow.AddDays(1),
                     staleAfter = DateTimeOffset.UtcNow.AddMinutes(-1),
-                    visibleAfter = DateTimeOffset.UtcNow.AddMinutes(-1)
                 });
 
             await _service.AddChannelAsync(listId, "channel-1");
@@ -316,8 +313,8 @@ namespace youtubed.Tests.Integration
                 INSERT INTO List (Id, Token, Title, ExpiredAfter)
                 VALUES (@listId, @token, N'List', @expiredAfter);
 
-                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
-                VALUES (N'channel-1', N'https://www.youtube.com/channel/channel-1', N'Channel', N'thumb.png', N'playlist-1', @staleAfter, @visibleAfter);
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter)
+                VALUES (N'channel-1', N'https://www.youtube.com/channel/channel-1', N'Channel', N'thumb.png', N'playlist-1', @staleAfter);
                 ",
                 new
                 {
@@ -325,7 +322,6 @@ namespace youtubed.Tests.Integration
                     token = Enumerable.Repeat((byte)7, 40).ToArray(),
                     expiredAfter = now.AddDays(1),
                     staleAfter = now.AddMinutes(-1),
-                    visibleAfter = now.AddMinutes(-1)
                 });
 
             await service.AddChannelAsync(listId, "channel-1");
@@ -346,8 +342,8 @@ namespace youtubed.Tests.Integration
                 INSERT INTO List (Id, Token, Title, ExpiredAfter)
                 VALUES (@listId, @token, N'Original', @expiredAfter);
 
-                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
-                VALUES (N'channel-1', N'https://www.youtube.com/channel/channel-1', N'Channel', N'thumb.png', N'playlist-1', @staleAfter, @visibleAfter);
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter)
+                VALUES (N'channel-1', N'https://www.youtube.com/channel/channel-1', N'Channel', N'thumb.png', N'playlist-1', @staleAfter);
 
                 INSERT INTO ListChannel (ListId, ChannelId)
                 VALUES (@listId, N'channel-1');
@@ -358,7 +354,6 @@ namespace youtubed.Tests.Integration
                     token = Enumerable.Repeat((byte)9, 40).ToArray(),
                     expiredAfter = DateTimeOffset.UtcNow.AddDays(1),
                     staleAfter = DateTimeOffset.UtcNow.AddMinutes(-1),
-                    visibleAfter = DateTimeOffset.UtcNow.AddMinutes(-1)
                 });
 
             await _service.UpdateListAsync(listId, "Renamed", 1.25m);

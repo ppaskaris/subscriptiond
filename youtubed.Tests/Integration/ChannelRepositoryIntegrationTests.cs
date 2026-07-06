@@ -29,14 +29,10 @@ namespace youtubed.Tests.Integration
 
             await ExecuteAsync(
                 @"
-                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
-                VALUES (N'channel-1', N'https://www.youtube.com/channel/channel-1', N'Original', N'old.png', N'playlist-old', @staleAfter, @visibleAfter);
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter)
+                VALUES (N'channel-1', N'https://www.youtube.com/channel/channel-1', N'Original', N'old.png', N'playlist-old', @staleAfter);
                 ",
-                new
-                {
-                    staleAfter = originalStaleAfter,
-                    visibleAfter = DateTimeOffset.UtcNow.AddMinutes(-1)
-                });
+                new { staleAfter = originalStaleAfter });
 
             await _repository.SaveDiscoveredChannelAsync(
                 new ChannelModel
@@ -78,13 +74,12 @@ namespace youtubed.Tests.Integration
 
             await ExecuteAsync(
                 @"
-                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter, Status, StatusReason, StatusUpdatedAt)
-                VALUES (N'channel-1', N'https://www.youtube.com/channel/channel-1', N'Original', N'old.png', N'playlist-old', @staleAfter, @visibleAfter, @status, @statusReason, @statusUpdatedAt);
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, Status, StatusReason, StatusUpdatedAt)
+                VALUES (N'channel-1', N'https://www.youtube.com/channel/channel-1', N'Original', N'old.png', N'playlist-old', @staleAfter, @status, @statusReason, @statusUpdatedAt);
                 ",
                 new
                 {
                     staleAfter = futureStaleAfter,
-                    visibleAfter = DateTimeOffset.UtcNow.AddMinutes(-1),
                     status = ChannelStatus.Unavailable,
                     statusReason = ChannelStatusReason.NotFound,
                     statusUpdatedAt = DateTimeOffset.UtcNow.AddMinutes(-10)
@@ -178,7 +173,6 @@ namespace youtubed.Tests.Integration
             Assert.Equal(1, persisted.Count);
             Assert.Equal("channel-1", persisted.Id);
             Assert.True(persisted.StaleAfter >= staleAfter);
-
             Assert.Contains(persisted.Title, new[] { "Original", "Updated" });
             Assert.Contains(persisted.Thumbnail, new[] { "original.png", "updated.png" });
             Assert.Contains(persisted.PlaylistId, new[] { "playlist-original", "playlist-updated" });
@@ -189,14 +183,10 @@ namespace youtubed.Tests.Integration
         {
             await ExecuteAsync(
                 @"
-                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
-                VALUES (N'channel-default', N'https://www.youtube.com/channel/channel-default', N'Default', N'default.png', N'playlist-default', @staleAfter, @visibleAfter);
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter)
+                VALUES (N'channel-default', N'https://www.youtube.com/channel/channel-default', N'Default', N'default.png', N'playlist-default', @staleAfter);
                 ",
-                new
-                {
-                    staleAfter = DateTimeOffset.UtcNow.AddHours(1),
-                    visibleAfter = DateTimeOffset.UtcNow.AddMinutes(30)
-                });
+                new { staleAfter = DateTimeOffset.UtcNow.AddHours(1) });
 
             var persisted = await QuerySingleAsync<(ChannelStatus Status, ChannelStatusReason StatusReason, DateTimeOffset? StatusUpdatedAt)>(
                 @"
@@ -217,13 +207,12 @@ namespace youtubed.Tests.Integration
 
             await ExecuteAsync(
                 @"
-                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter, Status, StatusReason, StatusUpdatedAt)
-                VALUES (N'channel-status', N'https://www.youtube.com/channel/channel-status', N'Status', N'status.png', N'playlist-status', @staleAfter, @visibleAfter, @status, @statusReason, @statusUpdatedAt);
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, Status, StatusReason, StatusUpdatedAt)
+                VALUES (N'channel-status', N'https://www.youtube.com/channel/channel-status', N'Status', N'status.png', N'playlist-status', @staleAfter, @status, @statusReason, @statusUpdatedAt);
                 ",
                 new
                 {
                     staleAfter = DateTimeOffset.UtcNow.AddHours(1),
-                    visibleAfter = DateTimeOffset.UtcNow.AddMinutes(30),
                     status = ChannelStatus.Unavailable,
                     statusReason = ChannelStatusReason.NotFound,
                     statusUpdatedAt
@@ -241,18 +230,16 @@ namespace youtubed.Tests.Integration
         public async Task UpdateMetadataAsync_UpdatesMetadataAndClearsUnavailableStatus()
         {
             var staleAfter = DateTimeOffset.UtcNow.AddHours(1);
-            var visibleAfter = DateTimeOffset.UtcNow.AddMinutes(30);
             var statusUpdatedAt = DateTimeOffset.UtcNow.AddMinutes(-15);
 
             await ExecuteAsync(
                 @"
-                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter, Status, StatusReason, StatusUpdatedAt)
-                VALUES (N'channel-1', N'https://www.youtube.com/user/channel-1', N'Original', N'old.png', N'playlist-1', @staleAfter, @visibleAfter, @status, @statusReason, @statusUpdatedAt);
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, Status, StatusReason, StatusUpdatedAt)
+                VALUES (N'channel-1', N'https://www.youtube.com/user/channel-1', N'Original', N'old.png', N'playlist-1', @staleAfter, @status, @statusReason, @statusUpdatedAt);
                 ",
                 new
                 {
                     staleAfter,
-                    visibleAfter,
                     status = ChannelStatus.Unavailable,
                     statusReason = ChannelStatusReason.NotFound,
                     statusUpdatedAt
@@ -265,9 +252,9 @@ namespace youtubed.Tests.Integration
                 "new.png",
                 "playlist-new");
 
-            var persisted = await QuerySingleAsync<(string Url, string Title, string Thumbnail, string PlaylistId, ChannelStatus Status, ChannelStatusReason StatusReason, DateTimeOffset? StatusUpdatedAt, DateTimeOffset StaleAfter, DateTimeOffset VisibleAfter)>(
+            var persisted = await QuerySingleAsync<(string Url, string Title, string Thumbnail, string PlaylistId, ChannelStatus Status, ChannelStatusReason StatusReason, DateTimeOffset? StatusUpdatedAt, DateTimeOffset StaleAfter)>(
                 @"
-                SELECT Url, Title, Thumbnail, PlaylistId, Status, StatusReason, StatusUpdatedAt, StaleAfter, VisibleAfter
+                SELECT Url, Title, Thumbnail, PlaylistId, Status, StatusReason, StatusUpdatedAt, StaleAfter
                 FROM Channel
                 WHERE Id = N'channel-1';
                 ");
@@ -280,7 +267,6 @@ namespace youtubed.Tests.Integration
             Assert.Equal(ChannelStatusReason.None, persisted.StatusReason);
             Assert.Null(persisted.StatusUpdatedAt);
             Assert.Equal(staleAfter, persisted.StaleAfter);
-            Assert.Equal(visibleAfter, persisted.VisibleAfter);
         }
 
         [LocalDbFact]
@@ -291,20 +277,16 @@ namespace youtubed.Tests.Integration
 
             await ExecuteAsync(
                 @"
-                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
-                VALUES (N'channel-unavailable', N'https://www.youtube.com/channel/channel-unavailable', N'Unavailable', N'unavailable.png', N'playlist-unavailable', @oldStaleAfter, @visibleAfter);
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter)
+                VALUES (N'channel-unavailable', N'https://www.youtube.com/channel/channel-unavailable', N'Unavailable', N'unavailable.png', N'playlist-unavailable', @oldStaleAfter);
                 ",
-                new
-                {
-                    oldStaleAfter = now.AddMinutes(-5),
-                    visibleAfter = now.AddMinutes(-1)
-                });
+                new { oldStaleAfter = now.AddMinutes(-5) });
 
             await _repository.MarkUnavailableAsync("channel-unavailable", ChannelStatusReason.NotFound, now, staleAfter);
 
-            var persisted = await QuerySingleAsync<(ChannelStatus Status, ChannelStatusReason StatusReason, DateTimeOffset? StatusUpdatedAt, DateTimeOffset StaleAfter, DateTimeOffset VisibleAfter)>(
+            var persisted = await QuerySingleAsync<(ChannelStatus Status, ChannelStatusReason StatusReason, DateTimeOffset? StatusUpdatedAt, DateTimeOffset StaleAfter)>(
                 @"
-                SELECT Status, StatusReason, StatusUpdatedAt, StaleAfter, VisibleAfter
+                SELECT Status, StatusReason, StatusUpdatedAt, StaleAfter
                 FROM Channel
                 WHERE Id = N'channel-unavailable';
                 ");
@@ -313,11 +295,10 @@ namespace youtubed.Tests.Integration
             Assert.Equal(ChannelStatusReason.NotFound, persisted.StatusReason);
             Assert.Equal(now, persisted.StatusUpdatedAt);
             Assert.Equal(staleAfter, persisted.StaleAfter);
-            Assert.Equal(now.AddMinutes(-1), persisted.VisibleAfter);
         }
 
         [LocalDbFact]
-        public async Task ClaimNextStaleChannelAsync_ReturnsNullWhenNoEligibleChannelsExist()
+        public async Task GetStaleLookaheadAsync_ReturnsOnlyEligibleSubscribedActiveChannelsOrderedByStaleAfter()
         {
             var listId = Guid.NewGuid();
             var now = DateTimeOffset.UtcNow;
@@ -327,12 +308,13 @@ namespace youtubed.Tests.Integration
                 INSERT INTO List (Id, Token, Title, ExpiredAfter)
                 VALUES (@listId, @token, N'List', @expiredAfter);
 
-                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter)
                 VALUES
-                    (N'fresh', N'https://www.youtube.com/channel/fresh', N'Fresh', N'a.png', N'playlist-a', @futureStaleAfter, @visibleAfter),
-                    (N'not-visible', N'https://www.youtube.com/channel/not-visible', N'Not Visible', N'b.png', N'playlist-b', @staleAfter, @futureVisibleAfter),
-                    (N'orphan', N'https://www.youtube.com/channel/orphan', N'Orphan', N'c.png', N'playlist-c', @staleAfter, @visibleAfter),
-                    (N'unavailable', N'https://www.youtube.com/channel/unavailable', N'Unavailable', N'd.png', N'playlist-d', @staleAfter, @visibleAfter);
+                    (N'eligible-a', N'https://www.youtube.com/channel/eligible-a', N'A', N'a.png', N'playlist-a', @staleAfter1),
+                    (N'eligible-b', N'https://www.youtube.com/channel/eligible-b', N'B', N'b.png', N'playlist-b', @staleAfter2),
+                    (N'fresh', N'https://www.youtube.com/channel/fresh', N'Fresh', N'f.png', N'playlist-f', @futureStaleAfter),
+                    (N'orphan', N'https://www.youtube.com/channel/orphan', N'Orphan', N'o.png', N'playlist-o', @staleAfter1),
+                    (N'unavailable', N'https://www.youtube.com/channel/unavailable', N'Unavailable', N'u.png', N'playlist-u', @staleAfter1);
 
                 UPDATE Channel
                 SET Status = @status,
@@ -342,130 +324,10 @@ namespace youtubed.Tests.Integration
 
                 INSERT INTO ListChannel (ListId, ChannelId)
                 VALUES
-                    (@listId, N'fresh'),
-                    (@listId, N'not-visible'),
-                    (@listId, N'unavailable');
-                ",
-                new
-                {
-                    listId,
-                    token = Enumerable.Repeat((byte)3, 40).ToArray(),
-                    expiredAfter = now.AddDays(1),
-                    staleAfter = now.AddMinutes(-10),
-                    futureStaleAfter = now.AddMinutes(10),
-                    visibleAfter = now.AddMinutes(-1),
-                    futureVisibleAfter = now.AddMinutes(10),
-                    status = ChannelStatus.Unavailable,
-                    statusReason = ChannelStatusReason.NotFound,
-                    now
-                });
-
-            var claimed = await _repository.ClaimNextStaleChannelAsync(now, now.AddMinutes(5));
-
-            Assert.Null(claimed);
-        }
-
-        [LocalDbFact]
-        public async Task ClaimNextStaleChannelAsync_ConcurrentCallsReturnSingleWinner()
-        {
-            var listId = Guid.NewGuid();
-            var now = DateTimeOffset.UtcNow;
-
-            await ExecuteAsync(
-                @"
-                INSERT INTO List (Id, Token, Title, ExpiredAfter)
-                VALUES (@listId, @token, N'List', @expiredAfter);
-
-                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
-                VALUES (N'eligible', N'https://www.youtube.com/channel/eligible', N'Eligible', N'a.png', N'playlist-a', @staleAfter, @visibleAfter);
-
-                INSERT INTO ListChannel (ListId, ChannelId)
-                VALUES (@listId, N'eligible');
-                ",
-                new
-                {
-                    listId,
-                    token = Enumerable.Repeat((byte)8, 40).ToArray(),
-                    expiredAfter = now.AddDays(1),
-                    staleAfter = now.AddMinutes(-10),
-                    visibleAfter = now.AddMinutes(-1)
-                });
-
-            var firstClaim = _repository.ClaimNextStaleChannelAsync(now, now.AddMinutes(5));
-            var secondClaim = _repository.ClaimNextStaleChannelAsync(now, now.AddMinutes(5));
-
-            var claims = await Task.WhenAll(firstClaim, secondClaim);
-
-            var winner = Assert.Single(claims, claim => claim != null);
-            Assert.Equal("eligible", winner.Id);
-            Assert.Equal("https://www.youtube.com/channel/eligible", winner.Url);
-            Assert.Equal("Eligible", winner.Title);
-            Assert.Equal("a.png", winner.Thumbnail);
-        }
-
-        [LocalDbFact]
-        public async Task ClaimNextStaleChannelAsync_DoesNotReissueLeaseUntilItExpires()
-        {
-            var listId = Guid.NewGuid();
-            var now = DateTimeOffset.UtcNow;
-            var leaseExpiresAt = now.AddMinutes(5);
-
-            await ExecuteAsync(
-                @"
-                INSERT INTO List (Id, Token, Title, ExpiredAfter)
-                VALUES (@listId, @token, N'List', @expiredAfter);
-
-                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
-                VALUES (N'eligible', N'https://www.youtube.com/channel/eligible', N'Eligible', N'a.png', N'playlist-a', @staleAfter, @visibleAfter);
-
-                INSERT INTO ListChannel (ListId, ChannelId)
-                VALUES (@listId, N'eligible');
-                ",
-                new
-                {
-                    listId,
-                    token = Enumerable.Repeat((byte)9, 40).ToArray(),
-                    expiredAfter = now.AddDays(1),
-                    staleAfter = now.AddMinutes(-10),
-                    visibleAfter = now.AddMinutes(-1)
-                });
-
-            var firstClaim = await _repository.ClaimNextStaleChannelAsync(now, leaseExpiresAt);
-            var beforeExpiryClaim = await _repository.ClaimNextStaleChannelAsync(leaseExpiresAt.AddSeconds(-1), leaseExpiresAt.AddMinutes(5));
-            var afterExpiryClaim = await _repository.ClaimNextStaleChannelAsync(leaseExpiresAt.AddSeconds(1), leaseExpiresAt.AddMinutes(5));
-
-            Assert.NotNull(firstClaim);
-            Assert.Null(beforeExpiryClaim);
-            Assert.NotNull(afterExpiryClaim);
-            Assert.Equal("eligible", afterExpiryClaim.Id);
-        }
-
-        [LocalDbFact]
-        public async Task ClaimStaleBatchAsync_LeasesOnlyEligibleSubscribedActiveChannels()
-        {
-            var listId = Guid.NewGuid();
-            var now = DateTimeOffset.UtcNow;
-            var leaseExpiresAt = now.AddMinutes(5);
-
-            await ExecuteAsync(
-                @"
-                INSERT INTO List (Id, Token, Title, ExpiredAfter)
-                VALUES (@listId, @token, N'List', @expiredAfter);
-
-                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
-                VALUES
-                    (N'eligible-a', N'https://www.youtube.com/channel/eligible-a', N'A', N'a.png', N'playlist-a', @staleAfter1, @visibleAfter),
-                    (N'eligible-b', N'https://www.youtube.com/channel/eligible-b', N'B', N'b.png', N'playlist-b', @staleAfter2, @visibleAfter),
-                    (N'fresh', N'https://www.youtube.com/channel/fresh', N'Fresh', N'f.png', N'playlist-f', @futureStaleAfter, @visibleAfter),
-                    (N'leased', N'https://www.youtube.com/channel/leased', N'Leased', N'l.png', N'playlist-l', @staleAfter1, @futureVisibleAfter),
-                    (N'orphan', N'https://www.youtube.com/channel/orphan', N'Orphan', N'o.png', N'playlist-o', @staleAfter1, @visibleAfter);
-
-                INSERT INTO ListChannel (ListId, ChannelId)
-                VALUES
                     (@listId, N'eligible-a'),
                     (@listId, N'eligible-b'),
                     (@listId, N'fresh'),
-                    (@listId, N'leased');
+                    (@listId, N'unavailable');
                 ",
                 new
                 {
@@ -475,54 +337,38 @@ namespace youtubed.Tests.Integration
                     staleAfter1 = now.AddMinutes(-10),
                     staleAfter2 = now.AddMinutes(-5),
                     futureStaleAfter = now.AddMinutes(10),
-                    visibleAfter = now.AddMinutes(-1),
-                    futureVisibleAfter = now.AddMinutes(10)
+                    status = ChannelStatus.Unavailable,
+                    statusReason = ChannelStatusReason.NotFound,
+                    now
                 });
 
-            var claimed = await _repository.ClaimStaleBatchAsync(
-                now,
-                leaseExpiresAt,
-                10,
-                CancellationToken.None);
-            var visibleAfter = await QueryAsync<(string Id, DateTimeOffset VisibleAfter)>(
-                @"
-                SELECT Id, VisibleAfter
-                FROM Channel
-                WHERE Id IN (N'eligible-a', N'eligible-b', N'fresh', N'leased', N'orphan');
-                ");
+            var stale = await _repository.GetStaleLookaheadAsync(now, 10, CancellationToken.None);
 
-            Assert.Equal(new[] { "eligible-a", "eligible-b" }, claimed.Select(channel => channel.Id).ToArray());
-            Assert.Equal(
-                new[] { "eligible-a", "eligible-b" },
-                visibleAfter
-                    .Where(channel => channel.VisibleAfter == leaseExpiresAt)
-                    .Select(channel => channel.Id)
-                    .OrderBy(id => id, StringComparer.Ordinal)
-                    .ToArray());
+            Assert.Equal(new[] { "eligible-a", "eligible-b" }, stale.Select(channel => channel.Id).ToArray());
         }
 
         [LocalDbFact]
-        public async Task GetNextActiveSubscribedRefreshAtAsync_UsesLaterOfStaleAndVisibleTimes()
+        public async Task GetNextActiveSubscribedRefreshAtAsync_ReturnsEarliestSubscribedActiveStaleAfter()
         {
             var listId = Guid.NewGuid();
             var now = DateTimeOffset.UtcNow;
-            var staleSoonVisibleLater = now.AddMinutes(10);
-            var staleLaterVisibleSoon = now.AddMinutes(20);
+            var staleSoon = now.AddMinutes(10);
+            var staleLater = now.AddMinutes(20);
 
             await ExecuteAsync(
                 @"
                 INSERT INTO List (Id, Token, Title, ExpiredAfter)
                 VALUES (@listId, @token, N'List', @expiredAfter);
 
-                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter)
                 VALUES
-                    (N'leased-first', N'https://www.youtube.com/channel/leased-first', N'Leased', N'l.png', N'playlist-l', @now, @staleSoonVisibleLater),
-                    (N'stale-later', N'https://www.youtube.com/channel/stale-later', N'Stale Later', N's.png', N'playlist-s', @staleLaterVisibleSoon, @now),
-                    (N'orphan-now', N'https://www.youtube.com/channel/orphan-now', N'Orphan', N'o.png', N'playlist-o', @now, @now);
+                    (N'stale-soon', N'https://www.youtube.com/channel/stale-soon', N'Soon', N's.png', N'playlist-s', @staleSoon),
+                    (N'stale-later', N'https://www.youtube.com/channel/stale-later', N'Later', N'l.png', N'playlist-l', @staleLater),
+                    (N'orphan-now', N'https://www.youtube.com/channel/orphan-now', N'Orphan', N'o.png', N'playlist-o', @now);
 
                 INSERT INTO ListChannel (ListId, ChannelId)
                 VALUES
-                    (@listId, N'leased-first'),
+                    (@listId, N'stale-soon'),
                     (@listId, N'stale-later');
                 ",
                 new
@@ -531,13 +377,13 @@ namespace youtubed.Tests.Integration
                     token = Enumerable.Repeat((byte)5, 40).ToArray(),
                     expiredAfter = now.AddDays(1),
                     now,
-                    staleSoonVisibleLater,
-                    staleLaterVisibleSoon
+                    staleSoon,
+                    staleLater
                 });
 
             var next = await _repository.GetNextActiveSubscribedRefreshAtAsync(CancellationToken.None);
 
-            Assert.Equal(staleSoonVisibleLater, next);
+            Assert.Equal(staleSoon, next);
         }
     }
 }

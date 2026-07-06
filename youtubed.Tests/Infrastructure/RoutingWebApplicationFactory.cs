@@ -18,8 +18,7 @@ namespace youtubed.Tests.Infrastructure
                 var hostedServices = services
                     .Where(service =>
                         service.ServiceType == typeof(IHostedService) &&
-                        (service.ImplementationType == typeof(MaintenanceHostedService) ||
-                         service.ImplementationType == typeof(UpdateChannelHostedService)))
+                        service.ImplementationType == typeof(UnifiedWorkerHostedService))
                     .ToList();
 
                 foreach (var hostedService in hostedServices)

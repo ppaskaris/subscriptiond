@@ -78,8 +78,8 @@ namespace youtubed.Persistence
             {
                 await connection.ExecuteAsync(
                     @"
-                    INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter, Status, StatusReason, StatusUpdatedAt)
-                    SELECT @id, @url, @title, @thumbnail, @playlistId, @staleAfter, @staleAfter, @status, @statusReason, NULL
+                    INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, Status, StatusReason, StatusUpdatedAt)
+                    SELECT @id, @url, @title, @thumbnail, @playlistId, @staleAfter, @status, @statusReason, NULL
                     WHERE NOT EXISTS (
                         SELECT 1
                         FROM Channel WITH (UPDLOCK, HOLDLOCK)
@@ -142,36 +142,6 @@ namespace youtubed.Persistence
                 });
         }
 
-        public async Task<StaleChannelModel> ClaimNextStaleChannelAsync(DateTimeOffset now, DateTimeOffset visibleAfter)
-        {
-            using var connection = _connectionFactory.CreateConnection();
-            return await connection.QueryFirstOrDefaultAsync<StaleChannelModel>(
-                @"
-                ;WITH nextChannel AS (
-                    SELECT TOP (1) Id, Url, Title, Thumbnail, PlaylistId, Status, StatusReason, StatusUpdatedAt, VisibleAfter
-                    FROM Channel WITH (UPDLOCK, ROWLOCK)
-                    WHERE StaleAfter <= @now
-                      AND VisibleAfter <= @now
-                      AND Status = @status
-                      AND EXISTS(SELECT * FROM ListChannel WHERE ListChannel.ChannelId = Channel.Id)
-                    ORDER BY StaleAfter ASC,
-                             VisibleAfter ASC
-                )
-                UPDATE nextChannel
-                SET VisibleAfter = @visibleAfter
-                OUTPUT inserted.Id,
-                       inserted.Url,
-                       inserted.Title,
-                       inserted.Thumbnail,
-                       inserted.PlaylistId,
-                       inserted.Status,
-                       inserted.StatusReason,
-                       inserted.StatusUpdatedAt
-                ;
-                ",
-                new { now, visibleAfter, status = ChannelStatus.Active });
-        }
-
         public async Task<IReadOnlyList<StaleChannelReference>> GetStaleLookaheadAsync(
             DateTimeOffset now,
             int take,
@@ -184,45 +154,12 @@ namespace youtubed.Persistence
                     SELECT TOP (@take) Id, StaleAfter
                     FROM Channel
                     WHERE StaleAfter <= @now
-                      AND VisibleAfter <= @now
                       AND Status = @status
                       AND EXISTS(SELECT * FROM ListChannel WHERE ListChannel.ChannelId = Channel.Id)
                     ORDER BY StaleAfter ASC,
                              Id ASC;
                     ",
                     new { now, take, status = ChannelStatus.Active },
-                    cancellationToken: cancellationToken));
-
-            return channels.AsList();
-        }
-
-        public async Task<IReadOnlyList<StaleChannelReference>> ClaimStaleBatchAsync(
-            DateTimeOffset now,
-            DateTimeOffset visibleAfter,
-            int take,
-            CancellationToken cancellationToken)
-        {
-            using var connection = _connectionFactory.CreateConnection();
-            var channels = await connection.QueryAsync<StaleChannelReference>(
-                new CommandDefinition(
-                    @"
-                    ;WITH claimed AS (
-                        SELECT TOP (@take) Id, StaleAfter, VisibleAfter
-                        FROM Channel WITH (UPDLOCK, ROWLOCK)
-                        WHERE StaleAfter <= @now
-                          AND VisibleAfter <= @now
-                          AND Status = @status
-                          AND EXISTS(SELECT * FROM ListChannel WHERE ListChannel.ChannelId = Channel.Id)
-                        ORDER BY StaleAfter ASC,
-                                 VisibleAfter ASC,
-                                 Id ASC
-                    )
-                    UPDATE claimed
-                    SET VisibleAfter = @visibleAfter
-                    OUTPUT inserted.Id,
-                           inserted.StaleAfter;
-                    ",
-                    new { now, visibleAfter, take, status = ChannelStatus.Active },
                     cancellationToken: cancellationToken));
 
             return channels.AsList();
@@ -235,20 +172,12 @@ namespace youtubed.Persistence
             return await connection.ExecuteScalarAsync<DateTimeOffset?>(
                 new CommandDefinition(
                     @"
-                    SELECT TOP (1)
-                        CASE
-                            WHEN StaleAfter > VisibleAfter THEN StaleAfter
-                            ELSE VisibleAfter
-                        END
+                    SELECT TOP (1) StaleAfter
                     FROM Channel
                     WHERE Status = @status
                       AND EXISTS(SELECT * FROM ListChannel WHERE ListChannel.ChannelId = Channel.Id)
-                    ORDER BY
-                        CASE
-                            WHEN StaleAfter > VisibleAfter THEN StaleAfter
-                            ELSE VisibleAfter
-                        END ASC,
-                        Id ASC;
+                    ORDER BY StaleAfter ASC,
+                             Id ASC;
                     ",
                     new { status = ChannelStatus.Active },
                     cancellationToken: cancellationToken));
@@ -449,8 +378,7 @@ namespace youtubed.Persistence
             return await connection.ExecuteAsync(
                 @"
                 DELETE FROM Channel
-                WHERE VisibleAfter <= @now
-                  AND NOT EXISTS(SELECT * FROM ListChannel WHERE ListChannel.ChannelId = Channel.Id);
+                WHERE NOT EXISTS(SELECT * FROM ListChannel WHERE ListChannel.ChannelId = Channel.Id);
                 ",
                 new { now });
         }

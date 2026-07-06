@@ -26,13 +26,12 @@ namespace youtubed.Tests.Integration
 
             await ExecuteAsync(
                 @"
-                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
-                VALUES (N'channel-1', N'https://www.youtube.com/channel/channel-1', N'Channel', N'thumb.png', N'playlist-1', @staleAfter, @visibleAfter);
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter)
+                VALUES (N'channel-1', N'https://www.youtube.com/channel/channel-1', N'Channel', N'thumb.png', N'playlist-1', @staleAfter);
                 ",
                 new
                 {
                     staleAfter = DateTimeOffset.UtcNow.AddMinutes(-5),
-                    visibleAfter = DateTimeOffset.UtcNow.AddMinutes(-5)
                 });
 
             await _repository.RefreshAsync(
@@ -55,8 +54,8 @@ namespace youtubed.Tests.Integration
 
             await ExecuteAsync(
                 @"
-                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
-                VALUES (N'channel-1', N'https://www.youtube.com/channel/channel-1', N'Channel', N'thumb.png', N'playlist-1', @channelStaleAfter, @visibleAfter);
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter)
+                VALUES (N'channel-1', N'https://www.youtube.com/channel/channel-1', N'Channel', N'thumb.png', N'playlist-1', @channelStaleAfter);
 
                 INSERT INTO ChannelVideo (ChannelId, Id, Title, Duration, PublishedAt, Thumbnail)
                 VALUES
@@ -67,7 +66,6 @@ namespace youtubed.Tests.Integration
                 new
                 {
                     channelStaleAfter = DateTimeOffset.UtcNow.AddMinutes(-5),
-                    visibleAfter = DateTimeOffset.UtcNow.AddMinutes(-5),
                     duration = TimeSpan.FromMinutes(3).Ticks,
                     recentPublishedAt = earliestPublishedAt.AddDays(1),
                     oldPublishedAt = earliestPublishedAt.AddDays(-1)

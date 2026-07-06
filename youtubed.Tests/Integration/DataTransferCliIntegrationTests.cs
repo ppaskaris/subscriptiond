@@ -32,8 +32,8 @@ namespace youtubed.Tests.Integration
 
                 await ExecuteAsync(
                     @"
-                    INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter, Status, StatusReason, StatusUpdatedAt)
-                    VALUES ('channel-1', N'https://example.test/channel', N'Example Channel', N'https://example.test/thumb.jpg', 'playlist-1', @expiresAfter, @createdAt, @status, @statusReason, @statusUpdatedAt);
+                    INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, Status, StatusReason, StatusUpdatedAt)
+                    VALUES ('channel-1', N'https://example.test/channel', N'Example Channel', N'https://example.test/thumb.jpg', 'playlist-1', @expiresAfter, @status, @statusReason, @statusUpdatedAt);
 
                     INSERT INTO [List] (Id, Token, Title, PlaybackRate, ExpiredAfter)
                     VALUES (@listId, @token, N'Example List', 1.50, @expiresAfter);
@@ -64,8 +64,8 @@ namespace youtubed.Tests.Integration
                     await Dapper.SqlMapper.ExecuteAsync(
                         targetConnection,
                         @"
-                        INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
-                        VALUES ('old-channel', NULL, N'Old Channel', N'old.jpg', 'old-playlist', SYSDATETIMEOFFSET(), SYSDATETIMEOFFSET());
+                        INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter)
+                        VALUES ('old-channel', NULL, N'Old Channel', N'old.jpg', 'old-playlist', SYSDATETIMEOFFSET());
                         ");
                 }
 

@@ -134,8 +134,7 @@ Suggested defaults:
 - `YoutubeCallDelay = 2 seconds`
 - `PurgeInterval = 10 minutes`
 
-The worker should query lightweight stale-channel lookahead records, then point-read full channel documents for each batch.
-The selected batch should be claimed before YouTube work starts. SQL does this by advancing `VisibleAfter`; other providers should use equivalent provider-specific coordination.
+The worker should query lightweight stale-channel lookahead records, select the first configured batch, then point-read full channel documents for that batch.
 
 Lookahead shape:
 

@@ -207,8 +207,8 @@ namespace youtubed.Tests.Integration
         {
             return ExecuteAsync(
                 @"
-                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
-                VALUES (@channelId, @url, @title, N'thumb.png', @playlistId, @staleAfter, @visibleAfter);
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter)
+                VALUES (@channelId, @url, @title, N'thumb.png', @playlistId, @staleAfter);
                 ",
                 new
                 {
@@ -217,7 +217,6 @@ namespace youtubed.Tests.Integration
                     title = channelId,
                     playlistId,
                     staleAfter = DateTimeOffset.UtcNow.AddMinutes(-5),
-                    visibleAfter = DateTimeOffset.UtcNow.AddMinutes(-5)
                 });
         }
     }

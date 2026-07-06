@@ -38,14 +38,8 @@ namespace youtubed.Services
                 Constants.ChannelRefreshLookaheadCount,
                 cancellationToken);
 
-            var claimed = await _channelRepository.ClaimStaleBatchAsync(
-                now,
-                now.Add(_clock.RandomDelay(
-                    Constants.VisibilityTimeoutMin,
-                    Constants.VisibilityTimeoutMax)),
-                Constants.ChannelRefreshBatchSize,
-                cancellationToken);
-            var selectedIds = claimed
+            var selectedIds = lookahead
+                .Take(Constants.ChannelRefreshBatchSize)
                 .Select(channel => channel.Id)
                 .ToList();
             var channels = await _channelRepository.GetBatchAsync(selectedIds, cancellationToken);
@@ -143,6 +137,12 @@ namespace youtubed.Services
                 if (!string.IsNullOrWhiteSpace(channel.PlaylistId))
                 {
                     channelsReadyForPlaylist.Add(channel);
+                }
+                else
+                {
+                    channel.StaleAfter = _clock.UtcNowAfterRandomDelay(
+                        Constants.ChannelMaxAgeMin,
+                        Constants.ChannelMaxAgeMax);
                 }
             }
 
@@ -327,7 +327,7 @@ namespace youtubed.Services
             channel.Url = string.Format(Constants.YoutubeChannelUrl, metadata.Id);
             channel.Title = metadata.Title;
             channel.Thumbnail = metadata.Thumbnail;
-            channel.PlaylistId = metadata.PlaylistId;
+            channel.PlaylistId = metadata.PlaylistId ?? string.Empty;
             channel.Status = ChannelStatus.Active;
             channel.StatusReason = ChannelStatusReason.None;
             channel.StatusUpdatedAt = null;

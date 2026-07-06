@@ -13,14 +13,8 @@ namespace youtubed.Persistence
         Task SaveDiscoveredChannelAsync(ChannelModel channel, DateTimeOffset staleAfter);
         Task UpdateMetadataAsync(string id, string url, string title, string thumbnail, string playlistId);
         Task MarkUnavailableAsync(string id, ChannelStatusReason reason, DateTimeOffset statusUpdatedAt, DateTimeOffset staleAfter);
-        Task<StaleChannelModel> ClaimNextStaleChannelAsync(DateTimeOffset now, DateTimeOffset visibleAfter);
         Task<IReadOnlyList<StaleChannelReference>> GetStaleLookaheadAsync(
             DateTimeOffset now,
-            int take,
-            CancellationToken cancellationToken);
-        Task<IReadOnlyList<StaleChannelReference>> ClaimStaleBatchAsync(
-            DateTimeOffset now,
-            DateTimeOffset visibleAfter,
             int take,
             CancellationToken cancellationToken);
         Task<DateTimeOffset?> GetNextActiveSubscribedRefreshAtAsync(

@@ -87,7 +87,7 @@ namespace youtubed.Tests.Integration
         }
 
         [LocalDbFact]
-        public async Task PurgeExpiredChannelsAsync_DeletesOnlyExpiredOrphans()
+        public async Task PurgeExpiredChannelsAsync_DeletesAllOrphanChannels()
         {
             var listId = Guid.NewGuid();
             var now = new DateTimeOffset(2026, 5, 8, 12, 0, 0, TimeSpan.Zero);
@@ -98,11 +98,11 @@ namespace youtubed.Tests.Integration
                 INSERT INTO List (Id, Token, Title, ExpiredAfter)
                 VALUES (@listId, @token, N'List', @expiredAfter);
 
-                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, VisibleAfter)
+                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter)
                 VALUES
-                    (N'orphan-expired', N'https://www.youtube.com/channel/orphan-expired', N'Orphan Expired', N'a.png', N'playlist-a', @staleAfter, @expiredVisibleAfter),
-                    (N'orphan-active', N'https://www.youtube.com/channel/orphan-active', N'Orphan Active', N'b.png', N'playlist-b', @staleAfter, @futureVisibleAfter),
-                    (N'attached-expired', N'https://www.youtube.com/channel/attached-expired', N'Attached Expired', N'c.png', N'playlist-c', @staleAfter, @expiredVisibleAfter);
+                    (N'orphan-expired', N'https://www.youtube.com/channel/orphan-expired', N'Orphan Expired', N'a.png', N'playlist-a', @staleAfter),
+                    (N'orphan-active', N'https://www.youtube.com/channel/orphan-active', N'Orphan Active', N'b.png', N'playlist-b', @staleAfter),
+                    (N'attached-expired', N'https://www.youtube.com/channel/attached-expired', N'Attached Expired', N'c.png', N'playlist-c', @staleAfter);
 
                 INSERT INTO ListChannel (ListId, ChannelId)
                 VALUES (@listId, N'attached-expired');
@@ -113,15 +113,13 @@ namespace youtubed.Tests.Integration
                     token = Enumerable.Repeat((byte)5, 40).ToArray(),
                     expiredAfter = now.AddDays(1),
                     staleAfter = now.AddMinutes(-1),
-                    expiredVisibleAfter = now.AddMinutes(-5),
-                    futureVisibleAfter = now.AddMinutes(5)
                 });
 
             var removed = await _purger.PurgeExpiredChannelsAsync(CancellationToken.None);
             var remaining = await QueryAsync<string>("SELECT Id FROM Channel ORDER BY Id;");
 
-            Assert.Equal(1, removed);
-            Assert.Equal(new[] { "attached-expired", "orphan-active" }, remaining);
+            Assert.Equal(2, removed);
+            Assert.Equal(new[] { "attached-expired" }, remaining);
         }
 
         private Task SeedListAsync(Guid listId, byte[] token)

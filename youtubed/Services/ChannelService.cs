@@ -60,65 +60,6 @@ namespace youtubed.Services
             return await SaveDiscoveredChannelAsync(channel);
         }
 
-        public Task<StaleChannelModel> GetNextStaleChannelOrDefaultAsync()
-        {
-            var now = _clock.UtcNow;
-            var visibilityTimeout = _clock.RandomDelay(
-                Constants.VisibilityTimeoutMin,
-                Constants.VisibilityTimeoutMax);
-
-            // The database lease is the only worker-coordination mechanism.
-            // If a refresh fails, the channel becomes eligible again once this
-            // visibility window expires and another worker can claim it.
-            return _channelRepository.ClaimNextStaleChannelAsync(now, now.Add(visibilityTimeout));
-        }
-
-        public async Task<StaleChannelModel> RefreshMetadataAsync(StaleChannelModel channel)
-        {
-            var refreshed = await _youtubeService.GetChannelByIdAsync(channel.Id);
-            if (refreshed == null)
-            {
-                var now = _clock.UtcNow;
-                await _channelRepository.MarkUnavailableAsync(
-                    channel.Id,
-                    ChannelStatusReason.NotFound,
-                    now,
-                    now.Add(Constants.ChannelUnavailableStaleDelay));
-                return null;
-            }
-
-            var refreshedUrl = string.Format(Constants.YoutubeChannelUrl, refreshed.Id);
-            if (refreshedUrl == channel.Url &&
-                refreshed.Title == channel.Title &&
-                refreshed.Thumbnail == channel.Thumbnail &&
-                refreshed.PlaylistId == channel.PlaylistId &&
-                channel.Status == ChannelStatus.Active &&
-                channel.StatusReason == ChannelStatusReason.None &&
-                channel.StatusUpdatedAt == null)
-            {
-                return channel;
-            }
-
-            await _channelRepository.UpdateMetadataAsync(
-                channel.Id,
-                refreshedUrl,
-                refreshed.Title,
-                refreshed.Thumbnail,
-                refreshed.PlaylistId);
-
-            return new StaleChannelModel
-            {
-                Id = channel.Id,
-                Url = refreshedUrl,
-                Title = refreshed.Title,
-                Thumbnail = refreshed.Thumbnail,
-                PlaylistId = refreshed.PlaylistId,
-                Status = ChannelStatus.Active,
-                StatusReason = ChannelStatusReason.None,
-                StatusUpdatedAt = null
-            };
-        }
-
         private async Task<YoutubeChannel> ResolveSubmittedUrlAsync(string url)
         {
             // Vanity URLs cannot be mapped to Channel ID using the API. To

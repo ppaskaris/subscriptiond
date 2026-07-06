@@ -1,0 +1,10 @@
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+
+IF COL_LENGTH(N'youtubed.Channel', N'VisibleAfter') IS NOT NULL
+BEGIN
+    ALTER TABLE youtubed.Channel
+    DROP COLUMN VisibleAfter;
+END;
+
+COMMIT TRANSACTION;

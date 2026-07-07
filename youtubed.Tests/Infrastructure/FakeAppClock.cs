@@ -3,7 +3,7 @@ using youtubed.Services;
 
 namespace youtubed.Tests.Infrastructure
 {
-    internal sealed class FakeAppClock : IAppClock
+    public sealed class FakeAppClock : IAppClock
     {
         public DateTimeOffset UtcNow { get; set; } = DateTimeOffset.UtcNow;
 

@@ -16,6 +16,9 @@ namespace youtubed.Tests.ProviderContracts
 
         public string ProviderName => "SqlServer";
 
+        public ExpirationPurgeBehavior PurgeBehavior =>
+            ExpirationPurgeBehavior.ImmediateDeletion;
+
         public Task ResetAsync()
         {
             return _fixture.ResetAsync();

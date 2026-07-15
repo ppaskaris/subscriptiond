@@ -26,8 +26,6 @@
 
 ## Commit Rules
 
-- When interpolating `%MODEL_NAME%`, use the full model name and version instead of a family name; for the current session, use `GPT-5.5` rather than `GPT-5`.
-- Commit messages must end with `Co-Authored-By: Codex %MODEL_NAME%`.
 - When a change fixes a GitHub issue, include a closing line such as `Closes #12` in the commit body.
 - When creating or amending a commit for a meaningful shipped code change, update [`youtubed/youtubed.csproj`](youtubed/youtubed.csproj) `AssemblyVersion` in the same change.
 - Keep `AssemblyVersion` in `major.minor.build.revision` format.
@@ -35,7 +33,3 @@
 - Increment `minor` for backward-compatible features, resetting `build` and `revision` to `0`.
 - Increment `build` for backward-compatible fixes, refactors, or internal improvements, resetting `revision` to `0`.
 - Increment `revision` only for very small corrective follow-ups or repackaging-level changes.
-
-## GitHub Metadata
-
-- When creating GitHub issues or pull requests, append `Created-By: Codex %MODEL_NAME%` at the end of the body text.

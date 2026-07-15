@@ -178,7 +178,7 @@ namespace youtubed.Tests.ProviderContracts
             return $"{prefix}-{Guid.NewGuid():N}";
         }
 
-        private static Channel ToDomainChannel(
+        protected static Channel ToDomainChannel(
             ChannelModel channel,
             IReadOnlyCollection<ChannelVideo> videos)
         {

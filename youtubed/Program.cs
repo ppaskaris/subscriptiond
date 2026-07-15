@@ -1,11 +1,9 @@
-using Dapper;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using youtubed.Data;
 using youtubed.DataTransfer;
 using youtubed.Persistence;
 using youtubed.Services;
@@ -31,19 +29,8 @@ builder.Services.AddLogging(loggingBuilder =>
 
 builder.Services.Configure<YoutubeOptions>(builder.Configuration.GetSection("Youtube"));
 
-SqlMapper.AddTypeHandler(new TimeSpanTypeHandler());
-SqlMapper.AddTypeHandler(new DateOnlyTypeHandler());
-
-builder.Services.AddSingleton<IConnectionFactory>(
-    new ConnectionStringConnectionFactory(builder.Configuration.GetConnectionString("Main")));
+builder.Services.AddPersistence(builder.Configuration);
 builder.Services.AddSingleton<IYoutubeService, YoutubeService>();
-builder.Services.AddSingleton<IListRepository, ListRepository>();
-builder.Services.AddSingleton<IShareLinkRepository, ShareLinkRepository>();
-builder.Services.AddSingleton<IChannelRepository, ChannelRepository>();
-builder.Services.AddSingleton<IChannelVideoRepository, ChannelVideoRepository>();
-builder.Services.AddSingleton<IWorkerStateStore, WorkerStateRepository>();
-builder.Services.AddSingleton<IExpirationPurger, SqlExpirationPurger>();
-builder.Services.AddSingleton<IListProjectionRepository, SqlListProjectionRepository>();
 
 builder.Services.AddSingleton<IAppClock, AppClock>();
 builder.Services.AddSingleton<IYoutubeCallDelay, YoutubeCallDelay>();

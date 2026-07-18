@@ -39,6 +39,8 @@ namespace youtubed.Tests.ProviderContracts
                 _fixture.GetContainer(CosmosTestFixture.ChannelsContainerName));
             await DeleteAllAsync(
                 _fixture.GetContainer(CosmosTestFixture.ShareLinksContainerName));
+            await DeleteAllAsync(
+                _fixture.GetContainer(CosmosTestFixture.SystemContainerName));
         }
 
         public ProviderContractTestContext CreateContext(IAppClock clock)
@@ -46,6 +48,7 @@ namespace youtubed.Tests.ProviderContracts
             var lists = _fixture.GetContainer(CosmosTestFixture.ListsContainerName);
             var channels = _fixture.GetContainer(CosmosTestFixture.ChannelsContainerName);
             var shareLinks = _fixture.GetContainer(CosmosTestFixture.ShareLinksContainerName);
+            var system = _fixture.GetContainer(CosmosTestFixture.SystemContainerName);
 
             return new ProviderContractTestContext(
                 new CosmosListRepository(lists, channels, clock),
@@ -56,8 +59,8 @@ namespace youtubed.Tests.ProviderContracts
                     _projectRefreshResults),
                 new CosmosShareLinkRepository(shareLinks, lists, clock),
                 new CosmosListProjectionRepository(lists, channels, clock),
-                null,
-                null);
+                new CosmosWorkerStateStore(system, clock),
+                new CosmosExpirationPurger());
         }
 
         private static async Task DeleteAllAsync(Container container)

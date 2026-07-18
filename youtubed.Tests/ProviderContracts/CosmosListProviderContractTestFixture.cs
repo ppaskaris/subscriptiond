@@ -17,10 +17,14 @@ namespace youtubed.Tests.ProviderContracts
     public sealed class CosmosListProviderContractTestFixture : IProviderContractTestFixture
     {
         private readonly CosmosTestFixture _fixture;
+        private readonly bool _projectRefreshResults;
 
-        public CosmosListProviderContractTestFixture(CosmosTestFixture fixture)
+        public CosmosListProviderContractTestFixture(
+            CosmosTestFixture fixture,
+            bool projectRefreshResults = true)
         {
             _fixture = fixture;
+            _projectRefreshResults = projectRefreshResults;
         }
 
         public string ProviderName => "Cosmos";
@@ -45,9 +49,13 @@ namespace youtubed.Tests.ProviderContracts
 
             return new ProviderContractTestContext(
                 new CosmosListRepository(lists, channels, clock),
-                new SeededCosmosChannelRepository(channels, lists, clock),
+                new SeededCosmosChannelRepository(
+                    channels,
+                    lists,
+                    clock,
+                    _projectRefreshResults),
                 new CosmosShareLinkRepository(shareLinks, lists, clock),
-                null,
+                new CosmosListProjectionRepository(lists, channels, clock),
                 null,
                 null);
         }
@@ -70,15 +78,18 @@ namespace youtubed.Tests.ProviderContracts
             private readonly Container _channels;
             private readonly Container _lists;
             private readonly IAppClock _clock;
+            private readonly bool _projectRefreshResults;
 
             public SeededCosmosChannelRepository(
                 Container channels,
                 Container lists,
-                IAppClock clock)
+                IAppClock clock,
+                bool projectRefreshResults)
             {
                 _channels = channels;
                 _lists = lists;
                 _clock = clock;
+                _projectRefreshResults = projectRefreshResults;
             }
 
             public async Task<ChannelModel> GetByIdAsync(string id)
@@ -145,28 +156,38 @@ namespace youtubed.Tests.ProviderContracts
                         new PartitionKey(channelDocument.Id),
                         cancellationToken: cancellationToken);
 
-                    using var iterator = _lists.GetItemQueryIterator<CosmosListDocument>();
-                    while (iterator.HasMoreResults)
+                    if (_projectRefreshResults)
                     {
-                        foreach (var list in await iterator.ReadNextAsync(cancellationToken))
-                        {
-                            if (!list.Channels.Any(channel => channel.Id == result.Channel.Id))
-                            {
-                                continue;
-                            }
+                        await ProjectRefreshResultAsync(result.Channel, cancellationToken);
+                    }
+                }
+            }
 
-                            list.Channels = list.Channels
-                                .Select(channel => channel.Id == result.Channel.Id
-                                    ? CosmosDocumentMapper.ToProjectedChannelDocument(result.Channel)
-                                    : channel)
-                                .ToArray();
-                            await _lists.ReplaceItemAsync(
-                                list,
-                                list.Id,
-                                new PartitionKey(list.Id),
-                                new ItemRequestOptions { IfMatchEtag = list.ETag },
-                                cancellationToken);
+            private async Task ProjectRefreshResultAsync(
+                Channel channel,
+                CancellationToken cancellationToken)
+            {
+                using var iterator = _lists.GetItemQueryIterator<CosmosListDocument>();
+                while (iterator.HasMoreResults)
+                {
+                    foreach (var list in await iterator.ReadNextAsync(cancellationToken))
+                    {
+                        if (!list.Channels.Any(projected => projected.Id == channel.Id))
+                        {
+                            continue;
                         }
+
+                        list.Channels = list.Channels
+                            .Select(projected => projected.Id == channel.Id
+                                ? CosmosDocumentMapper.ToProjectedChannelDocument(channel)
+                                : projected)
+                            .ToArray();
+                        await _lists.ReplaceItemAsync(
+                            list,
+                            list.Id,
+                            new PartitionKey(list.Id),
+                            new ItemRequestOptions { IfMatchEtag = list.ETag },
+                            cancellationToken);
                     }
                 }
             }
@@ -192,9 +213,44 @@ namespace youtubed.Tests.ProviderContracts
             public Task<DateTimeOffset?> GetNextActiveSubscribedRefreshAtAsync(
                 CancellationToken cancellationToken) => throw new NotSupportedException();
 
-            public Task<IReadOnlyList<Channel>> GetBatchAsync(
+            public async Task<IReadOnlyList<Channel>> GetBatchAsync(
                 IReadOnlyCollection<string> channelIds,
-                CancellationToken cancellationToken) => throw new NotSupportedException();
+                CancellationToken cancellationToken)
+            {
+                var lists = new List<CosmosListDocument>();
+                using (var iterator = _lists.GetItemQueryIterator<CosmosListDocument>())
+                {
+                    while (iterator.HasMoreResults)
+                    {
+                        lists.AddRange(await iterator.ReadNextAsync(cancellationToken));
+                    }
+                }
+
+                var channels = new List<Channel>();
+                foreach (var channelId in channelIds.Distinct(StringComparer.Ordinal))
+                {
+                    try
+                    {
+                        var response = await _channels.ReadItemAsync<CosmosChannelDocument>(
+                            channelId,
+                            new PartitionKey(channelId),
+                            cancellationToken: cancellationToken);
+                        var channel = CosmosDocumentMapper.ToChannel(response.Resource);
+                        channel.SubscribedListIds = lists
+                            .Where(list => list.Channels.Any(projected => projected.Id == channelId))
+                            .Select(list => Guid.Parse(list.Id))
+                            .ToArray();
+                        channel.SubscriptionCount = channel.SubscribedListIds.Count;
+                        channels.Add(channel);
+                    }
+                    catch (CosmosException exception) when (
+                        exception.StatusCode == HttpStatusCode.NotFound)
+                    {
+                    }
+                }
+
+                return channels;
+            }
 
             public Task<int> RemoveOrphanChannelsAsync(DateTimeOffset now) =>
                 throw new NotSupportedException();

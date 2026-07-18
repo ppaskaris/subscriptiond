@@ -18,6 +18,18 @@ The Cosmos target optimizes for free-tier quota usage. The common list page shou
 
 Preserve the anonymous secret-link model. Do not introduce accounts or authentication unless explicitly requested.
 
+## Production Readiness Phase
+
+Tasks at ordinal 2000 and later close the gaps found by the overall Cosmos project review. Their completion bar is not feature-complete development or emulator-only confidence: when the final release-gate task is completed, the project must be demonstrably shippable to production.
+
+For these tasks:
+
+- Treat every `Validation` item as required evidence, together with the repository-wide validation rules in [`AGENTS.md`](../AGENTS.md).
+- Do not mark a task `Completed` when a required LocalDB, Cosmos emulator, Azure staging, migration rehearsal, or release check was skipped or unavailable.
+- Prefer objective automated assertions and recorded staging evidence over implementation summaries that only state a manual check was performed.
+- If validation exposes a design gap, update the relevant design document and dependent task files before continuing.
+- Production deployment and cutover remain separate user-authorized actions; a task may prepare or rehearse them without authorizing changes to production.
+
 ## Design Docs Index
 
 Read only the docs relevant to the task, but use this index to know where to look.
@@ -96,6 +108,8 @@ When finishing a task:
 2. Update `Status: Completed`.
 3. Fill in `Implementation Summary`.
 4. Mention any tests that could not be run and why.
+
+For tasks at ordinal 2000 or later, a blocked required validation prevents step 2: leave the task `In Progress`, document the blocker, and resume when the required environment or evidence is available.
 
 If implementation changes the design:
 

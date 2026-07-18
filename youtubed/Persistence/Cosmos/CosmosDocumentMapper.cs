@@ -33,6 +33,66 @@ namespace youtubed.Persistence.Cosmos
             };
         }
 
+        public static ListChannelProjection ToChannelProjection(CosmosListDocument document)
+        {
+            return new ListChannelProjection
+            {
+                List = ToSubscriptionList(document),
+                Channels = document.Channels
+                    .OrderBy(channel => channel.Title, StringComparer.Ordinal)
+                    .Select(channel => new ListChannelProjection.Channel
+                    {
+                        Id = channel.Id,
+                        Url = channel.Url,
+                        Title = channel.Title,
+                        Thumbnail = channel.Thumbnail,
+                        StaleAfter = channel.StaleAfter,
+                        Status = ParseChannelStatus(channel.Status),
+                        StatusReason = ParseChannelStatusReason(channel.StatusReason),
+                        StatusUpdatedAt = channel.StatusUpdatedAt
+                    })
+                    .ToArray()
+            };
+        }
+
+        public static ListVideoProjection ToVideoProjection(
+            CosmosListDocument document,
+            int videoLimit)
+        {
+            var selectedVideos = document.Channels
+                .SelectMany(channel => channel.Videos.Select(video => new
+                {
+                    ChannelId = channel.Id,
+                    Video = video
+                }))
+                .OrderByDescending(value => value.Video.PublishedAt)
+                .ThenBy(value => value.Video.Id, StringComparer.Ordinal)
+                .Take(videoLimit)
+                .ToLookup(value => value.ChannelId, StringComparer.Ordinal);
+
+            return new ListVideoProjection
+            {
+                List = ToSubscriptionList(document),
+                Channels = document.Channels
+                    .OrderBy(channel => channel.Id, StringComparer.Ordinal)
+                    .Select(channel => new ListVideoProjection.Channel
+                    {
+                        Id = channel.Id,
+                        Url = channel.Url,
+                        Title = channel.Title,
+                        Thumbnail = channel.Thumbnail,
+                        StaleAfter = channel.StaleAfter,
+                        Status = ParseChannelStatus(channel.Status),
+                        StatusReason = ParseChannelStatusReason(channel.StatusReason),
+                        StatusUpdatedAt = channel.StatusUpdatedAt,
+                        Videos = selectedVideos[channel.Id]
+                            .Select(value => ToVideo(value.Video, channel.Id))
+                            .ToArray()
+                    })
+                    .ToArray()
+            };
+        }
+
         public static CosmosProjectedChannelDocument ToProjectedChannelDocument(Channel channel)
         {
             return new CosmosProjectedChannelDocument
@@ -182,7 +242,7 @@ namespace youtubed.Persistence.Cosmos
             };
         }
 
-        private static int GetTtlSeconds(DateTimeOffset expiresAt, DateTimeOffset now)
+        public static int GetTtlSeconds(DateTimeOffset expiresAt, DateTimeOffset now)
         {
             return Math.Max(1, (int)Math.Ceiling((expiresAt - now).TotalSeconds));
         }

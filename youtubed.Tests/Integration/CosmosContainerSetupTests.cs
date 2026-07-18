@@ -1,4 +1,3 @@
-using System.Linq;
 using System.Threading.Tasks;
 using Xunit;
 using youtubed.Tests.Infrastructure;
@@ -32,7 +31,8 @@ namespace youtubed.Tests.Integration
             Assert.Equal(-1, shareLinks.DefaultTimeToLive);
             Assert.Contains(shareLinks.IndexingPolicy.IncludedPaths, path => path.Path == "/listId/?");
             Assert.Null(system.DefaultTimeToLive);
-            Assert.Equal(new[] { "/id/?" }, system.IndexingPolicy.IncludedPaths.Select(path => path.Path));
+            Assert.Empty(system.IndexingPolicy.IncludedPaths);
+            Assert.Contains(system.IndexingPolicy.ExcludedPaths, path => path.Path == "/*");
         }
     }
 }

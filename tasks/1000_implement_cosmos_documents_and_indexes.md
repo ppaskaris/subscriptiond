@@ -49,5 +49,14 @@ Validation passed:
   2 Cosmos tests skipped because the opt-in environment variable was not set.
 - `git diff --check`
 
-The focused emulator test could not be run because no Cosmos emulator was
-listening on localhost port 8081.
+Follow-up emulator validation found and corrected two policy compatibility
+issues: broad indexing now explicitly includes the mandatory `/*` root path,
+and the system container relies on Cosmos's built-in `id` index instead of
+attempting to override the system property. The emulator may add exclusions for
+system paths such as `_etag`, so integration assertions allow those normalized
+paths.
+
+Follow-up validation passed:
+
+- `dotnet test youtubed.sln --no-build --filter "Category=Cosmos"` with
+  `YOUTUBED_RUN_COSMOS_TESTS=true`: 6 passed, 0 skipped.

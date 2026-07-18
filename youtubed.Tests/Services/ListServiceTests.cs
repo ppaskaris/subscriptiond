@@ -155,6 +155,35 @@ namespace youtubed.Tests.Services
         }
 
         [Fact]
+        public async Task GetListViewAsync_ReturnsNullWhenListDisappearsBeforeProjectionRead()
+        {
+            var list = new ListModel { Id = Guid.NewGuid() };
+            var repository = new Mock<IListRepository>(MockBehavior.Strict);
+            repository
+                .Setup(value => value.GetVideoProjectionAsync(
+                    It.Is<SubscriptionList>(actual => actual.Id == list.Id),
+                    Constants.ListRenderMaxItems + 1))
+                .ReturnsAsync((ListVideoProjection)null);
+            var service = new ListService(repository.Object, new FakeAppClock());
+
+            Assert.Null(await service.GetListViewAsync(list));
+        }
+
+        [Fact]
+        public async Task GetListChannelViewAsync_ReturnsNullWhenListDisappearsBeforeProjectionRead()
+        {
+            var list = new ListModel { Id = Guid.NewGuid() };
+            var repository = new Mock<IListRepository>(MockBehavior.Strict);
+            repository
+                .Setup(value => value.GetChannelProjectionAsync(
+                    It.Is<SubscriptionList>(actual => actual.Id == list.Id)))
+                .ReturnsAsync((ListChannelProjection)null);
+            var service = new ListService(repository.Object, new FakeAppClock());
+
+            Assert.Null(await service.GetListChannelViewAsync(list));
+        }
+
+        [Fact]
         public async Task GetAuthenticatedListAsync_UsesTokenUtilsAndRenewsForUtcToday()
         {
             var id = Guid.NewGuid();

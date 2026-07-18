@@ -56,7 +56,6 @@ namespace youtubed.Persistence.Cosmos
                 {
                     Automatic = true,
                     IndexingMode = IndexingMode.Consistent,
-                    IncludedPaths = { new IncludedPath { Path = "/id/?" } },
                     ExcludedPaths = { new ExcludedPath { Path = "/*" } }
                 }
             };
@@ -81,6 +80,10 @@ namespace youtubed.Persistence.Cosmos
                 }
 
                 policy.ExcludedPaths.Add(new ExcludedPath { Path = "/*" });
+            }
+            else
+            {
+                policy.IncludedPaths.Add(new IncludedPath { Path = "/*" });
             }
 
             if (excludedPaths != null)

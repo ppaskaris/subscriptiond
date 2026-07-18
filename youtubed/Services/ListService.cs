@@ -137,6 +137,10 @@ namespace youtubed.Services
             var projection = await _listRepository.GetVideoProjectionAsync(
                 ToSubscriptionList(list),
                 Constants.ListRenderMaxItems + 1);
+            if (projection == null)
+            {
+                return null;
+            }
 
             var videos = projection.Channels
                 .SelectMany(channel => channel.Videos.Select(video => new VideoViewModel
@@ -170,6 +174,10 @@ namespace youtubed.Services
 
             var now = _clock.UtcNow;
             var projection = await _listRepository.GetChannelProjectionAsync(ToSubscriptionList(list));
+            if (projection == null)
+            {
+                return null;
+            }
 
             return CreateViewModel(
                 projection.List,

@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Text.Json;
 using Xunit;
 using youtubed.Domain;
@@ -81,6 +82,56 @@ namespace youtubed.Tests.Persistence.Cosmos
             });
 
             Assert.Equal(ChannelStatusReason.None, channel.StatusReason);
+        }
+
+        [Fact]
+        public void ListProjectionsReshapeEmbeddedChannelsAndApplyGlobalVideoLimit()
+        {
+            var now = new DateTimeOffset(2026, 7, 18, 12, 0, 0, TimeSpan.Zero);
+            var document = CosmosDocumentMapper.ToDocument(new SubscriptionList
+            {
+                Id = Guid.NewGuid(),
+                Title = "Projected List",
+                ExpiredAfter = now.AddDays(1)
+            }, now);
+            document.Channels = new[]
+            {
+                CreateProjectedChannel("channel-b", "Beta", now, ("oldest", -3), ("newest", -1)),
+                CreateProjectedChannel("channel-a", "Alpha", now, ("middle", -2))
+            };
+
+            var channelProjection = CosmosDocumentMapper.ToChannelProjection(document);
+            var videoProjection = CosmosDocumentMapper.ToVideoProjection(document, 2);
+
+            Assert.Equal(
+                new[] { "channel-a", "channel-b" },
+                channelProjection.Channels.Select(channel => channel.Id));
+            Assert.Equal(
+                new[] { "newest", "middle" },
+                videoProjection.Channels
+                    .SelectMany(channel => channel.Videos)
+                    .OrderByDescending(video => video.PublishedAt)
+                    .Select(video => video.VideoId));
+        }
+
+        private static CosmosProjectedChannelDocument CreateProjectedChannel(
+            string id,
+            string title,
+            DateTimeOffset now,
+            params (string Id, int PublishedHoursAgo)[] videos)
+        {
+            return new CosmosProjectedChannelDocument
+            {
+                Id = id,
+                Title = title,
+                Status = ChannelStatus.Active.ToString(),
+                StatusReason = ChannelStatusReason.None.ToString(),
+                Videos = videos.Select(video => new CosmosVideoDocument
+                {
+                    Id = video.Id,
+                    PublishedAt = now.AddHours(video.PublishedHoursAgo)
+                }).ToArray()
+            };
         }
 
         private sealed class ShareLinkComparer : System.Collections.Generic.IEqualityComparer<ShareLink>

@@ -34,6 +34,11 @@ or:
 
 The SQL provider remains default until Cosmos contract tests pass.
 
+The implemented provider also accepts `Cosmos:ConnectionString` as an alternative
+to `Cosmos:Endpoint` plus `Cosmos:Key`, which is useful for emulator and secret-based
+configuration. On application startup it creates the configured database and
+containers when absent. Cosmos SDK request charges are logged at debug level.
+
 ## Document DTOs
 
 Cosmos DTOs should stay in `Persistence/Cosmos` and map to domain objects.

@@ -1,8 +1,14 @@
 using System;
 using Dapper;
+using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using youtubed.Data;
+using youtubed.Persistence.Cosmos;
+using youtubed.Services;
 
 namespace youtubed.Persistence
 {
@@ -19,9 +25,7 @@ namespace youtubed.Persistence
             return options.Provider switch
             {
                 PersistenceProvider.SqlServer => services.AddSqlServerPersistence(configuration),
-                PersistenceProvider.Cosmos => throw new InvalidOperationException(
-                    "The Cosmos persistence provider is not implemented. " +
-                    "Set Persistence:Provider to SqlServer."),
+                PersistenceProvider.Cosmos => services.AddCosmosPersistence(configuration),
                 _ => throw new InvalidOperationException(
                     $"Unsupported persistence provider '{options.Provider}'.")
             };
@@ -45,6 +49,102 @@ namespace youtubed.Persistence
             services.AddSingleton<IListProjectionRepository, SqlListProjectionRepository>();
 
             return services;
+        }
+
+        public static IServiceCollection AddCosmosPersistence(
+            this IServiceCollection services,
+            IConfiguration configuration)
+        {
+            var section = configuration.GetSection(CosmosOptions.SectionName);
+            var options = section.Get<CosmosOptions>() ?? new CosmosOptions();
+            ValidateCosmosOptions(options);
+
+            services.Configure<CosmosOptions>(section);
+            services.AddSingleton(provider =>
+            {
+                var configuredOptions = provider.GetRequiredService<IOptions<CosmosOptions>>().Value;
+                var clientOptions = new CosmosClientOptions
+                {
+                    SerializerOptions = new CosmosSerializationOptions
+                    {
+                        PropertyNamingPolicy = CosmosPropertyNamingPolicy.CamelCase
+                    }
+                };
+                clientOptions.CustomHandlers.Add(new CosmosRequestChargeLoggingHandler(
+                    provider.GetRequiredService<ILogger<CosmosRequestChargeLoggingHandler>>()));
+
+                return string.IsNullOrWhiteSpace(configuredOptions.ConnectionString)
+                    ? new CosmosClient(
+                        configuredOptions.Endpoint,
+                        configuredOptions.Key,
+                        clientOptions)
+                    : new CosmosClient(configuredOptions.ConnectionString, clientOptions);
+            });
+            services.AddSingleton(options);
+            services.AddSingleton<CosmosPersistenceContext>();
+            services.AddSingleton<CosmosContainerInitializer>();
+            services.AddSingleton<IHostedService, CosmosPersistenceInitializerHostedService>();
+
+            services.AddSingleton<IListRepository>(provider =>
+            {
+                var context = provider.GetRequiredService<CosmosPersistenceContext>();
+                return new CosmosListRepository(
+                    context.Lists,
+                    context.Channels,
+                    provider.GetRequiredService<IAppClock>());
+            });
+            services.AddSingleton<IShareLinkRepository>(provider =>
+            {
+                var context = provider.GetRequiredService<CosmosPersistenceContext>();
+                return new CosmosShareLinkRepository(
+                    context.ShareLinks,
+                    context.Lists,
+                    provider.GetRequiredService<IAppClock>());
+            });
+            services.AddSingleton<IChannelRepository>(provider =>
+            {
+                var context = provider.GetRequiredService<CosmosPersistenceContext>();
+                return new CosmosChannelRepository(
+                    context.Channels,
+                    context.Lists,
+                    provider.GetRequiredService<IAppClock>());
+            });
+            services.AddSingleton<IListProjectionRepository>(provider =>
+            {
+                var context = provider.GetRequiredService<CosmosPersistenceContext>();
+                return new CosmosListProjectionRepository(
+                    context.Lists,
+                    context.Channels,
+                    provider.GetRequiredService<IAppClock>());
+            });
+            services.AddSingleton<IWorkerStateStore>(provider =>
+            {
+                var context = provider.GetRequiredService<CosmosPersistenceContext>();
+                return new CosmosWorkerStateStore(
+                    context.System,
+                    provider.GetRequiredService<IAppClock>());
+            });
+            services.AddSingleton<IExpirationPurger, CosmosExpirationPurger>();
+
+            return services;
+        }
+
+        private static void ValidateCosmosOptions(CosmosOptions options)
+        {
+            if (string.IsNullOrWhiteSpace(options.ConnectionString)
+                && (string.IsNullOrWhiteSpace(options.Endpoint)
+                    || string.IsNullOrWhiteSpace(options.Key)))
+            {
+                throw new InvalidOperationException(
+                    "Cosmos persistence requires Cosmos:ConnectionString or both " +
+                    "Cosmos:Endpoint and Cosmos:Key.");
+            }
+
+            if (string.IsNullOrWhiteSpace(options.DatabaseName))
+            {
+                throw new InvalidOperationException(
+                    "Cosmos persistence requires Cosmos:DatabaseName.");
+            }
         }
     }
 }

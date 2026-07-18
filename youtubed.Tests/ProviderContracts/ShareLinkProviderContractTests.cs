@@ -71,6 +71,10 @@ namespace youtubed.Tests.ProviderContracts
             await CreateShareLinkAsync(firstList.Id, "delete-all");
             await CreateShareLinkAsync(secondList.Id, "keep");
 
+            await Provider.ShareLinks.DeleteAsync(firstList.Id, "keep");
+            Assert.Equal("keep", Assert.Single(
+                await Provider.ShareLinks.GetByListAsync(secondList.Id)).Password);
+
             await Provider.ShareLinks.DeleteAsync(firstList.Id, "delete-one");
             Assert.Equal("delete-all", Assert.Single(await Provider.ShareLinks.GetByListAsync(firstList.Id)).Password);
 

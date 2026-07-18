@@ -33,17 +33,20 @@ namespace youtubed.Tests.ProviderContracts
                 _fixture.GetContainer(CosmosTestFixture.ListsContainerName));
             await DeleteAllAsync(
                 _fixture.GetContainer(CosmosTestFixture.ChannelsContainerName));
+            await DeleteAllAsync(
+                _fixture.GetContainer(CosmosTestFixture.ShareLinksContainerName));
         }
 
         public ProviderContractTestContext CreateContext(IAppClock clock)
         {
             var lists = _fixture.GetContainer(CosmosTestFixture.ListsContainerName);
             var channels = _fixture.GetContainer(CosmosTestFixture.ChannelsContainerName);
+            var shareLinks = _fixture.GetContainer(CosmosTestFixture.ShareLinksContainerName);
 
             return new ProviderContractTestContext(
                 new CosmosListRepository(lists, channels, clock),
                 new SeededCosmosChannelRepository(channels, lists, clock),
-                null,
+                new CosmosShareLinkRepository(shareLinks, lists, clock),
                 null,
                 null,
                 null);

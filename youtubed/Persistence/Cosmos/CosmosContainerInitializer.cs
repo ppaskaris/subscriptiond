@@ -35,10 +35,16 @@ namespace youtubed.Persistence.Cosmos
 
         private static ContainerProperties CreateChannelsProperties(string id)
         {
-            return CreateTtlContainer(
+            var properties = CreateTtlContainer(
                 id,
                 new[] { "/videos/*" },
                 new[] { "/staleAfter/?", "/subscriptionCount/?", "/status/?" });
+            properties.IndexingPolicy.CompositeIndexes.Add(new System.Collections.ObjectModel.Collection<CompositePath>
+            {
+                new CompositePath { Path = "/staleAfter", Order = CompositePathSortOrder.Ascending },
+                new CompositePath { Path = "/id", Order = CompositePathSortOrder.Ascending }
+            });
+            return properties;
         }
 
         private static ContainerProperties CreateShareLinksProperties(string id)

@@ -87,6 +87,7 @@ namespace youtubed.Tests.Persistence.Cosmos
                     It.IsAny<ItemRequestOptions>(),
                     It.IsAny<CancellationToken>()))
                 .ReturnsAsync(firstRead.Object)
+                .ReturnsAsync(retryRead.Object)
                 .ReturnsAsync(retryRead.Object);
             lists
                 .SetupSequence(container => container.ReplaceItemAsync(
@@ -102,6 +103,14 @@ namespace youtubed.Tests.Persistence.Cosmos
                     null,
                     0))
                 .ReturnsAsync(CreateResponse<CosmosListDocument>(null).Object);
+            channels
+                .Setup(container => container.ReplaceItemAsync(
+                    It.IsAny<CosmosChannelDocument>(),
+                    channelId,
+                    It.IsAny<PartitionKey?>(),
+                    It.IsAny<ItemRequestOptions>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(CreateResponse<CosmosChannelDocument>(null).Object);
 
             var repository = new CosmosListRepository(
                 lists.Object,
@@ -114,7 +123,7 @@ namespace youtubed.Tests.Persistence.Cosmos
                 listId.ToString("D"),
                 It.IsAny<PartitionKey>(),
                 It.IsAny<ItemRequestOptions>(),
-                It.IsAny<CancellationToken>()), Times.Exactly(2));
+                It.IsAny<CancellationToken>()), Times.Exactly(3));
             lists.Verify(container => container.ReplaceItemAsync(
                 It.Is<CosmosListDocument>(document =>
                     document.ETag == "etag-2"
@@ -123,6 +132,75 @@ namespace youtubed.Tests.Persistence.Cosmos
                 listId.ToString("D"),
                 It.IsAny<PartitionKey?>(),
                 It.Is<ItemRequestOptions>(options => options.IfMatchEtag == "etag-2"),
+                It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        [Fact]
+        public async Task DeleteAsync_RereadsAfterConflictAndReconcilesExactDeletedVersion()
+        {
+            var listId = Guid.NewGuid();
+            var firstDocument = CreateListDocument(listId, "etag-1");
+            firstDocument.Channels = new[]
+            {
+                new CosmosProjectedChannelDocument { Id = "channel-1" }
+            };
+            var retryDocument = CreateListDocument(listId, "etag-2");
+            retryDocument.Channels = new[]
+            {
+                new CosmosProjectedChannelDocument { Id = "channel-1" },
+                new CosmosProjectedChannelDocument { Id = "channel-2" }
+            };
+            var lists = new Mock<Container>();
+            var channels = new Mock<Container>();
+            lists
+                .SetupSequence(container => container.ReadItemAsync<CosmosListDocument>(
+                    listId.ToString("D"),
+                    It.IsAny<PartitionKey>(),
+                    It.IsAny<ItemRequestOptions>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(CreateResponse(firstDocument).Object)
+                .ReturnsAsync(CreateResponse(retryDocument).Object);
+            lists
+                .SetupSequence(container => container.DeleteItemAsync<CosmosListDocument>(
+                    listId.ToString("D"),
+                    It.IsAny<PartitionKey>(),
+                    It.IsAny<ItemRequestOptions>(),
+                    It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new CosmosException(
+                    "conflict",
+                    HttpStatusCode.PreconditionFailed,
+                    0,
+                    null,
+                    0))
+                .ReturnsAsync(CreateResponse<CosmosListDocument>(null).Object);
+            channels
+                .Setup(container => container.ReadItemAsync<CosmosChannelDocument>(
+                    It.IsAny<string>(),
+                    It.IsAny<PartitionKey>(),
+                    It.IsAny<ItemRequestOptions>(),
+                    It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new CosmosException("missing", HttpStatusCode.NotFound, 0, null, 0));
+            var repository = new CosmosListRepository(
+                lists.Object,
+                channels.Object,
+                new FakeAppClock());
+
+            await repository.DeleteAsync(listId);
+
+            lists.Verify(container => container.DeleteItemAsync<CosmosListDocument>(
+                listId.ToString("D"),
+                It.IsAny<PartitionKey>(),
+                It.Is<ItemRequestOptions>(options => options.IfMatchEtag == "etag-1"),
+                It.IsAny<CancellationToken>()), Times.Once);
+            lists.Verify(container => container.DeleteItemAsync<CosmosListDocument>(
+                listId.ToString("D"),
+                It.IsAny<PartitionKey>(),
+                It.Is<ItemRequestOptions>(options => options.IfMatchEtag == "etag-2"),
+                It.IsAny<CancellationToken>()), Times.Once);
+            channels.Verify(container => container.ReadItemAsync<CosmosChannelDocument>(
+                "channel-2",
+                It.IsAny<PartitionKey>(),
+                It.IsAny<ItemRequestOptions>(),
                 It.IsAny<CancellationToken>()), Times.Once);
         }
 

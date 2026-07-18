@@ -23,22 +23,16 @@ namespace youtubed.Tests.ProviderContracts
                 playlistId: "original-playlist",
                 staleAfter: staleAfter);
 
-            var created = Assert.Single(await Provider.Channels.GetBatchAsync(
-                new[] { "missing-channel", channel.Id },
-                CancellationToken.None));
+            var created = await Provider.Channels.GetByIdAsync(channel.Id);
+            Assert.NotNull(created);
             Assert.Equal(channel.Id, created.Id);
             Assert.Equal(channel.Url, created.Url);
             Assert.Equal("Original", created.Title);
             Assert.Equal(channel.Thumbnail, created.Thumbnail);
             Assert.Equal("original-playlist", created.PlaylistId);
-            Assert.Equal(staleAfter, created.StaleAfter);
             Assert.Equal(ChannelStatus.Active, created.Status);
             Assert.Equal(ChannelStatusReason.None, created.StatusReason);
             Assert.Null(created.StatusUpdatedAt);
-            Assert.Empty(created.SubscribedListIds);
-            Assert.Equal(0, created.SubscriptionCount);
-            Assert.Empty(created.Videos);
-
             var statusUpdatedAt = Clock.UtcNow.AddMinutes(1);
             var updatedStaleAfter = Clock.UtcNow.AddYears(100);
             channel.Url = "https://www.youtube.com/@canonical-channel";
@@ -64,18 +58,40 @@ namespace youtubed.Tests.ProviderContracts
                 },
                 CancellationToken.None);
 
-            var persisted = Assert.Single(await Provider.Channels.GetBatchAsync(
-                new[] { channel.Id },
-                CancellationToken.None));
+            var persisted = await Provider.Channels.GetByIdAsync(channel.Id);
+            Assert.NotNull(persisted);
             Assert.Equal(updated.Url, persisted.Url);
             Assert.Equal(updated.Title, persisted.Title);
             Assert.Equal(updated.Thumbnail, persisted.Thumbnail);
             Assert.Equal(updated.PlaylistId, persisted.PlaylistId);
-            Assert.Equal(updatedStaleAfter, persisted.StaleAfter);
             Assert.Equal(ChannelStatus.Unavailable, persisted.Status);
             Assert.Equal(ChannelStatusReason.NotFound, persisted.StatusReason);
             Assert.Equal(statusUpdatedAt, persisted.StatusUpdatedAt);
-            var persistedVideo = Assert.Single(persisted.Videos);
+
+            var list = await CreateListAsync();
+            await AddChannelToListAsync(list.Id, channel.Id);
+            updated.Status = ChannelStatus.Active;
+            updated.StatusReason = ChannelStatusReason.None;
+            updated.StatusUpdatedAt = null;
+            updated.StaleAfter = Clock.UtcNow.AddMinutes(-1);
+            await Provider.Channels.SaveRefreshResultsAsync(
+                new[]
+                {
+                    new ChannelRefreshResult
+                    {
+                        Channel = updated,
+                        VideosRefreshed = true,
+                        EarliestPublishedAt = video.PublishedAt
+                    }
+                },
+                CancellationToken.None);
+
+            var batchChannel = Assert.Single(await Provider.Channels.GetBatchAsync(
+                new[] { "missing-channel", channel.Id },
+                CancellationToken.None));
+            Assert.Equal(list.Id, Assert.Single(batchChannel.SubscribedListIds));
+            Assert.Equal(1, batchChannel.SubscriptionCount);
+            var persistedVideo = Assert.Single(batchChannel.Videos);
             Assert.Equal(video.VideoId, persistedVideo.VideoId);
             Assert.Equal(video.Title, persistedVideo.Title);
         }

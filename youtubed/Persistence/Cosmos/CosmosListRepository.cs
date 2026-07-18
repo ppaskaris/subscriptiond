@@ -16,12 +16,14 @@ namespace youtubed.Persistence.Cosmos
         private readonly Container _lists;
         private readonly Container _channels;
         private readonly IAppClock _clock;
+        private readonly CosmosChannelRepository _channelRepository;
 
         public CosmosListRepository(Container lists, Container channels, IAppClock clock)
         {
             _lists = lists ?? throw new ArgumentNullException(nameof(lists));
             _channels = channels ?? throw new ArgumentNullException(nameof(channels));
             _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+            _channelRepository = new CosmosChannelRepository(_channels, _lists, _clock);
         }
 
         public async Task CreateAsync(ListModel list)
@@ -130,11 +132,12 @@ namespace youtubed.Persistence.Cosmos
                     document.Channels = document.Channels.Append(projectedChannel).ToArray();
                     return true;
                 });
+            await _channelRepository.UpdateSubscriptionAsync(channelId, listId);
         }
 
-        public Task RemoveChannelAsync(Guid listId, string channelId)
+        public async Task RemoveChannelAsync(Guid listId, string channelId)
         {
-            return UpdateMembershipAsync(
+            await UpdateMembershipAsync(
                 listId,
                 document =>
                 {
@@ -152,6 +155,7 @@ namespace youtubed.Persistence.Cosmos
                     document.Channels = channels;
                     return true;
                 });
+            await _channelRepository.UpdateSubscriptionAsync(channelId, listId);
         }
 
         public Task UpdateAsync(Guid id, string title, decimal playbackRate)
@@ -169,14 +173,43 @@ namespace youtubed.Persistence.Cosmos
         public async Task DeleteAsync(Guid id)
         {
             var documentId = id.ToString("D");
-            try
+            CosmosListDocument deletedDocument = null;
+            for (var attempt = 0; attempt < MaxWriteAttempts; attempt++)
             {
-                await _lists.DeleteItemAsync<CosmosListDocument>(
-                    documentId,
-                    new PartitionKey(documentId));
+                var document = await ReadListAsync(id);
+                if (document == null)
+                {
+                    return;
+                }
+
+                try
+                {
+                    await _lists.DeleteItemAsync<CosmosListDocument>(
+                        documentId,
+                        new PartitionKey(documentId),
+                        new ItemRequestOptions { IfMatchEtag = document.ETag });
+                    deletedDocument = document;
+                    break;
+                }
+                catch (CosmosException exception) when (
+                    exception.StatusCode == HttpStatusCode.PreconditionFailed
+                    && attempt + 1 < MaxWriteAttempts)
+                {
+                }
+                catch (CosmosException exception) when (exception.StatusCode == HttpStatusCode.NotFound)
+                {
+                    return;
+                }
             }
-            catch (CosmosException exception) when (exception.StatusCode == HttpStatusCode.NotFound)
+
+            if (deletedDocument != null)
             {
+                foreach (var channelId in deletedDocument.Channels
+                    .Select(channel => channel.Id)
+                    .Distinct(StringComparer.Ordinal))
+                {
+                    await _channelRepository.UpdateSubscriptionAsync(channelId, id);
+                }
             }
         }
 

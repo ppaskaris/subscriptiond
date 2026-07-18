@@ -28,6 +28,11 @@ namespace youtubed.Tests.Integration
             Assert.Equal(-1, channels.DefaultTimeToLive);
             Assert.Contains(channels.IndexingPolicy.IncludedPaths, path => path.Path == "/staleAfter/?");
             Assert.Contains(channels.IndexingPolicy.ExcludedPaths, path => path.Path == "/videos/*");
+            Assert.Contains(
+                channels.IndexingPolicy.CompositeIndexes,
+                index => index.Count == 2
+                    && index[0].Path == "/staleAfter"
+                    && index[1].Path == "/id");
             Assert.Equal(-1, shareLinks.DefaultTimeToLive);
             Assert.Contains(shareLinks.IndexingPolicy.IncludedPaths, path => path.Path == "/listId/?");
             Assert.Null(system.DefaultTimeToLive);

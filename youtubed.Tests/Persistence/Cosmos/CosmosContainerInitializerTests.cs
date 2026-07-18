@@ -33,5 +33,19 @@ namespace youtubed.Tests.Persistence.Cosmos
                 new[] { "/*" },
                 system.IndexingPolicy.ExcludedPaths.Select(path => path.Path));
         }
+
+        [Fact]
+        public void ChannelsPolicySupportsDeterministicStaleOrdering()
+        {
+            var channels = CosmosContainerInitializer
+                .GetContainerProperties(new CosmosOptions())
+                .Single(container => container.Id == CosmosContainerNames.Channels);
+
+            var composite = Assert.Single(channels.IndexingPolicy.CompositeIndexes);
+            Assert.Equal(new[] { "/staleAfter", "/id" }, composite.Select(path => path.Path));
+            Assert.All(composite, path => Assert.Equal(
+                Microsoft.Azure.Cosmos.CompositePathSortOrder.Ascending,
+                path.Order));
+        }
     }
 }

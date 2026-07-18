@@ -3,7 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <UserSecretsId>6a3676e8-3e2c-4433-976f-4e27f06e1306</UserSecretsId>
-    <AssemblyVersion>2.12.2.0</AssemblyVersion>
+    <AssemblyVersion>2.12.3.0</AssemblyVersion>
     <NpmCommand Condition="'$(OS)' == 'Windows_NT'">npm.cmd</NpmCommand>
     <NpmCommand Condition="'$(OS)' != 'Windows_NT'">npm</NpmCommand>
   </PropertyGroup>
@@ -13,6 +13,7 @@
     <PackageReference Include="Google.Apis.YouTube.v3" Version="1.70.0.3847" />
     <PackageReference Include="Humanizer.Core" Version="2.13.14" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="6.1.2" />
+    <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.62.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.AzureAppServices" Version="10.0.0" />
   </ItemGroup>
 

@@ -1,26 +1,18 @@
 using Microsoft.Azure.Cosmos;
 using System;
-using System.Collections.Generic;
 using System.Threading.Tasks;
 using Xunit;
+using youtubed.Persistence.Cosmos;
 
 namespace youtubed.Tests.Infrastructure
 {
     public sealed class CosmosTestFixture : IAsyncLifetime
     {
         public const string CollectionName = "Cosmos";
-        public const string ListsContainerName = "lists";
-        public const string ChannelsContainerName = "channels";
-        public const string ShareLinksContainerName = "shareLinks";
-        public const string SystemContainerName = "system";
-
-        private static readonly IReadOnlyList<string> ContainerNames = new[]
-        {
-            ListsContainerName,
-            ChannelsContainerName,
-            ShareLinksContainerName,
-            SystemContainerName
-        };
+        public const string ListsContainerName = CosmosContainerNames.Lists;
+        public const string ChannelsContainerName = CosmosContainerNames.Channels;
+        public const string ShareLinksContainerName = CosmosContainerNames.ShareLinks;
+        public const string SystemContainerName = CosmosContainerNames.System;
 
         private CosmosClient _client;
         private Database _database;
@@ -61,11 +53,9 @@ namespace youtubed.Tests.Infrastructure
 
             _database = (await _client.CreateDatabaseAsync(DatabaseName)).Database;
 
-            foreach (var containerName in ContainerNames)
-            {
-                await _database.CreateContainerAsync(
-                    new ContainerProperties(containerName, "/id"));
-            }
+            await new CosmosContainerInitializer().InitializeAsync(
+                _database,
+                new CosmosOptions());
         }
 
         public async Task DisposeAsync()

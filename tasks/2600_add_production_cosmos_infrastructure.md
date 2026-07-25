@@ -10,11 +10,18 @@ Provision repeatable, reviewable Azure Cosmos infrastructure that satisfies the 
 
 ## Scope
 
-- Add repository-owned infrastructure as code for the Cosmos account, database, four containers, TTL, partition keys, indexing policies, and required composite indexes.
+- Add repository-owned infrastructure as code for the Cosmos account, database,
+  five containers (`lists`, `channels`, `shareLinks`, `system`, and `recovery`),
+  TTL, partition keys, indexing policies, and required composite indexes.
+- Provision the recovery container with `/listId` partitioning and the exact
+  membership, projection, edge-due, lifecycle-due, and partition cleanup
+  scalar/composite indexes documented by Task 2100.
 - Provision database-shared or otherwise explicitly budgeted throughput consistent with Task 2520 and the Azure free-tier target.
 - Configure free-tier eligibility, regions, consistency, backup/restore policy, networking, diagnostic settings, tags, and deletion protection as appropriate for this service.
 - Separate development/emulator, staging, and production parameterization without duplicating resource definitions.
 - Decide whether application startup creates resources in development only and validates immutable production resources; implement drift detection with actionable failures.
+- Make production readiness fail when the recovery container/index policy is
+  absent or drifted; liveness must not depend on an empty recovery backlog.
 - Add deployment what-if/plan and idempotency checks.
 - Document resource ownership, safe upgrades, restore procedure, and cost expectations.
 
@@ -28,9 +35,13 @@ Provision repeatable, reviewable Azure Cosmos infrastructure that satisfies the 
 
 - Infrastructure lint/validation and a deployment what-if/plan pass.
 - The same definition deploys an isolated staging environment twice without destructive drift or duplicate resources.
-- Staging inspection proves throughput, TTL, partition keys, indexes, backup, consistency, diagnostics, and networking match the design.
+- Staging inspection proves throughput, TTL, all five partition keys, every
+  Task-2100 recovery composite index, backup, consistency, diagnostics, and
+  networking match the design.
 - A cost calculation demonstrates the expected workload remains within the intended free-tier allowance or explicitly documents approved cost.
 - Application startup detects an intentionally mismatched container policy with an actionable error.
+- Staging query-plan checks prove each recovery due/cleanup query uses its
+  intended indexes under the production policy.
 
 ## Implementation Summary
 

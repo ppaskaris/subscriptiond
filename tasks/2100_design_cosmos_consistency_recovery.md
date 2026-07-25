@@ -1,6 +1,6 @@
 # Task 021: Design Cosmos Consistency And Recovery
 
-Status: Not Started
+Status: Completed
 
 Depends On: 1400_enable_cosmos_provider_and_validate_end_to_end
 
@@ -34,4 +34,54 @@ Define a production-safe, RU-bounded recovery model for list membership and chan
 
 ## Implementation Summary
 
-Not implemented.
+Designed a Cosmos-specific, source-of-truth recovery model in which list
+`channels[]` owns membership, channel reverse references/count/orphan TTL are
+derived, and render projections remain non-authoritative. Selected a dedicated
+`recovery` container with one lifecycle document per list, deterministic
+per-list/channel edge documents, and rotating cursor documents. Scalar
+membership/projection version and pending fields make committed cross-container
+work durably discoverable without unbounded operation arrays or list/channel
+scans. Channel `subscriptionGeneration` and generation-bound list-id keysets
+make projection traversal safe when reverse references mutate.
+
+Specified add/remove, explicit delete, automatic TTL, renewal, canonical refresh,
+projection, restart, and multi-instance behavior. The design includes a failure
+matrix after every durable side effect, a convergence argument for missing and
+dead references, ETag/current-list-truth concurrency semantics, provisional
+channel capacity reservation, bounded leases, one conflict retry, continued
+poison retries, structured observability, fixed document/item/RU bounds, durable
+checkpoints, and operational timing/alert SLOs. Recovery is independent of
+channel status/staleness, so unavailable channels participate. Lifecycle
+`activeEdgeCount`/`edgeGeneration` changes transactionally with edge creation and
+deleting retirement, caps total edge documents at 125, and requires zero-count plus
+from-start verification before completion. Exact due-query keysets, cursor wrap
+fairness, a durable cross-kind round-robin page-ticket cursor, composite indexes,
+and bounded drift recount are specified. Membership traversal distinguishes and
+atomically adopts its own expected retirement generation while restarting from
+the beginning on external generation changes.
+
+Updated the system design, implementation contracts, Cosmos schema and
+implementation sketch, and worker state model. Task 2110 now owns the shared
+recovery substrate, provider-neutral recovery port/scheduler, global cursors,
+membership, and projection recovery; Task 2120 owns lifecycle deadlines,
+renewal, explicit deletion, TTL observation, per-list cleanup checkpoints, and
+final cleanup. Task 2600 now provisions five containers and the required
+recovery indexes; Task 2610 covers recovery-container identity, readiness, and
+health/drift semantics. A continuation-bounded bootstrap is explicitly required
+before enabling the invariant over pre-existing Cosmos data, while production
+migration itself remains out of scope.
+
+Validation passed on 2026-07-25:
+
+- Confirmed dependency Task 1400 is completed.
+- Confirmed all ten changed files are Markdown/design/task files; no code or
+  assembly version changed.
+- Automated content checks found the required source-of-truth, failure matrix,
+  convergence, unavailable-channel, poison, RU/document/work, restart, cursor,
+  generation, transactional edge count/cap, exact query/index, worker-port, and
+  multi-instance sections in all five required design documents and Tasks
+  2110/2120/2600/2610. Checks also cover forced-RU cross-kind non-starvation and
+  membership expected-versus-external edge-generation behavior.
+- Automated local Markdown-link validation found no broken links in changed
+  files.
+- `git diff --check` passed.

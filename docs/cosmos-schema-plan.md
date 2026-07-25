@@ -4,12 +4,13 @@ The Cosmos DB provider optimizes for minimal RU usage on the common list page re
 
 ## Containers
 
-Recommended containers:
+The provider uses five containers:
 
 - `lists`
 - `channels`
 - `shareLinks`
 - `system`
+- `recovery`
 
 ## Lists Container
 
@@ -30,6 +31,9 @@ The list document combines list settings and render projection:
   "expiredAfter": "2026-06-24T12:00:00Z",
   "expirationRenewedOn": "2026-05-09",
   "ttl": 3974400,
+  "membershipVersion": 7,
+  "membershipRecoveryPending": true,
+  "membershipRecoveryDueAt": "2026-05-09T12:01:00Z",
   "channels": [
     {
       "id": "UC...",
@@ -61,6 +65,11 @@ List reads should point-read by id and partition key. Metadata-only reads can pr
 List writes should use ETag optimistic concurrency. If a worker update conflicts with a user add/remove, the worker must re-read and reapply its patch.
 
 Projection updates can use Cosmos patch to set fields such as `/channels`, but correctness still requires ETag or equivalent concurrency handling.
+
+`membershipVersion` increments and `membershipRecoveryPending` becomes true in
+the same ETag-protected replace that changes `channels[]`. Recovery clears the
+flag only for the version it has completely reconciled. These scalar fields keep
+pending work bounded independently of request volume.
 
 ## List Projection Sizing
 
@@ -160,8 +169,15 @@ Canonical channel document:
   "statusUpdatedAt": null,
   "subscribedListIds": ["list-guid"],
   "subscriptionCount": 1,
+  "subscriptionGeneration": 9,
   "orphanedAfter": null,
   "ttl": -1,
+  "projectionVersion": 12,
+  "projectionRecoveryPending": true,
+  "projectionRecoveryDueAt": "2026-05-09T12:01:00Z",
+  "projectionRecoveryProjectionVersion": 12,
+  "projectionRecoverySubscriptionGeneration": 9,
+  "projectionRecoveryAfterListId": "earlier-list-guid",
   "videos": [
     {
       "id": "video-id",
@@ -176,13 +192,30 @@ Canonical channel document:
 
 Canonical `videos` are capped at the newest 100 videos, filtered by existing video max-age rules.
 
-`subscribedListIds` is the source for reverse references. `subscriptionCount` is an indexed query helper and repair target.
+`subscribedListIds` is the materialized reverse-reference set.
+`subscriptionGeneration` increments in the same ETag-protected write whenever
+that normalized set changes. `subscriptionCount` is an indexed query helper and
+repair target.
 
 Channel updates must use optimistic concurrency when modifying `subscribedListIds` and `subscriptionCount`.
 
 Unavailable channels remain until user removal and do not refresh.
 
 Orphan channels receive TTL only when `subscriptionCount == 0` and no valid list references remain. Adding a channel to a list clears orphan markers and disables TTL.
+
+Canonical refresh writes increment `projectionVersion` and set
+`projectionRecoveryPending` atomically with refreshed canonical fields. Recovery
+clears the flag only after the same version has been projected or its dead
+references have been activated for membership repair.
+`projectionRecoveryAfterListId` is a sorted-list-id keyset, not an integer
+offset, and is valid only while both bound generation fields equal the current
+`projectionVersion` and `subscriptionGeneration`. Either change clears the key
+and restarts from the beginning.
+
+Channel writes use the same serializer preflight as list writes and must remain
+strictly below 1,900,000 UTF-8 bytes. Add membership reserves the reverse
+reference before committing the list, so an add that would exceed this ceiling
+is rejected without creating successful list membership.
 
 ## ShareLinks Container
 
@@ -235,9 +268,159 @@ Scheduler document:
   "id": "scheduler",
   "nextChannelRefreshAt": "2026-05-09T13:00:00Z",
   "channelRefreshForceCount": 0,
-  "nextPurgeAt": "2026-05-09T13:10:00Z"
+  "nextPurgeAt": "2026-05-09T13:10:00Z",
+  "nextConsistencyRecoveryAt": "2026-05-09T12:01:00Z",
+  "consistencyRecoveryForceCount": 3
 }
 ```
+
+`nextConsistencyRecoveryAt` schedules the provider-neutral worker phase. SQL has
+no recovery work and may advance it normally; Cosmos queries the durable due
+indexes described below. Correctness does not depend on this timestamp because
+pending records survive and every application start forces an initial pass.
+Forcing sets the time sentinel and increments `consistencyRecoveryForceCount`;
+completion advances the schedule only if both observed fields still match.
+
+## Recovery Container
+
+Partition key:
+
+```text
+/listId
+```
+
+Lifecycle records are point-addressable as `(id = "lifecycle", listId)`:
+
+```json
+{
+  "id": "lifecycle",
+  "listId": "list-guid",
+  "kind": "Lifecycle",
+  "state": "Active",
+  "expiredAfter": "2026-06-24T12:00:00Z",
+  "nextCheckAt": "2026-06-24T12:00:00Z",
+  "activeEdgeCount": 1,
+  "edgeGeneration": 14,
+  "membershipEdgeAfterChannelId": null,
+  "membershipEdgeAfterId": null,
+  "membershipTraversalEdgeGeneration": null,
+  "membershipVersionBeingRepaired": null,
+  "cleanupEdgeAfterChannelId": null,
+  "cleanupEdgeAfterId": null,
+  "cleanupTraversalEdgeGeneration": null,
+  "owner": null,
+  "leaseUntil": null,
+  "attempt": 0,
+  "nextAttemptAt": "2026-06-24T12:00:00Z",
+  "lastErrorClass": null
+}
+```
+
+There is one deterministic edge record per candidate pair. The id encodes a
+stable hash/escaped form of `channelId`, while the full channel id remains a
+property:
+
+```json
+{
+  "id": "edge:stable-channel-key",
+  "listId": "list-guid",
+  "kind": "Edge",
+  "channelId": "UC...",
+  "active": true,
+  "state": "Tracked",
+  "generation": 4,
+  "owner": null,
+  "leaseUntil": null,
+  "attempt": 0,
+  "nextAttemptAt": null,
+  "lastObservedMembershipVersion": 7,
+  "lastErrorClass": null
+}
+```
+
+`state` is `Candidate`, `Tracked`, `Due`, `Retiring`, or `Poison`. Every edge
+document is active recovery evidence and has no TTL. Successful retirement
+deletes it in the same transactional batch that updates the lifecycle; no
+inactive diagnostic edge copy is retained. Mutation ownership is a bounded
+lease; a request may not commit list membership after losing it.
+
+Lifecycle records contain no membership array. Edge documents are fixed shape
+and must be smaller than 16 KiB. `activeEdgeCount` and `edgeGeneration` change in
+the same list-partition transactional batch as active edge creation/retirement.
+A supported list has at most 100 tracked memberships and 125 total active edges,
+including candidates, poison, retiring, and leased work. The 126th distinct
+active candidate is rejected, so repeated failed adds cannot grow the partition
+without bound. Because retirement deletes the document, this is a total edge
+document bound, not only an outstanding-work counter. Candidate ids are
+deterministic per pair, so retries and duplicate requests coalesce.
+
+Task 2110 membership reconciliation uses the `membership*` keyset/version
+fields. When its own candidate-retirement batch returns the exact next
+`edgeGeneration`, it atomically adopts that value and continues its keyset. Any
+unexpected/external generation mismatch—including another instance's
+retirement—clears the membership keyset and restarts from the beginning.
+Task 2120 deleted-list cleanup uses only the separate `cleanup*` keyset
+bound to `cleanupTraversalEdgeGeneration` and orders all active states by
+`(channelId, id)`. It adopts the expected next generation returned by its own
+transactional retirement and continues from its keyset; only an
+unexpected/external generation change restarts from the beginning. Cleanup may
+complete only after `activeEdgeCount == 0`, a fresh from-start active-edge query
+is empty, and a conditional lifecycle update succeeds. Leased/poison/new
+candidates therefore cannot be skipped.
+
+This container is a recovery index, not membership authority. Every processor
+point-reads the list before updating a channel. Creating edges before add,
+retaining them while membership exists, and checking a lifecycle record after
+the list's expiry lets TTL cleanup find both missing and dead reverse references
+without querying all channels or all lists.
+
+The reserved `listId = "__system"` partition contains one cursor per global work
+kind:
+
+```json
+{
+  "id": "cursor:edge-due",
+  "listId": "__system",
+  "kind": "Cursor",
+  "workKind": "EdgeDue",
+  "cycleNow": "2026-05-09T12:00:00Z",
+  "cycleGeneration": 8,
+  "afterDueAt": null,
+  "afterListId": null,
+  "afterId": null,
+  "updatedAt": "2026-05-09T12:00:00Z"
+}
+```
+
+Cursor records use the total key for their work kind. They advance after examined
+pages, wrap only after reaching the end by clearing the key/incrementing the
+cycle, and hold `cycleNow` fixed until wrap. Work inserted behind a cursor waits
+for the next wrap but cannot be starved by continuously inserted early work.
+
+The reserved partition also has a cross-kind ticket cursor:
+
+```json
+{
+  "id": "cursor:work-kind-rotation",
+  "listId": "__system",
+  "kind": "Cursor",
+  "nextStartingKind": "Projection",
+  "rotationGeneration": 42,
+  "updatedAt": "2026-05-09T12:00:00Z"
+}
+```
+
+Before each page, an ETag write returns the current kind and durably advances to
+its successor in `Membership, Projection, EdgeDue, LifecycleDue` order. A crash
+may waste that ticket but cannot roll the cursor back; the skipped kind is
+offered again within four admitted tickets. A pass that exhausts RU stops after
+the page, so the next pass begins with the persisted successor. EdgeDue's own
+fixed-cycle cursor ensures its due poison records also progress.
+
+All ETag-protected claim, transactional-batch, checkpoint, cursor, list, and
+channel writes use an initial attempt plus one reread/retry. The second conflict
+preserves due state for another pass. Conditional worker-state completion does
+not overwrite an observed force-generation mismatch.
 
 ## Indexing
 
@@ -246,6 +429,11 @@ Indexing should be narrowed to reduce write RU.
 Lists:
 
 - point reads by id
+- include `/membershipRecoveryPending`
+- include `/membershipVersion`
+- include `/membershipRecoveryDueAt`
+- composite ascending:
+  `/membershipRecoveryPending`, `/membershipRecoveryDueAt`, `/id`
 - exclude `/channels/*`
 
 Channels:
@@ -253,6 +441,12 @@ Channels:
 - index `/staleAfter`
 - index `/subscriptionCount`
 - index `/status` if used in stale queries
+- include `/projectionRecoveryPending`
+- include `/projectionVersion`
+- include `/subscriptionGeneration`
+- include `/projectionRecoveryDueAt`
+- composite ascending:
+  `/projectionRecoveryPending`, `/projectionRecoveryDueAt`, `/id`
 - exclude `/videos/*`
 
 ShareLinks:
@@ -265,5 +459,20 @@ ShareLinks:
 System:
 
 - minimal indexing
+
+Recovery:
+
+- include `/kind`
+- include `/state`
+- include `/nextAttemptAt`
+- include `/nextCheckAt`
+- include `/leaseUntil`
+- include `/active`
+- include `/channelId`
+- composite ascending: `/kind`, `/active`, `/nextAttemptAt`, `/listId`, `/id`
+- composite ascending: `/kind`, `/nextCheckAt`, `/listId`, `/id`
+- composite ascending: `/kind`, `/active`, `/channelId`, `/id`
+- exclude all other paths after the exact composite/order requirements are
+  verified against emulator query plans
 
 Exact indexing policy JSON should be written during Cosmos implementation and verified with emulator tests.

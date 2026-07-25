@@ -106,8 +106,50 @@ Cosmos stores RU-optimized documents:
 - `channels`: canonical channel plus embedded canonical videos and reverse list references.
 - `shareLinks`: share links keyed by password.
 - `system`: singleton worker state.
+- `recovery`: Cosmos-only list lifecycle and list/channel edge records used to
+  converge cross-container writes.
 
 Cosmos reads the list page by point-reading one list document, then reshapes the embedded denormalized data into the same domain read models returned by SQL.
+
+## Cosmos Cross-Container Consistency
+
+Cosmos cannot atomically update a list document and a channel document because
+they are in different logical partitions and containers. The list document is
+therefore the source of truth for membership: `(listId, channelId)` exists if and
+only if the list exists and its `channels` array contains the channel. The
+channel's `subscribedListIds`, `subscriptionCount`, orphan fields, and TTL are
+derived canonical state. Embedded channel/video data in a list is a render
+projection, not membership authority.
+
+Every Cosmos membership mutation increments a scalar `membershipVersion` and
+sets `membershipRecoveryPending` in the same conditional list write as the
+membership change. A Cosmos-only recovery container retains one lifecycle record
+per list and one small, deterministic edge record per candidate list/channel
+pair. An edge is created before an add can commit and is retained while the
+membership exists. Consequently, list TTL or explicit deletion cannot erase the
+only durable record identifying the channels that need reverse-reference repair.
+
+The recovery worker uses indexed due-work queries, durable total-order keysets, ETag
+claims, and fixed per-pass item/RU budgets. It point-reads the authoritative list
+before changing a channel, so old add, remove, delete, and projection work all
+collapse to the current truth. This work is independent of channel refresh
+eligibility; active, fresh, unavailable, and orphaned channels converge by the
+same path. Detailed invariants, failure cases, retry policy, and bounds are in
+[`implementation-contracts.md`](implementation-contracts.md), with document
+shapes in [`cosmos-schema-plan.md`](cosmos-schema-plan.md).
+
+Channel reverse references carry a generation that changes with their normalized
+set, so projection traversal restarts safely when membership changes. Each list
+lifecycle record transactionally counts/generates its active edge set and caps it
+at 125, including failed candidates and poison/leased work. Lifecycle cleanup
+uses deterministic keysets and cannot complete until the count is zero and a
+fresh from-start query confirms no active edge.
+
+Recovery page admission is also durably round-robin across Membership,
+Projection, EdgeDue, and LifecycleDue, so one kind cannot consume every shared
+RU/item budget forever. Membership traversal adopts only the exact generation
+increment returned by its own retirement batch; any external generation change
+forces a from-start keyset restart.
 
 ## Shared Ports
 

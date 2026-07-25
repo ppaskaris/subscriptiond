@@ -27,7 +27,8 @@ or:
     "ListsContainer": "lists",
     "ChannelsContainer": "channels",
     "ShareLinksContainer": "shareLinks",
-    "SystemContainer": "system"
+    "SystemContainer": "system",
+    "RecoveryContainer": "recovery"
   }
 }
 ```
@@ -51,6 +52,8 @@ Suggested DTOs:
 - `CosmosChannelDocument`
 - `CosmosShareLinkDocument`
 - `CosmosWorkerStateDocument`
+- `CosmosListLifecycleDocument`
+- `CosmosMembershipEdgeDocument`
 
 Do not expose Cosmos DTOs from repository interfaces.
 
@@ -75,17 +78,35 @@ Read-model reads:
 
 Add channel:
 
-- point-read list document with ETag
-- append embedded channel projection if missing
-- replace or patch with ETag
-- retry on conflict
+1. Create/claim the deterministic recovery edge for `(listId, channelId)`.
+   New active edges and lifecycle `activeEdgeCount`/`edgeGeneration` are one
+   list-partition transactional batch; reject the 126th active edge.
+2. Point-read and conditionally update the channel with a provisional reverse
+   reference, cleared orphan state, and disabled TTL. Use the configured
+   serializer to reject an oversized channel before list membership can commit.
+3. Point-read the list with ETag, append the bounded projection, increment
+   `membershipVersion`, and set `membershipRecoveryPending`.
+4. Mark the edge tracked and reconcile it from a fresh list read.
+5. Clear the pending flag only if the reconciled membership version is unchanged.
+
+The request has a bounded edge-owner lease and may not perform step 3 after that
+lease expires. A conflict at either item gets one reread/retry.
 
 Remove channel:
 
-- point-read list document with ETag
-- remove embedded channel projection by id
-- replace or patch with ETag
-- retry on conflict
+1. Ensure/activate the deterministic recovery edge.
+2. Point-read the list with ETag, remove the embedded projection, increment
+   `membershipVersion`, and set `membershipRecoveryPending`.
+3. Reconcile the edge from a fresh list read, conditionally removing only this
+   list id from the channel and applying orphan TTL if it was the last.
+4. Retire the edge and clear only the repaired list version.
+
+Repeated removes perform repair even if membership is already absent.
+
+Create writes the lifecycle record before creating the list. Authenticated
+renewal advances it after renewing the list; a missed lifecycle update causes
+only an early point-read. Explicit delete marks the lifecycle record deleting
+and ensures all current list channels have edge records before deleting the list.
 
 ## Channel Repository
 
@@ -112,10 +133,18 @@ Save refreshed channels:
 
 Reverse reference repair:
 
-- validate `subscribedListIds` when projecting or repairing
-- remove missing/inconsistent list ids
-- set `subscriptionCount = subscribedListIds.Count`
-- if count is zero, set orphan TTL
+- activate an edge record rather than trusting the stale command outcome
+- point-read the list and derive presence from its current `channels[]`
+- add/remove only that list id, preserve unrelated ids, sort/deduplicate, and set
+  `subscriptionCount = subscribedListIds.Count`
+- clear orphan state and TTL for a positive count
+- if count is zero, retain/set `orphanedAfter` and set orphan TTL
+- increment `subscriptionGeneration` whenever the normalized reverse-reference
+  set changes
+- retry a conflicted channel write once; leave the edge due if both attempts fail
+
+Recovery does not use stale lookahead. It point-reads active, fresh, unavailable,
+and already-orphaned channels by edge id.
 
 ## List Projection Repository
 
@@ -123,14 +152,24 @@ SQL implementation is no-op.
 
 Cosmos implementation:
 
-1. For each refreshed channel, build a projected channel subdocument.
-2. For each subscribed list id, point-read the list.
-3. If missing or the list no longer contains the channel, collect a dead reference for channel repair.
+1. The canonical refresh write increments `projectionVersion` and sets
+   `projectionRecoveryPending`.
+2. For each current subscribed list id, point-read the list.
+3. If missing or the list no longer contains the channel, activate its edge
+   record for authoritative membership repair.
 4. If the list contains the channel, replace that channel subdocument in memory.
-5. Write the list document with ETag.
-6. On conflict, re-read and reapply.
+5. Write the list document with ETag, preserving membership recovery fields.
+6. On conflict, re-read and reapply once.
+7. Clear projection pending only if the canonical version is unchanged.
 
 Projection updates should only touch channels processed in the current batch. Do not point-read every other channel in the list just to rebuild a perfect projection.
+
+Projection progress is a sorted-list-id keyset bound to both
+`projectionVersion` and `subscriptionGeneration`. Either generation changing
+clears the key and restarts; completion conditionally checks both. An indexed
+bounded worker query also finds pending projection versions left by a crash, so
+a fresh canonical write cannot become permanently stranded merely because the
+channel is now fresh or unavailable.
 
 ## Share Link Repository
 
@@ -177,11 +216,100 @@ Use the `system` container.
 
 - set `nextPurgeAt`
 
+`ForceConsistencyRecoveryAsync`:
+
+- set `nextConsistencyRecoveryAt` to `DateTimeOffset.MinValue`
+- increment `consistencyRecoveryForceCount`
+
+`CompleteConsistencyRecoveryPassAsync`:
+
+- conditionally update `nextConsistencyRecoveryAt` only if the stored value and
+  force count still match the pass's observed values
+- treat a mismatch as a successful no-op so a startup/mutation force is not
+  erased
+
 ## Expiration Purger
 
 Cosmos implementation is no-op. TTL handles physical deletion.
 
 The worker still calls the purger through the shared interface so SQL and Cosmos share the same worker flow.
+
+The no-op purger does not mean lifecycle cleanup is a no-op. The consistency
+recovery phase queries due lifecycle records. It point-reads each list and either
+reschedules from the current expiry or, on 404, pages the list's recovery
+partition and repairs every edge. Its generation-bound keyset/checkpoint is
+durable.
+
+## Consistency Recovery Service
+
+The Cosmos implementation exposes a provider-specific recovery service behind
+the provider-neutral `IConsistencyRecoveryService`; SQL returns an empty
+`ConsistencyRecoveryPassResult`. The worker supplies the page/item/RU budget. A
+pass separately queries:
+
+- lists with `membershipRecoveryPending = true`;
+- channels with `projectionRecoveryPending = true`;
+- due candidate/retry/poison edge records; and
+- due lifecycle records.
+
+Queries use the exact total orders and composite indexes in
+[`implementation-contracts.md`](implementation-contracts.md): list work by
+`(membershipRecoveryDueAt,id)`, projection work by
+`(projectionRecoveryDueAt,id)`, edge work by
+`(nextAttemptAt,listId,id)`, and lifecycle work by
+`(nextCheckAt,listId,id)`. Each uses `MaxItemCount = 25`, a maximum of 100
+processed items, and a measured 2,000-RU scheduling budget per pass. Stop adding
+work when either limit is reached; one in-flight item, including one ETag retry,
+is the maximum RU overshoot.
+
+Per-kind cursor records in the recovery container's reserved `__system`
+partition hold fixed-cycle timestamps and full keyset tuples. They wrap only at
+end-of-cycle, ensuring restart fairness. Generic startup-immediate scheduling
+and these global cursors are Task 2110. Task 2120 adds only lifecycle deadlines
+and per-list cleanup checkpoints. Projection progress is the generation-bound
+list-id keyset on the channel.
+
+A shared cross-kind ticket cursor rotates
+`Membership -> Projection -> EdgeDue -> LifecycleDue`. Before each page, the
+worker durably advances the ticket to the successor; after RU exhaustion the
+next pass therefore starts with that successor. A crash after ticket advance can
+waste one page opportunity but not starve the kind, which returns within four
+admitted tickets. EdgeDue's per-kind keyset prevents continuously replenished
+normal edges from starving poison entries.
+
+Claims use ETag-protected owner and lease fields. Expired claims are reclaimable,
+duplicate processing is harmless, and completion checks the observed
+membership/projection version or recovery generation. Failures back off with
+jitter from one minute to one hour. Ten failures mark poison and emit an error,
+but poison work remains durable and retries daily.
+
+Claims, edge/lifecycle transactional batches, checkpoints, cursor writes, and
+target list/channel writes each make two total ETag attempts. A second conflict
+leaves work due. A worker-state observed-generation mismatch is a successful
+no-op rather than permission to overwrite a newer force.
+
+Deleted-list cleanup includes all active edge states in deterministic
+`(channelId,id)` order. Edge retirement and lifecycle count/generation changes
+are transactional. The worker adopts the expected generation returned by its own
+retirement and continues its keyset; only an external mismatch restarts.
+An empty page triggers a from-start active-edge verification and conditional
+zero-count/generation completion; leased, poison, or newly created edges block
+completion.
+
+Membership traversal has a separate membership keyset. It atomically adopts the
+exact `edgeGeneration` returned by its own candidate-retirement batch and
+continues. Any unexpected generation, including a concurrent other-instance
+retirement, clears that keyset and restarts from the beginning.
+
+With no backlog or throttling, polling makes new work eligible within one minute.
+An expired lifecycle item is rechecked every ten minutes while its list still
+exists. Alert on ordinary work older than 15 minutes and on cleanup incomplete
+15 minutes after the first list 404; Cosmos TTL's physical-deletion delay is
+outside the application SLO.
+
+Log and measure pending/poison counts, attempts, successes, conflicts, list 404s,
+orphan transitions, oldest age, convergence latency, request charge, per-pass
+items/RU, and expired-lease claims. Never log list tokens or Cosmos credentials.
 
 ## Tests
 
@@ -200,3 +328,17 @@ Tests should cover:
 - stale lookahead query shape
 - share link consume concurrency
 - worker state forced refresh and completion conflict handling
+- failure after each durable add/remove/delete/projection side effect
+- restart with expired recovery leases and persisted keysets
+- concurrent mutation/recovery and genuine multi-instance claims
+- explicit and TTL list deletion cleanup for active and unavailable channels
+- fixed document/cardinality ceilings and per-pass item/RU bounds
+- projection `[A,B]`, process `A`, concurrently remove `A`, then prove generation
+  restart still processes `B`
+- active-edge cap/count/generation transactions, poison/lease-aware lifecycle
+  completion, cursor wrap fairness, and emulator query-plan/index use
+- forced-RU cross-kind rotation with continuous Membership work, proving
+  Projection, EdgeDue poison, and LifecycleDue tickets remain bounded across
+  restart
+- membership keyset continuation after its own expected retirement generation
+  and from-start restart after another instance retires an edge

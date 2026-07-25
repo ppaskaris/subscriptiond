@@ -160,12 +160,54 @@ ListProjectionRecentVideoAge = 5 days
 ListProjectionPerChannelMin = 5
 ListProjectionOversamplingFactor = 1.33
 
+CosmosListMaxChannels = 100
+CosmosListMaxProjectedVideos = 500
+CosmosListSerializedSizeSafetyCeiling = 1,900,000 UTF-8 bytes
+CosmosListPointReadRuBudget = 350
+CosmosListProjectionWriteRuBudget = 3,000
+
 ChannelLookupCacheDuration = 24 hours
 ChannelLookupCacheSizeLimit = 1000
 
 ChannelUnavailableStaleDelay = 100 years
 ChannelOrphanRetention = 7 days
 ```
+
+The Cosmos list projection sizing knobs form one invariant rather than independent
+best-effort settings. Both membership seeding and worker refreshes retain every
+available video in the five-day recent window, then retain older videos until each
+channel has at least
+`min(100, max(5, ceil(ListRenderMaxItems / channelCount * 1.33)))` entries.
+Channels sort by id; videos sort by publication descending and id ascending.
+Duplicate video ids are removed.
+
+The supported envelope is 100 channels, 100 canonical videos per channel, 500
+projected videos per list, and a serialized list item strictly below 1,900,000
+UTF-8 bytes. A provider must validate the complete item before sending a write.
+Exceeding any bound throws `ListCapacityExceededException` without attempting the
+oversized write. Add-channel callers surface that exception as a form error;
+worker projection callers retain the last successfully bounded projection and log
+the failed pass. The rendered global 100-video limit and stale-channel rules do
+not change.
+
+Projection selection must return a fresh DTO graph rather than trimming input
+documents. The same refreshed channel may fan out to lists with different channel
+counts, and an ETag retry may observe a changed count; every attempt recalculates
+from the unmodified canonical projection.
+
+When removing membership increases the allocation for remaining channels, Cosmos
+point-reads only underfilled canonical channels and rehydrates them before the
+conditional list replace. This includes unavailable channels. An ETag retry
+recomputes the hydration set from the newly read membership. If the hydrated
+candidate exceeds either list capacity bound, the provider completes the same
+conditional removal with the existing embedded projections instead. A canonical
+404 also retains the embedded projection. Reverse-reference repair runs after
+the removal version is written successfully, or after a read confirms that the
+membership or list is already absent.
+
+The preflight UTF-8 measurement and Cosmos SDK writes must use the same configured
+`CosmosSerializer`. Provider and emulator clients install the shared serializer
+instead of relying on SDK defaults or separately configured serializer options.
 
 ## Worker Logging
 

@@ -2,6 +2,7 @@ using Microsoft.Azure.Cosmos;
 using Moq;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
@@ -57,12 +58,69 @@ namespace youtubed.Tests.Persistence.Cosmos
             lists.Verify(container => container.ReplaceItemAsync(
                 It.Is<CosmosListDocument>(value =>
                     value.Channels.Count == 3
-                    && value.Channels[0].Title == "After One"
-                    && ReferenceEquals(value.Channels[1], untouched)
-                    && value.Channels[2].Title == "After Two"),
+                    && value.Channels.Single(channel => channel.Id == "channel-1").Title == "After One"
+                    && !ReferenceEquals(
+                        value.Channels.Single(channel => channel.Id == "untouched"),
+                        untouched)
+                    && value.Channels.Single(channel => channel.Id == "untouched").Title == "Untouched"
+                    && value.Channels.Single(channel => channel.Id == "channel-2").Title == "After Two"),
                 listId.ToString("D"),
                 It.IsAny<PartitionKey?>(),
                 It.Is<ItemRequestOptions>(options => options.IfMatchEtag == "etag-1"),
+                It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        [Fact]
+        public async Task UpdateProjectedChannelsAsync_AppliesSharedSizingPolicy()
+        {
+            var now = new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero);
+            var listId = Guid.NewGuid();
+            var document = CreateListDocument(
+                listId,
+                "etag-1",
+                Enumerable.Range(0, 10)
+                    .Select(index => CreateProjectedChannel($"channel-{index:D2}", "Before"))
+                    .ToArray());
+            var refreshed = CreateChannel("channel-00", "After", listId);
+            refreshed.Videos = Enumerable.Range(0, 20)
+                .Select(index => new ChannelVideo
+                {
+                    VideoId = $"video-{index:D2}",
+                    ChannelId = refreshed.Id,
+                    PublishedAt = now.AddDays(-10).AddMinutes(-index)
+                })
+                .ToArray();
+            var lists = new Mock<Container>();
+            lists
+                .Setup(container => container.ReadItemAsync<CosmosListDocument>(
+                    listId.ToString("D"),
+                    It.IsAny<PartitionKey>(),
+                    It.IsAny<ItemRequestOptions>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(CreateResponse(document).Object);
+            lists
+                .Setup(container => container.ReplaceItemAsync(
+                    It.IsAny<CosmosListDocument>(),
+                    listId.ToString("D"),
+                    It.IsAny<PartitionKey?>(),
+                    It.IsAny<ItemRequestOptions>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(CreateResponse<CosmosListDocument>(null).Object);
+            var repository = new CosmosListProjectionRepository(
+                lists.Object,
+                new Mock<Container>().Object,
+                new FakeAppClock { UtcNow = now });
+
+            await repository.UpdateProjectedChannelsAsync(
+                new[] { refreshed },
+                CancellationToken.None);
+
+            lists.Verify(container => container.ReplaceItemAsync(
+                It.Is<CosmosListDocument>(value =>
+                    value.Channels.Single(channel => channel.Id == refreshed.Id).Videos.Count == 14),
+                listId.ToString("D"),
+                It.IsAny<PartitionKey?>(),
+                It.IsAny<ItemRequestOptions>(),
                 It.IsAny<CancellationToken>()), Times.Once);
         }
 
@@ -166,6 +224,127 @@ namespace youtubed.Tests.Persistence.Cosmos
                 It.IsAny<PartitionKey?>(),
                 It.IsAny<ItemRequestOptions>(),
                 It.IsAny<CancellationToken>()), Times.Exactly(2));
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task UpdateProjectedChannelsAsync_FanOutSizesEachListFromFreshProjection(
+            bool highChannelCountFirst)
+        {
+            var now = new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero);
+            var highChannelCountListId = Guid.NewGuid();
+            var lowChannelCountListId = Guid.NewGuid();
+            var subscribedListIds = highChannelCountFirst
+                ? new[] { highChannelCountListId, lowChannelCountListId }
+                : new[] { lowChannelCountListId, highChannelCountListId };
+            var refreshed = CreateChannel("channel-00", "After", subscribedListIds);
+            refreshed.Videos = CreateOldVideos(refreshed.Id, now, 100);
+            var highChannelCountDocument = CreateListWithChannelCount(
+                highChannelCountListId,
+                "etag-high",
+                10);
+            var lowChannelCountDocument = CreateListWithChannelCount(
+                lowChannelCountListId,
+                "etag-low",
+                2);
+            var lists = new Mock<Container>();
+            lists
+                .Setup(container => container.ReadItemAsync<CosmosListDocument>(
+                    highChannelCountListId.ToString("D"),
+                    It.IsAny<PartitionKey>(),
+                    It.IsAny<ItemRequestOptions>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(CreateResponse(highChannelCountDocument).Object);
+            lists
+                .Setup(container => container.ReadItemAsync<CosmosListDocument>(
+                    lowChannelCountListId.ToString("D"),
+                    It.IsAny<PartitionKey>(),
+                    It.IsAny<ItemRequestOptions>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(CreateResponse(lowChannelCountDocument).Object);
+            lists
+                .Setup(container => container.ReplaceItemAsync(
+                    It.IsAny<CosmosListDocument>(),
+                    It.IsAny<string>(),
+                    It.IsAny<PartitionKey?>(),
+                    It.IsAny<ItemRequestOptions>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(CreateResponse<CosmosListDocument>(null).Object);
+            var repository = new CosmosListProjectionRepository(
+                lists.Object,
+                new Mock<Container>().Object,
+                new FakeAppClock { UtcNow = now });
+
+            await repository.UpdateProjectedChannelsAsync(
+                new[] { refreshed },
+                CancellationToken.None);
+
+            lists.Verify(container => container.ReplaceItemAsync(
+                It.Is<CosmosListDocument>(document =>
+                    document.Channels.Single(channel => channel.Id == refreshed.Id).Videos.Count == 14),
+                highChannelCountListId.ToString("D"),
+                It.IsAny<PartitionKey?>(),
+                It.IsAny<ItemRequestOptions>(),
+                It.IsAny<CancellationToken>()), Times.Once);
+            lists.Verify(container => container.ReplaceItemAsync(
+                It.Is<CosmosListDocument>(document =>
+                    document.Channels.Single(channel => channel.Id == refreshed.Id).Videos.Count == 67),
+                lowChannelCountListId.ToString("D"),
+                It.IsAny<PartitionKey?>(),
+                It.IsAny<ItemRequestOptions>(),
+                It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        [Fact]
+        public async Task UpdateProjectedChannelsAsync_EtagRetryResizesFromOriginalProjectionAfterRemoval()
+        {
+            var now = new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero);
+            var listId = Guid.NewGuid();
+            var refreshed = CreateChannel("channel-00", "After", listId);
+            refreshed.Videos = CreateOldVideos(refreshed.Id, now, 100);
+            var lists = new Mock<Container>();
+            lists
+                .SetupSequence(container => container.ReadItemAsync<CosmosListDocument>(
+                    listId.ToString("D"),
+                    It.IsAny<PartitionKey>(),
+                    It.IsAny<ItemRequestOptions>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(CreateResponse(CreateListWithChannelCount(
+                    listId,
+                    "etag-before-removal",
+                    10)).Object)
+                .ReturnsAsync(CreateResponse(CreateListWithChannelCount(
+                    listId,
+                    "etag-after-removal",
+                    2)).Object);
+            lists
+                .SetupSequence(container => container.ReplaceItemAsync(
+                    It.IsAny<CosmosListDocument>(),
+                    listId.ToString("D"),
+                    It.IsAny<PartitionKey?>(),
+                    It.IsAny<ItemRequestOptions>(),
+                    It.IsAny<CancellationToken>()))
+                .ThrowsAsync(CreateCosmosException(HttpStatusCode.PreconditionFailed))
+                .ReturnsAsync(CreateResponse<CosmosListDocument>(null).Object);
+            var repository = new CosmosListProjectionRepository(
+                lists.Object,
+                new Mock<Container>().Object,
+                new FakeAppClock { UtcNow = now });
+
+            await repository.UpdateProjectedChannelsAsync(
+                new[] { refreshed },
+                CancellationToken.None);
+
+            lists.Verify(container => container.ReplaceItemAsync(
+                It.Is<CosmosListDocument>(document =>
+                    document.ETag == "etag-after-removal"
+                    && document.Channels.Single(channel => channel.Id == refreshed.Id).Videos.Count == 67),
+                listId.ToString("D"),
+                It.IsAny<PartitionKey?>(),
+                It.Is<ItemRequestOptions>(options =>
+                    options.IfMatchEtag == "etag-after-removal"),
+                It.IsAny<CancellationToken>()), Times.Once);
         }
 
         [Fact]
@@ -353,6 +532,36 @@ namespace youtubed.Tests.Persistence.Cosmos
                 SubscribedListIds = listIds,
                 SubscriptionCount = listIds.Length
             };
+        }
+
+        private static CosmosListDocument CreateListWithChannelCount(
+            Guid listId,
+            string etag,
+            int channelCount)
+        {
+            return CreateListDocument(
+                listId,
+                etag,
+                Enumerable.Range(0, channelCount)
+                    .Select(index => CreateProjectedChannel(
+                        $"channel-{index:D2}",
+                        $"Channel {index:D2}"))
+                    .ToArray());
+        }
+
+        private static IReadOnlyList<ChannelVideo> CreateOldVideos(
+            string channelId,
+            DateTimeOffset now,
+            int count)
+        {
+            return Enumerable.Range(0, count)
+                .Select(index => new ChannelVideo
+                {
+                    VideoId = $"video-{index:D3}",
+                    ChannelId = channelId,
+                    PublishedAt = now.AddDays(-10).AddMinutes(-index)
+                })
+                .ToArray();
         }
 
         private static CosmosListDocument CreateListDocument(

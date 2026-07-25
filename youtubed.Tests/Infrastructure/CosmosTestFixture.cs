@@ -45,10 +45,7 @@ namespace youtubed.Tests.Infrastructure
                 new CosmosClientOptions
                 {
                     ConnectionMode = ConnectionMode.Gateway,
-                    SerializerOptions = new CosmosSerializationOptions
-                    {
-                        PropertyNamingPolicy = CosmosPropertyNamingPolicy.CamelCase
-                    }
+                    Serializer = CosmosSystemTextJsonSerializer.Instance
                 });
 
             _database = (await _client.CreateDatabaseAsync(DatabaseName)).Database;

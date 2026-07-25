@@ -1,5 +1,6 @@
 using Microsoft.Azure.Cosmos;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
@@ -137,24 +138,48 @@ namespace youtubed.Persistence.Cosmos
 
         public async Task RemoveChannelAsync(Guid listId, string channelId)
         {
-            await UpdateMembershipAsync(
-                listId,
-                document =>
+            for (var attempt = 0; attempt < MaxWriteAttempts; attempt++)
+            {
+                var document = await ReadListAsync(listId);
+                if (document == null)
                 {
-                    var channels = document.Channels
-                        .Where(channel => !string.Equals(
-                            channel.Id,
-                            channelId,
-                            StringComparison.Ordinal))
-                        .ToArray();
-                    if (channels.Length == document.Channels.Count)
+                    break;
+                }
+
+                var remainingChannels = document.Channels
+                    .Where(channel => !string.Equals(
+                        channel.Id,
+                        channelId,
+                        StringComparison.Ordinal))
+                    .ToArray();
+                if (remainingChannels.Length == document.Channels.Count)
+                {
+                    break;
+                }
+
+                try
+                {
+                    document.Channels =
+                        await RehydrateUnderfilledChannelsAsync(remainingChannels);
+                    try
                     {
-                        return false;
+                        await ReplaceAsync(document);
+                    }
+                    catch (ListCapacityExceededException)
+                    {
+                        document.Channels = remainingChannels;
+                        await ReplaceAsync(document);
                     }
 
-                    document.Channels = channels;
-                    return true;
-                });
+                    break;
+                }
+                catch (CosmosException exception) when (
+                    exception.StatusCode == HttpStatusCode.PreconditionFailed
+                    && attempt + 1 < MaxWriteAttempts)
+                {
+                }
+            }
+
             await _channelRepository.UpdateSubscriptionAsync(channelId, listId);
         }
 
@@ -266,17 +291,67 @@ namespace youtubed.Persistence.Cosmos
             }
         }
 
+        private async Task<IReadOnlyList<CosmosProjectedChannelDocument>>
+            RehydrateUnderfilledChannelsAsync(
+                IReadOnlyCollection<CosmosProjectedChannelDocument> channels)
+        {
+            var targetVideoCount =
+                CosmosListProjectionPolicy.GetTargetVideoCountPerChannel(channels.Count);
+            var hydratedChannels = new CosmosProjectedChannelDocument[channels.Count];
+            var index = 0;
+            foreach (var projectedChannel in channels)
+            {
+                var distinctVideoCount = (projectedChannel.Videos
+                        ?? Array.Empty<CosmosVideoDocument>())
+                    .Where(video => video != null)
+                    .Select(video => video.Id)
+                    .Distinct(StringComparer.Ordinal)
+                    .Count();
+                if (distinctVideoCount >= targetVideoCount)
+                {
+                    hydratedChannels[index++] = projectedChannel;
+                    continue;
+                }
+
+                var canonicalChannel = await ReadChannelAsync(projectedChannel.Id);
+                hydratedChannels[index++] = canonicalChannel == null
+                    ? projectedChannel
+                    : CosmosDocumentMapper.ToProjectedChannelDocument(
+                        CosmosDocumentMapper.ToChannel(canonicalChannel));
+            }
+
+            return hydratedChannels;
+        }
+
+        private async Task<CosmosChannelDocument> ReadChannelAsync(string id)
+        {
+            try
+            {
+                var response = await _channels.ReadItemAsync<CosmosChannelDocument>(
+                    id,
+                    new PartitionKey(id));
+                return response.Resource;
+            }
+            catch (CosmosException exception) when (exception.StatusCode == HttpStatusCode.NotFound)
+            {
+                return null;
+            }
+        }
+
         private Task<ItemResponse<CosmosListDocument>> ReplaceAsync(CosmosListDocument document)
         {
             document.Ttl = CosmosDocumentMapper.GetTtlSeconds(
                 document.ExpiredAfter,
                 _clock.UtcNow);
+            var boundedDocument = CosmosListProjectionPolicy.CreateBoundedCopy(
+                document,
+                _clock.UtcNow);
 
             return _lists.ReplaceItemAsync(
-                document,
-                document.Id,
-                new PartitionKey(document.Id),
-                new ItemRequestOptions { IfMatchEtag = document.ETag });
+                boundedDocument,
+                boundedDocument.Id,
+                new PartitionKey(boundedDocument.Id),
+                new ItemRequestOptions { IfMatchEtag = boundedDocument.ETag });
         }
     }
 }

@@ -65,10 +65,7 @@ namespace youtubed.Persistence
                 var configuredOptions = provider.GetRequiredService<IOptions<CosmosOptions>>().Value;
                 var clientOptions = new CosmosClientOptions
                 {
-                    SerializerOptions = new CosmosSerializationOptions
-                    {
-                        PropertyNamingPolicy = CosmosPropertyNamingPolicy.CamelCase
-                    }
+                    Serializer = CosmosSystemTextJsonSerializer.Instance
                 };
                 clientOptions.CustomHandlers.Add(new CosmosRequestChargeLoggingHandler(
                     provider.GetRequiredService<ILogger<CosmosRequestChargeLoggingHandler>>()));

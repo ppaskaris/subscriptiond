@@ -64,12 +64,74 @@ Projection updates can use Cosmos patch to set fields such as `/channels`, but c
 
 ## List Projection Sizing
 
-Projected channel videos are capped by rule:
+List projections use one sizing policy for both add-channel seeding and worker
+projection replacement. For a list with `channelCount` channels, each projected
+channel is sorted by `publishedAt DESC, id ASC`, duplicate video ids are removed,
+and the provider retains:
 
 ```text
-all videos published within the last 5 days
-plus older videos until at least max(5, ceil(100 / channelCount * 1.33))
+all available videos published within the last 5 days
+plus older videos until the channel has at least
+min(100, max(5, ceil(ListRenderMaxItems / channelCount * 1.33))) videos
 ```
+
+The availability qualifier reflects the canonical channel-document ceiling of the
+newest 100 videos. Channel subdocuments are ordered by channel id so repeated
+projection writes serialize deterministically. The final list-page behavior is
+unchanged: the provider maps the hierarchy, the application globally sorts newest
+first (video id breaks timestamp ties), and renders 100.
+
+The supported projection envelope is:
+
+- at most 100 channels in one list;
+- at most 100 canonical videos supplied by one channel;
+- at most 500 embedded projected videos across a list;
+- a serialized UTF-8 list document strictly below 1,900,000 bytes.
+
+The byte ceiling leaves a 197,152-byte safety margin below the Cosmos DB for NoSQL
+2-MiB item limit. It is checked locally before every list replace, including
+membership, settings, renewal, and worker projection writes. The cardinality
+limits and byte check are both required because unusually long metadata can make a
+nominally valid channel/video count too large.
+
+Sizing always produces a fresh projected-channel/video DTO graph. A refreshed
+channel DTO is never trimmed in place, so fan-out to differently sized lists and
+an ETag retry after a membership change each recalculate from the complete
+canonical input.
+
+Removing a channel can increase the remaining per-channel allocation. Before the
+membership replace, the Cosmos list repository point-reads only remaining
+channels whose embedded distinct-video count is below the new allocation and
+rehydrates those projections from canonical channel documents. Unavailable
+channels participate in this repair because they remain visible until user
+removal. Already-full projections incur no canonical read. The normal ETag retry
+rereads membership and recomputes the required allocation and hydration set. If
+canonical rehydration would cross the projected-video or serialized-byte ceiling,
+the same ETag attempt falls back to the already bounded embedded projections
+after removing the requested membership. A missing canonical channel likewise
+keeps its embedded projection. Rehydration is therefore best-effort enrichment:
+capacity pressure or a missing canonical document cannot prevent a user from
+shrinking the list. Reverse-reference cleanup follows a successful membership
+replace, or a read that confirms the membership or list is already absent, so
+repeated removals safely repair stale references.
+
+The recent-window guarantee applies inside the supported envelope. If adding a
+channel would cross the channel, projected-video, or byte limit, the list document
+and channel reverse reference are left unchanged and the add-channel form displays
+the capacity error. If a worker refresh would cross the projected-video or byte
+limit, no oversized list write is sent: the list continues to render its last
+bounded projection and the worker logs the failed refresh attempt. Removing a
+channel remains available so a user can return the list to the supported envelope.
+
+The application installs one `CosmosSerializer` implementation on the production
+SDK client and uses that exact serializer instance for the pre-write byte count.
+The emulator fixture uses the same serializer, eliminating differences in naming,
+escaping, null handling, and date formatting at the size boundary.
+
+Emulator budget guards for a near-ceiling, maximum-cardinality representative list
+are 350 RU for a point read and 3,000 RU for a projection-shaped replacement. These are
+regression ceilings, not expected typical charges; actual charges are recorded by
+the opted-in Cosmos suite.
 
 The Cosmos provider maps embedded projected channels and videos to the hierarchical domain read model. The list page render procedure flattens that hierarchy in memory, sorts newest first, and renders 100.
 

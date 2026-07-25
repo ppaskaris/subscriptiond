@@ -6,6 +6,7 @@ using Moq;
 using Xunit;
 using youtubed.Controllers;
 using youtubed.Models;
+using youtubed.Persistence;
 using youtubed.Services;
 using youtubed.Tests.Infrastructure;
 
@@ -303,6 +304,28 @@ namespace youtubed.Tests.Controllers
             Assert.Equal(list.TokenString, redirect.RouteValues["token"]);
             Assert.Equal(id, redirect.RouteValues["id"]);
             listService.Verify(service => service.AddChannelAsync(id, channel.Id), Times.Once);
+        }
+
+        [Fact]
+        public async Task AddChannelPost_ListCapacityExceeded_ShowsUserVisibleError()
+        {
+            var id = Guid.NewGuid();
+            var list = CreateList(id);
+            var model = new AddChannelModel { Url = "https://www.youtube.com/channel/channel-1" };
+            var channel = new ChannelModel { Id = "channel-1" };
+            var listService = CreateListServiceReturning(id, list);
+            listService
+                .Setup(service => service.AddChannelAsync(id, channel.Id))
+                .ThrowsAsync(new ListCapacityExceededException("This list is full."));
+            var channelService = new Mock<IChannelService>(MockBehavior.Strict);
+            channelService.Setup(service => service.GetOrCreateChannelAsync(model.Url)).ReturnsAsync(channel);
+            var controller = CreateController(listService, channelService);
+
+            var result = await controller.AddChannel(id, list.TokenString, model);
+
+            var view = Assert.IsType<ViewResult>(result);
+            Assert.Same(model, view.Model);
+            Assert.Equal("This list is full.", controller.ModelState[string.Empty].Errors[0].ErrorMessage);
         }
 
         [Fact]

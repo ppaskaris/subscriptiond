@@ -3,8 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
-using youtubed.Services;
 using youtubed.Models;
+using youtubed.Persistence;
+using youtubed.Services;
 
 namespace youtubed.Controllers
 {
@@ -124,7 +125,15 @@ namespace youtubed.Controllers
                 return View(model);
             }
 
-            await _listService.AddChannelAsync(list.Id, channel.Id);
+            try
+            {
+                await _listService.AddChannelAsync(list.Id, channel.Id);
+            }
+            catch (ListCapacityExceededException exception)
+            {
+                ModelState.AddModelError(string.Empty, exception.Message);
+                return View(model);
+            }
 
             return RedirectToAction(nameof(Channels), new { token = list.TokenString, id = list.Id });
         }

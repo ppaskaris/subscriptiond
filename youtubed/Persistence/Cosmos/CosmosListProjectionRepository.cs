@@ -113,14 +113,17 @@ namespace youtubed.Persistence.Cosmos
                 document.Ttl = CosmosDocumentMapper.GetTtlSeconds(
                     document.ExpiredAfter,
                     _clock.UtcNow);
+                var boundedDocument = CosmosListProjectionPolicy.CreateBoundedCopy(
+                    document,
+                    _clock.UtcNow);
 
                 try
                 {
                     await _lists.ReplaceItemAsync(
-                        document,
-                        document.Id,
-                        new PartitionKey(document.Id),
-                        new ItemRequestOptions { IfMatchEtag = document.ETag },
+                        boundedDocument,
+                        boundedDocument.Id,
+                        new PartitionKey(boundedDocument.Id),
+                        new ItemRequestOptions { IfMatchEtag = boundedDocument.ETag },
                         cancellationToken);
                     AddDeadReferences(deadReferences, missingChannelIds, listId);
                     return;

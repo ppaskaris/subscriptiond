@@ -55,6 +55,13 @@ namespace youtubed.Persistence.Cosmos
                 ExpiredAfter = document.ExpiredAfter,
                 ExpirationRenewedOn = document.ExpirationRenewedOn,
                 Ttl = document.Ttl,
+                MembershipVersion = document.MembershipVersion,
+                MembershipRecoveryPending = document.MembershipRecoveryPending,
+                MembershipRecoveryDueAt = document.MembershipRecoveryDueAt,
+                MembershipRecoveryStartedAt = document.MembershipRecoveryStartedAt,
+                MembershipRecoveryAttempt = document.MembershipRecoveryAttempt,
+                MembershipRecoveryPoison = document.MembershipRecoveryPoison,
+                MembershipRecoveryLastErrorClass = document.MembershipRecoveryLastErrorClass,
                 Channels = channels,
                 ETag = document.ETag
             };

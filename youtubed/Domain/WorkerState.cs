@@ -7,6 +7,8 @@ namespace youtubed.Domain
         public DateTimeOffset? NextChannelRefreshAt { get; set; }
         public long ChannelRefreshForceCount { get; set; }
         public DateTimeOffset NextPurgeAt { get; set; }
+        public DateTimeOffset NextConsistencyRecoveryAt { get; set; } = DateTimeOffset.MaxValue;
+        public long ConsistencyRecoveryForceCount { get; set; }
 
         public bool IsChannelRefreshDue(DateTimeOffset now)
         {
@@ -17,6 +19,11 @@ namespace youtubed.Domain
         public bool IsPurgeDue(DateTimeOffset now)
         {
             return NextPurgeAt <= now;
+        }
+
+        public bool IsConsistencyRecoveryDue(DateTimeOffset now)
+        {
+            return NextConsistencyRecoveryAt <= now;
         }
     }
 }

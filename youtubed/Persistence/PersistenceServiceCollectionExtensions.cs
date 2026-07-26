@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Dapper;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Configuration;
@@ -47,6 +48,7 @@ namespace youtubed.Persistence
             services.AddSingleton<IWorkerStateStore, WorkerStateRepository>();
             services.AddSingleton<IExpirationPurger, SqlExpirationPurger>();
             services.AddSingleton<IListProjectionRepository, SqlListProjectionRepository>();
+            services.AddSingleton<IConsistencyRecoveryService, SqlConsistencyRecoveryService>();
 
             return services;
         }
@@ -58,8 +60,13 @@ namespace youtubed.Persistence
             var section = configuration.GetSection(CosmosOptions.SectionName);
             var options = section.Get<CosmosOptions>() ?? new CosmosOptions();
             ValidateCosmosOptions(options);
+            var recoverySection = configuration.GetSection(CosmosRecoveryOptions.SectionName);
+            var recoveryOptions =
+                recoverySection.Get<CosmosRecoveryOptions>() ?? new CosmosRecoveryOptions();
+            recoveryOptions.Validate();
 
             services.Configure<CosmosOptions>(section);
+            services.Configure<CosmosRecoveryOptions>(recoverySection);
             services.AddSingleton(provider =>
             {
                 var configuredOptions = provider.GetRequiredService<IOptions<CosmosOptions>>().Value;
@@ -78,6 +85,7 @@ namespace youtubed.Persistence
                     : new CosmosClient(configuredOptions.ConnectionString, clientOptions);
             });
             services.AddSingleton(options);
+            services.AddSingleton(recoveryOptions);
             services.AddSingleton<CosmosPersistenceContext>();
             services.AddSingleton<CosmosContainerInitializer>();
             services.AddSingleton<IHostedService, CosmosPersistenceInitializerHostedService>();
@@ -88,7 +96,11 @@ namespace youtubed.Persistence
                 return new CosmosListRepository(
                     context.Lists,
                     context.Channels,
-                    provider.GetRequiredService<IAppClock>());
+                    context.Recovery,
+                    provider.GetRequiredService<IAppClock>(),
+                    provider.GetRequiredService<CosmosRecoveryOptions>(),
+                    provider.GetRequiredService<IWorkerStateStore>(),
+                    provider.GetService<IWorkerWakeSignal>());
             });
             services.AddSingleton<IShareLinkRepository>(provider =>
             {
@@ -104,7 +116,9 @@ namespace youtubed.Persistence
                 return new CosmosChannelRepository(
                     context.Channels,
                     context.Lists,
-                    provider.GetRequiredService<IAppClock>());
+                    context.Recovery,
+                    provider.GetRequiredService<IAppClock>(),
+                    provider.GetRequiredService<CosmosRecoveryOptions>());
             });
             services.AddSingleton<IListProjectionRepository>(provider =>
             {
@@ -112,7 +126,9 @@ namespace youtubed.Persistence
                 return new CosmosListProjectionRepository(
                     context.Lists,
                     context.Channels,
-                    provider.GetRequiredService<IAppClock>());
+                    context.Recovery,
+                    provider.GetRequiredService<IAppClock>(),
+                    provider.GetRequiredService<CosmosRecoveryOptions>());
             });
             services.AddSingleton<IWorkerStateStore>(provider =>
             {
@@ -122,6 +138,17 @@ namespace youtubed.Persistence
                     provider.GetRequiredService<IAppClock>());
             });
             services.AddSingleton<IExpirationPurger, CosmosExpirationPurger>();
+            services.AddSingleton<IConsistencyRecoveryService>(provider =>
+            {
+                var context = provider.GetRequiredService<CosmosPersistenceContext>();
+                return new CosmosConsistencyRecoveryService(
+                    context.Lists,
+                    context.Channels,
+                    context.Recovery,
+                    provider.GetRequiredService<IAppClock>(),
+                    provider.GetRequiredService<CosmosRecoveryOptions>(),
+                    provider.GetRequiredService<ILogger<CosmosConsistencyRecoveryService>>());
+            });
 
             return services;
         }
@@ -141,6 +168,19 @@ namespace youtubed.Persistence
             {
                 throw new InvalidOperationException(
                     "Cosmos persistence requires Cosmos:DatabaseName.");
+            }
+
+            if (new[]
+                {
+                    options.ListsContainer,
+                    options.ChannelsContainer,
+                    options.ShareLinksContainer,
+                    options.SystemContainer,
+                    options.RecoveryContainer
+                }.Any(string.IsNullOrWhiteSpace))
+            {
+                throw new InvalidOperationException(
+                    "Cosmos persistence requires non-empty names for all five containers.");
             }
         }
     }

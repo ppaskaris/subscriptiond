@@ -15,6 +15,7 @@ namespace youtubed.Persistence.Cosmos
             Channels = Database.GetContainer(options.ChannelsContainer);
             ShareLinks = Database.GetContainer(options.ShareLinksContainer);
             System = Database.GetContainer(options.SystemContainer);
+            Recovery = Database.GetContainer(options.RecoveryContainer);
         }
 
         public Database Database { get; }
@@ -26,5 +27,7 @@ namespace youtubed.Persistence.Cosmos
         public Container ShareLinks { get; }
 
         public Container System { get; }
+
+        public Container Recovery { get; }
     }
 }

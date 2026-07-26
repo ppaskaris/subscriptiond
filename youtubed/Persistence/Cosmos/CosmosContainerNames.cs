@@ -6,5 +6,6 @@ namespace youtubed.Persistence.Cosmos
         public const string Channels = "channels";
         public const string ShareLinks = "shareLinks";
         public const string System = "system";
+        public const string Recovery = "recovery";
     }
 }

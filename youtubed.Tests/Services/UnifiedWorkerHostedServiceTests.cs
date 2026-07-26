@@ -207,16 +207,58 @@ namespace youtubed.Tests.Services
             Assert.True(await wait);
         }
 
+        [Fact]
+        public async Task RunPassAsync_RecoveryDueRunsBeforeChannelAndSchedulesImmediateBacklog()
+        {
+            var now = new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero);
+            var workerState = new RecordingWorkerStateStore();
+            var recovery = new RecordingConsistencyRecoveryService
+            {
+                Result = new ConsistencyRecoveryPassResult(
+                    25,
+                    20,
+                    19,
+                    1,
+                    0,
+                    123.5,
+                    true,
+                    now.AddMinutes(1))
+            };
+            var service = CreateService(
+                workerState,
+                new RecordingExpirationPurger(),
+                new RecordingChannelRefreshPipeline(),
+                new FakeAppClock { UtcNow = now },
+                recovery: recovery);
+
+            var result = await service.RunPassAsync(
+                new WorkerState
+                {
+                    NextPurgeAt = now.AddHours(1),
+                    NextConsistencyRecoveryAt = DateTimeOffset.MinValue,
+                    ConsistencyRecoveryForceCount = 4
+                },
+                CancellationToken.None);
+
+            Assert.Equal(1, recovery.CallCount);
+            Assert.Equal(DateTimeOffset.MinValue, workerState.CompletedObservedRecoveryAt);
+            Assert.Equal(4, workerState.CompletedObservedRecoveryForceCount);
+            Assert.Equal(now, workerState.CompletedNextRecoveryAt);
+            Assert.Equal(recovery.Result, result.ConsistencyRecovery);
+        }
+
         private static UnifiedWorkerHostedService CreateService(
             RecordingWorkerStateStore workerStateStore,
             RecordingExpirationPurger expirationPurger,
             RecordingChannelRefreshPipeline channelRefreshPipeline,
             FakeAppClock clock,
-            IWorkerWakeSignal wakeSignal = null)
+            IWorkerWakeSignal wakeSignal = null,
+            IConsistencyRecoveryService recovery = null)
         {
             return new UnifiedWorkerHostedService(
                 workerStateStore,
                 expirationPurger,
+                recovery ?? new SqlConsistencyRecoveryService(),
                 channelRefreshPipeline,
                 wakeSignal ?? new InProcessWorkerWakeSignal(),
                 clock,
@@ -229,6 +271,9 @@ namespace youtubed.Tests.Services
             public long? CompletedObservedChannelRefreshForceCount { get; private set; }
             public DateTimeOffset? CompletedNextChannelRefreshAt { get; private set; }
             public DateTimeOffset? CompletedNextPurgeAt { get; private set; }
+            public DateTimeOffset? CompletedObservedRecoveryAt { get; private set; }
+            public long? CompletedObservedRecoveryForceCount { get; private set; }
+            public DateTimeOffset? CompletedNextRecoveryAt { get; private set; }
 
             public Task<WorkerState> GetOrCreateAsync(CancellationToken cancellationToken)
             {
@@ -238,6 +283,11 @@ namespace youtubed.Tests.Services
             public Task ForceChannelRefreshAsync(CancellationToken cancellationToken)
             {
                 throw new NotImplementedException();
+            }
+
+            public Task ForceConsistencyRecoveryAsync(CancellationToken cancellationToken)
+            {
+                return Task.CompletedTask;
             }
 
             public Task CompleteChannelRefreshPassAsync(
@@ -258,6 +308,35 @@ namespace youtubed.Tests.Services
             {
                 CompletedNextPurgeAt = nextPurgeAt;
                 return Task.CompletedTask;
+            }
+
+            public Task CompleteConsistencyRecoveryPassAsync(
+                DateTimeOffset observedNextConsistencyRecoveryAt,
+                long observedConsistencyRecoveryForceCount,
+                DateTimeOffset nextConsistencyRecoveryAt,
+                CancellationToken cancellationToken)
+            {
+                CompletedObservedRecoveryAt = observedNextConsistencyRecoveryAt;
+                CompletedObservedRecoveryForceCount = observedConsistencyRecoveryForceCount;
+                CompletedNextRecoveryAt = nextConsistencyRecoveryAt;
+                return Task.CompletedTask;
+            }
+        }
+
+        private sealed class RecordingConsistencyRecoveryService :
+            IConsistencyRecoveryService
+        {
+            public ConsistencyRecoveryPassResult Result { get; set; } =
+                ConsistencyRecoveryPassResult.Empty;
+
+            public int CallCount { get; private set; }
+
+            public Task<ConsistencyRecoveryPassResult> RecoverAsync(
+                ConsistencyRecoveryPassBudget budget,
+                CancellationToken cancellationToken)
+            {
+                CallCount++;
+                return Task.FromResult(Result);
             }
         }
 

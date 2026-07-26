@@ -1,4 +1,5 @@
 using Microsoft.Azure.Cosmos;
+using Microsoft.Extensions.Logging.Abstractions;
 using System;
 using System.Threading.Tasks;
 using Xunit;
@@ -13,6 +14,7 @@ namespace youtubed.Tests.Infrastructure
         public const string ChannelsContainerName = CosmosContainerNames.Channels;
         public const string ShareLinksContainerName = CosmosContainerNames.ShareLinks;
         public const string SystemContainerName = CosmosContainerNames.System;
+        public const string RecoveryContainerName = CosmosContainerNames.Recovery;
 
         private CosmosClient _client;
         private Database _database;
@@ -40,13 +42,14 @@ namespace youtubed.Tests.Infrastructure
             }
 
             var options = CosmosEmulatorOptions.FromEnvironment();
-            _client = new CosmosClient(
-                options.ConnectionString,
-                new CosmosClientOptions
-                {
-                    ConnectionMode = ConnectionMode.Gateway,
-                    Serializer = CosmosSystemTextJsonSerializer.Instance
-                });
+            var clientOptions = new CosmosClientOptions
+            {
+                ConnectionMode = ConnectionMode.Gateway,
+                Serializer = CosmosSystemTextJsonSerializer.Instance
+            };
+            clientOptions.CustomHandlers.Add(new CosmosRequestChargeLoggingHandler(
+                NullLogger<CosmosRequestChargeLoggingHandler>.Instance));
+            _client = new CosmosClient(options.ConnectionString, clientOptions);
 
             _database = (await _client.CreateDatabaseAsync(DatabaseName)).Database;
 

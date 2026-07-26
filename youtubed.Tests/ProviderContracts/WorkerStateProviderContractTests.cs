@@ -21,9 +21,15 @@ namespace youtubed.Tests.ProviderContracts
             Assert.Equal(DefaultNow, created.NextChannelRefreshAt);
             Assert.Equal(0, created.ChannelRefreshForceCount);
             Assert.Equal(DefaultNow, created.NextPurgeAt);
+            Assert.Equal(DefaultNow, created.NextConsistencyRecoveryAt);
+            Assert.Equal(0, created.ConsistencyRecoveryForceCount);
             Assert.Equal(created.NextChannelRefreshAt, existing.NextChannelRefreshAt);
             Assert.Equal(created.ChannelRefreshForceCount, existing.ChannelRefreshForceCount);
             Assert.Equal(created.NextPurgeAt, existing.NextPurgeAt);
+            Assert.Equal(created.NextConsistencyRecoveryAt, existing.NextConsistencyRecoveryAt);
+            Assert.Equal(
+                created.ConsistencyRecoveryForceCount,
+                existing.ConsistencyRecoveryForceCount);
         }
 
         protected async Task ForceChannelRefreshContractAsync()
@@ -133,6 +139,37 @@ namespace youtubed.Tests.ProviderContracts
             Assert.Equal(DateTimeOffset.MinValue, completed.NextChannelRefreshAt);
             Assert.Equal(1, completed.ChannelRefreshForceCount);
             Assert.Equal(nextPurge, completed.NextPurgeAt);
+        }
+
+        protected async Task ForceConsistencyRecoveryContractAsync()
+        {
+            await Provider.WorkerState.ForceConsistencyRecoveryAsync(CancellationToken.None);
+            var first = await Provider.WorkerState.GetOrCreateAsync(CancellationToken.None);
+            Assert.Equal(DateTimeOffset.MinValue, first.NextConsistencyRecoveryAt);
+            Assert.Equal(1, first.ConsistencyRecoveryForceCount);
+
+            await Provider.WorkerState.ForceConsistencyRecoveryAsync(CancellationToken.None);
+            var second = await Provider.WorkerState.GetOrCreateAsync(CancellationToken.None);
+            Assert.Equal(DateTimeOffset.MinValue, second.NextConsistencyRecoveryAt);
+            Assert.Equal(2, second.ConsistencyRecoveryForceCount);
+        }
+
+        protected async Task RecoveryCompletionProtectsForceGenerationContractAsync()
+        {
+            var observed = await Provider.WorkerState.GetOrCreateAsync(CancellationToken.None);
+            await Provider.WorkerState.ForceConsistencyRecoveryAsync(CancellationToken.None);
+            await Provider.WorkerState.CompleteConsistencyRecoveryPassAsync(
+                observed.NextConsistencyRecoveryAt,
+                observed.ConsistencyRecoveryForceCount,
+                Clock.UtcNow.AddMinutes(10),
+                CancellationToken.None);
+            var protectedState =
+                await Provider.WorkerState.GetOrCreateAsync(CancellationToken.None);
+
+            Assert.Equal(DateTimeOffset.MinValue, protectedState.NextConsistencyRecoveryAt);
+            Assert.Equal(
+                observed.ConsistencyRecoveryForceCount + 1,
+                protectedState.ConsistencyRecoveryForceCount);
         }
     }
 }

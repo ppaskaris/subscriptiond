@@ -19,5 +19,7 @@ namespace youtubed.Persistence.Cosmos
         public string ShareLinksContainer { get; set; } = CosmosContainerNames.ShareLinks;
 
         public string SystemContainer { get; set; } = CosmosContainerNames.System;
+
+        public string RecoveryContainer { get; set; } = CosmosContainerNames.Recovery;
     }
 }

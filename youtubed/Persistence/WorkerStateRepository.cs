@@ -32,13 +32,19 @@ namespace youtubed.Persistence
                     SELECT @id AS Id,
                            @now AS NextChannelRefreshAt,
                            0 AS ChannelRefreshForceCount,
-                           @now AS NextPurgeAt
+                           @now AS NextPurgeAt,
+                           @now AS NextConsistencyRecoveryAt,
+                           0 AS ConsistencyRecoveryForceCount
                 ) source ON source.Id = target.Id
                 WHEN NOT MATCHED THEN
-                    INSERT (Id, NextChannelRefreshAt, ChannelRefreshForceCount, NextPurgeAt)
-                    VALUES (source.Id, source.NextChannelRefreshAt, source.ChannelRefreshForceCount, source.NextPurgeAt);
+                    INSERT (Id, NextChannelRefreshAt, ChannelRefreshForceCount, NextPurgeAt,
+                            NextConsistencyRecoveryAt, ConsistencyRecoveryForceCount)
+                    VALUES (source.Id, source.NextChannelRefreshAt, source.ChannelRefreshForceCount,
+                            source.NextPurgeAt, source.NextConsistencyRecoveryAt,
+                            source.ConsistencyRecoveryForceCount);
 
-                SELECT NextChannelRefreshAt, ChannelRefreshForceCount, NextPurgeAt
+                SELECT NextChannelRefreshAt, ChannelRefreshForceCount, NextPurgeAt,
+                       NextConsistencyRecoveryAt, ConsistencyRecoveryForceCount
                 FROM WorkerState
                 WHERE Id = @id;
                 ",
@@ -64,6 +70,28 @@ namespace youtubed.Persistence
                 {
                     id = WorkerStateId,
                     nextChannelRefreshAt = DateTimeOffset.MinValue
+                },
+                cancellationToken: cancellationToken);
+
+            await connection.ExecuteAsync(command);
+        }
+
+        public async Task ForceConsistencyRecoveryAsync(CancellationToken cancellationToken)
+        {
+            await GetOrCreateAsync(cancellationToken);
+
+            using var connection = _connectionFactory.CreateConnection();
+            var command = new CommandDefinition(
+                @"
+                UPDATE WorkerState
+                SET NextConsistencyRecoveryAt = @nextConsistencyRecoveryAt,
+                    ConsistencyRecoveryForceCount = ConsistencyRecoveryForceCount + 1
+                WHERE Id = @id;
+                ",
+                new
+                {
+                    id = WorkerStateId,
+                    nextConsistencyRecoveryAt = DateTimeOffset.MinValue
                 },
                 cancellationToken: cancellationToken);
 
@@ -116,6 +144,35 @@ namespace youtubed.Persistence
                 WHERE Id = @id;
                 ",
                 new { id = WorkerStateId, nextPurgeAt },
+                cancellationToken: cancellationToken);
+
+            await connection.ExecuteAsync(command);
+        }
+
+        public async Task CompleteConsistencyRecoveryPassAsync(
+            DateTimeOffset observedNextConsistencyRecoveryAt,
+            long observedConsistencyRecoveryForceCount,
+            DateTimeOffset nextConsistencyRecoveryAt,
+            CancellationToken cancellationToken)
+        {
+            await GetOrCreateAsync(cancellationToken);
+
+            using var connection = _connectionFactory.CreateConnection();
+            var command = new CommandDefinition(
+                @"
+                UPDATE WorkerState
+                SET NextConsistencyRecoveryAt = @nextConsistencyRecoveryAt
+                WHERE Id = @id
+                  AND NextConsistencyRecoveryAt = @observedNextConsistencyRecoveryAt
+                  AND ConsistencyRecoveryForceCount = @observedConsistencyRecoveryForceCount;
+                ",
+                new
+                {
+                    id = WorkerStateId,
+                    observedNextConsistencyRecoveryAt,
+                    observedConsistencyRecoveryForceCount,
+                    nextConsistencyRecoveryAt
+                },
                 cancellationToken: cancellationToken);
 
             await connection.ExecuteAsync(command);

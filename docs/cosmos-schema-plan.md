@@ -34,6 +34,10 @@ The list document combines list settings and render projection:
   "membershipVersion": 7,
   "membershipRecoveryPending": true,
   "membershipRecoveryDueAt": "2026-05-09T12:01:00Z",
+  "membershipRecoveryStartedAt": "2026-05-09T12:00:00Z",
+  "membershipRecoveryAttempt": 2,
+  "membershipRecoveryPoison": false,
+  "membershipRecoveryLastErrorClass": "CosmosException",
   "channels": [
     {
       "id": "UC...",
@@ -70,6 +74,13 @@ Projection updates can use Cosmos patch to set fields such as `/channels`, but c
 the same ETag-protected replace that changes `channels[]`. Recovery clears the
 flag only for the version it has completely reconciled. These scalar fields keep
 pending work bounded independently of request volume.
+The same write initializes `membershipRecoveryStartedAt`, resets
+`membershipRecoveryAttempt` and `membershipRecoveryPoison`, and clears
+`membershipRecoveryLastErrorClass`. A failed recovery conditionally increments
+the attempt, stores only the sanitized exception class, and moves
+`membershipRecoveryDueAt` through bounded exponential backoff. Attempt ten sets
+the poison flag and a daily due time; successful convergence clears all failure
+fields and records latency from the started timestamp.
 
 ## List Projection Sizing
 
@@ -175,6 +186,10 @@ Canonical channel document:
   "projectionVersion": 12,
   "projectionRecoveryPending": true,
   "projectionRecoveryDueAt": "2026-05-09T12:01:00Z",
+  "projectionRecoveryStartedAt": "2026-05-09T12:00:00Z",
+  "projectionRecoveryAttempt": 2,
+  "projectionRecoveryPoison": false,
+  "projectionRecoveryLastErrorClass": "CosmosException",
   "projectionRecoveryProjectionVersion": 12,
   "projectionRecoverySubscriptionGeneration": 9,
   "projectionRecoveryAfterListId": "earlier-list-guid",
@@ -207,6 +222,10 @@ Canonical refresh writes increment `projectionVersion` and set
 `projectionRecoveryPending` atomically with refreshed canonical fields. Recovery
 clears the flag only after the same version has been projected or its dead
 references have been activated for membership repair.
+The refresh also initializes the projection started timestamp and resets its
+attempt, poison, and sanitized error-class fields. Projection failures persist
+the same bounded backoff/ten-attempt poison semantics as membership work.
+Successful completion clears those fields and reports convergence latency.
 `projectionRecoveryAfterListId` is a sorted-list-id keyset, not an integer
 offset, and is valid only while both bound generation fields equal the current
 `projectionVersion` and `subscriptionGeneration`. Either change clears the key
@@ -434,6 +453,8 @@ Lists:
 - include `/membershipRecoveryDueAt`
 - composite ascending:
   `/membershipRecoveryPending`, `/membershipRecoveryDueAt`, `/id`
+- query-order composite ascending:
+  `/membershipRecoveryDueAt`, `/id`
 - exclude `/channels/*`
 
 Channels:
@@ -447,6 +468,8 @@ Channels:
 - include `/projectionRecoveryDueAt`
 - composite ascending:
   `/projectionRecoveryPending`, `/projectionRecoveryDueAt`, `/id`
+- query-order composite ascending:
+  `/projectionRecoveryDueAt`, `/id`
 - exclude `/videos/*`
 
 ShareLinks:
@@ -472,7 +495,14 @@ Recovery:
 - composite ascending: `/kind`, `/active`, `/nextAttemptAt`, `/listId`, `/id`
 - composite ascending: `/kind`, `/nextCheckAt`, `/listId`, `/id`
 - composite ascending: `/kind`, `/active`, `/channelId`, `/id`
+- query-order composite ascending: `/nextAttemptAt`, `/listId`, `/id`
+- query-order composite ascending: `/nextCheckAt`, `/listId`, `/id`
+- query-order composite ascending: `/channelId`, `/id`
 - exclude all other paths after the exact composite/order requirements are
   verified against emulator query plans
 
-Exact indexing policy JSON should be written during Cosmos implementation and verified with emulator tests.
+The query-order forms are required in addition to the filter-leading forms:
+emulator validation showed that equality-filter fields prepended to a composite
+do not satisfy an `ORDER BY` tuple that omits those fields. Exact indexing policy
+JSON should be written during Cosmos implementation and verified with emulator
+tests.

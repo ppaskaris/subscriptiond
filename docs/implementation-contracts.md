@@ -307,6 +307,13 @@ can create membership. Once recovery is quiescent:
 The list item has scalar `membershipVersion` and
 `membershipRecoveryPending` properties. A membership-changing conditional write
 increments the version and sets the pending flag atomically with `channels[]`.
+It also initializes `membershipRecoveryStartedAt` and resets
+`membershipRecoveryAttempt`, `membershipRecoveryPoison`, and
+`membershipRecoveryLastErrorClass`. A failed repair conditionally increments
+the attempt, stores a sanitized error class, and advances the due timestamp
+through bounded backoff; attempt ten marks poison and remains daily retryable.
+Successful convergence clears the failure fields and measures latency from the
+started timestamp.
 The channel item has the analogous scalar `projectionVersion` and
 `projectionRecoveryPending` fields, set atomically with a canonical refresh. It
 also has `subscriptionGeneration`, incremented in the same ETag-protected write
@@ -314,6 +321,10 @@ whenever the normalized `subscribedListIds` set changes. Projection progress and
 completion are conditional on both the observed `projectionVersion` and
 `subscriptionGeneration`. There are no unbounded pending-operation arrays in
 either item.
+Projection work has analogous `projectionRecoveryStartedAt`,
+`projectionRecoveryAttempt`, `projectionRecoveryPoison`, and
+`projectionRecoveryLastErrorClass` fields with the same durable failure,
+daily-poison-retry, and successful-clear semantics.
 
 The Cosmos-only `recovery` container has partition key `/listId`. It contains:
 
@@ -561,18 +572,21 @@ ORDER BY c.channelId ASC, c.id ASC
 
 The implementation may express a lexicographic predicate as equivalent
 parameterized query branches if required by the SDK query planner; it may not
-drop the total order. Exact ascending composite indexes are:
+drop the total order. Emulator validation showed that Cosmos requires a
+composite matching the actual `ORDER BY` tuple; equality-filter paths prepended
+to a composite do not satisfy that order. Keep the filter-leading composites
+for selective filtering/measurement, and add these query-order composites:
 
 - lists:
-  `/membershipRecoveryPending`, `/membershipRecoveryDueAt`, `/id`;
+  `/membershipRecoveryDueAt`, `/id`;
 - channels:
-  `/projectionRecoveryPending`, `/projectionRecoveryDueAt`, `/id`;
+  `/projectionRecoveryDueAt`, `/id`;
 - recovery edges:
-  `/kind`, `/active`, `/nextAttemptAt`, `/listId`, `/id`;
+  `/nextAttemptAt`, `/listId`, `/id`;
 - recovery lifecycles:
-  `/kind`, `/nextCheckAt`, `/listId`, `/id`; and
+  `/nextCheckAt`, `/listId`, `/id`; and
 - partition-scoped lifecycle cleanup:
-  `/kind`, `/active`, `/channelId`, `/id`.
+  `/channelId`, `/id`.
 
 Every work kind has a durable global cursor containing `cycleNow`, the last full
 keyset tuple, and `cycleGeneration`. The cursor advances after each examined

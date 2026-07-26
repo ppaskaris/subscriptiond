@@ -103,6 +103,8 @@ CREATE TABLE WorkerState (
 	NextChannelRefreshAt DATETIMEOFFSET NULL,
 	ChannelRefreshForceCount BIGINT NOT NULL CONSTRAINT DF_WorkerState_ChannelRefreshForceCount DEFAULT (0),
 	NextPurgeAt DATETIMEOFFSET NOT NULL,
+	NextConsistencyRecoveryAt DATETIMEOFFSET NOT NULL,
+	ConsistencyRecoveryForceCount BIGINT NOT NULL CONSTRAINT DF_WorkerState_ConsistencyRecoveryForceCount DEFAULT (0),
 
 	CONSTRAINT PK_WorkerState PRIMARY KEY (Id),
 	CONSTRAINT CK_WorkerState_Id CHECK (Id = 1)

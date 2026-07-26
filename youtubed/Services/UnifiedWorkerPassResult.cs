@@ -1,4 +1,5 @@
 using System;
+using youtubed.Persistence;
 
 namespace youtubed.Services
 {
@@ -11,5 +12,7 @@ namespace youtubed.Services
         public ChannelRefreshPipelineResult ChannelRefresh { get; set; }
         public DateTimeOffset? NextChannelRefreshAt { get; set; }
         public DateTimeOffset NextPurgeAt { get; set; }
+        public ConsistencyRecoveryPassResult ConsistencyRecovery { get; set; }
+        public DateTimeOffset NextConsistencyRecoveryAt { get; set; }
     }
 }

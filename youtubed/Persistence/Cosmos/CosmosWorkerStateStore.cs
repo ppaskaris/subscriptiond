@@ -39,6 +39,18 @@ namespace youtubed.Persistence.Cosmos
                 cancellationToken);
         }
 
+        public Task ForceConsistencyRecoveryAsync(CancellationToken cancellationToken)
+        {
+            return UpdateAsync(
+                document =>
+                {
+                    document.NextConsistencyRecoveryAt = DateTimeOffset.MinValue;
+                    document.ConsistencyRecoveryForceCount++;
+                    return true;
+                },
+                cancellationToken);
+        }
+
         public Task CompleteChannelRefreshPassAsync(
             DateTimeOffset? observedNextChannelRefreshAt,
             long observedChannelRefreshForceCount,
@@ -68,6 +80,27 @@ namespace youtubed.Persistence.Cosmos
                 document =>
                 {
                     document.NextPurgeAt = nextPurgeAt;
+                    return true;
+                },
+                cancellationToken);
+        }
+
+        public Task CompleteConsistencyRecoveryPassAsync(
+            DateTimeOffset observedNextConsistencyRecoveryAt,
+            long observedConsistencyRecoveryForceCount,
+            DateTimeOffset nextConsistencyRecoveryAt,
+            CancellationToken cancellationToken)
+        {
+            return UpdateAsync(
+                document =>
+                {
+                    if (document.NextConsistencyRecoveryAt != observedNextConsistencyRecoveryAt
+                        || document.ConsistencyRecoveryForceCount != observedConsistencyRecoveryForceCount)
+                    {
+                        return false;
+                    }
+
+                    document.NextConsistencyRecoveryAt = nextConsistencyRecoveryAt;
                     return true;
                 },
                 cancellationToken);
@@ -122,7 +155,9 @@ namespace youtubed.Persistence.Cosmos
             {
                 NextChannelRefreshAt = now,
                 ChannelRefreshForceCount = 0,
-                NextPurgeAt = now
+                NextPurgeAt = now,
+                NextConsistencyRecoveryAt = now,
+                ConsistencyRecoveryForceCount = 0
             };
 
             try

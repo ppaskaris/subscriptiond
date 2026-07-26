@@ -85,7 +85,8 @@ Add channel:
    reference, cleared orphan state, and disabled TTL. Use the configured
    serializer to reject an oversized channel before list membership can commit.
 3. Point-read the list with ETag, append the bounded projection, increment
-   `membershipVersion`, and set `membershipRecoveryPending`.
+   `membershipVersion`, set `membershipRecoveryPending`, initialize
+   `membershipRecoveryStartedAt`, and reset its attempt/poison/error fields.
 4. Mark the edge tracked and reconcile it from a fresh list read.
 5. Clear the pending flag only if the reconciled membership version is unchanged.
 
@@ -96,7 +97,8 @@ Remove channel:
 
 1. Ensure/activate the deterministic recovery edge.
 2. Point-read the list with ETag, remove the embedded projection, increment
-   `membershipVersion`, and set `membershipRecoveryPending`.
+   `membershipVersion`, set `membershipRecoveryPending`, initialize
+   `membershipRecoveryStartedAt`, and reset its attempt/poison/error fields.
 3. Reconcile the edge from a fresh list read, conditionally removing only this
    list id from the channel and applying orphan TTL if it was the last.
 4. Retire the edge and clear only the repaired list version.
@@ -153,7 +155,8 @@ SQL implementation is no-op.
 Cosmos implementation:
 
 1. The canonical refresh write increments `projectionVersion` and sets
-   `projectionRecoveryPending`.
+   `projectionRecoveryPending`, initializes `projectionRecoveryStartedAt`, and
+   resets its attempt/poison/error fields.
 2. For each current subscribed list id, point-read the list.
 3. If missing or the list no longer contains the channel, activate its edge
    record for authoritative membership repair.
@@ -262,6 +265,11 @@ processed items, and a measured 2,000-RU scheduling budget per pass. Stop adding
 work when either limit is reached; one in-flight item, including one ETag retry,
 is the maximum RU overshoot.
 
+Provision both the selective filter-leading composites and composites matching
+the actual `ORDER BY` tuples. Emulator validation showed that Cosmos does not use
+a composite with equality-filter paths prepended as a substitute for the query
+order.
+
 Per-kind cursor records in the recovery container's reserved `__system`
 partition hold fixed-cycle timestamps and full keyset tuples. They wrap only at
 end-of-cycle, ensuring restart fairness. Generic startup-immediate scheduling
@@ -282,6 +290,10 @@ duplicate processing is harmless, and completion checks the observed
 membership/projection version or recovery generation. Failures back off with
 jitter from one minute to one hour. Ten failures mark poison and emit an error,
 but poison work remains durable and retries daily.
+Membership and projection failures persist that state directly on their list or
+channel document (`*RecoveryAttempt`, `*RecoveryPoison`, due timestamp, and
+sanitized `*RecoveryLastErrorClass`). Successful convergence conditionally
+clears those fields and measures latency from `*RecoveryStartedAt`.
 
 Claims, edge/lifecycle transactional batches, checkpoints, cursor writes, and
 target list/channel writes each make two total ETag attempts. A second conflict

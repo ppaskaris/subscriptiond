@@ -11,6 +11,8 @@ namespace youtubed.Persistence
 
         Task ForceChannelRefreshAsync(CancellationToken cancellationToken);
 
+        Task ForceConsistencyRecoveryAsync(CancellationToken cancellationToken);
+
         Task CompleteChannelRefreshPassAsync(
             DateTimeOffset? observedNextChannelRefreshAt,
             long observedChannelRefreshForceCount,
@@ -19,6 +21,12 @@ namespace youtubed.Persistence
 
         Task CompletePurgeAsync(
             DateTimeOffset nextPurgeAt,
+            CancellationToken cancellationToken);
+
+        Task CompleteConsistencyRecoveryPassAsync(
+            DateTimeOffset observedNextConsistencyRecoveryAt,
+            long observedConsistencyRecoveryForceCount,
+            DateTimeOffset nextConsistencyRecoveryAt,
             CancellationToken cancellationToken);
     }
 }

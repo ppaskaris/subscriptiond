@@ -19,6 +19,7 @@ namespace youtubed.Persistence.Cosmos
             CancellationToken cancellationToken)
         {
             var response = await base.SendAsync(request, cancellationToken);
+            CosmosRequestChargeScope.Record(response.Headers.RequestCharge);
             _logger.LogDebug(
                 "Cosmos request {Method} {RequestUri} consumed {RequestCharge:F2} RU with status {StatusCode}.",
                 request.Method,

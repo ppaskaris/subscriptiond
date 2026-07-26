@@ -60,6 +60,8 @@ namespace youtubed.Tests.Persistence
             Assert.IsType<CosmosListProjectionRepository>(provider.GetRequiredService<IListProjectionRepository>());
             Assert.IsType<CosmosWorkerStateStore>(provider.GetRequiredService<IWorkerStateStore>());
             Assert.IsType<CosmosExpirationPurger>(provider.GetRequiredService<IExpirationPurger>());
+            Assert.IsType<CosmosConsistencyRecoveryService>(
+                provider.GetRequiredService<IConsistencyRecoveryService>());
             Assert.Contains(
                 provider.GetServices<IHostedService>(),
                 service => service is CosmosPersistenceInitializerHostedService);
@@ -115,6 +117,7 @@ namespace youtubed.Tests.Persistence
             AssertRegistration<IWorkerStateStore, WorkerStateRepository>(services);
             AssertRegistration<IExpirationPurger, SqlExpirationPurger>(services);
             AssertRegistration<IListProjectionRepository, SqlListProjectionRepository>(services);
+            AssertRegistration<IConsistencyRecoveryService, SqlConsistencyRecoveryService>(services);
         }
 
         private static void AssertRegistration<TService, TImplementation>(IServiceCollection services)

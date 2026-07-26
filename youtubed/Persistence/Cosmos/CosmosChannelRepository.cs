@@ -21,6 +21,16 @@ namespace youtubed.Persistence.Cosmos
         private readonly IAppClock _clock;
 
         public CosmosChannelRepository(Container channels, Container lists, IAppClock clock)
+            : this(channels, lists, null, clock, null)
+        {
+        }
+
+        internal CosmosChannelRepository(
+            Container channels,
+            Container lists,
+            Container recovery,
+            IAppClock clock,
+            CosmosRecoveryOptions recoveryOptions)
         {
             _channels = channels ?? throw new ArgumentNullException(nameof(channels));
             _lists = lists ?? throw new ArgumentNullException(nameof(lists));
@@ -82,6 +92,10 @@ namespace youtubed.Persistence.Cosmos
                         exception.StatusCode == HttpStatusCode.Conflict
                         && attempt + 1 < MaxWriteAttempts)
                     {
+                        CosmosRecoveryTelemetry.RecordConflict(
+                            "ChannelRepository",
+                            "CreateCanonical",
+                            retry: true);
                         continue;
                     }
                 }
@@ -99,6 +113,10 @@ namespace youtubed.Persistence.Cosmos
                     exception.StatusCode == HttpStatusCode.PreconditionFailed
                     && attempt + 1 < MaxWriteAttempts)
                 {
+                    CosmosRecoveryTelemetry.RecordConflict(
+                        "ChannelRepository",
+                        "UpdateCanonical",
+                        retry: true);
                 }
             }
         }
@@ -229,7 +247,20 @@ namespace youtubed.Persistence.Cosmos
             {
                 await UpdateChannelAsync(
                     result.Channel.Id,
-                    document => ApplyRefreshResult(document, result),
+                    document =>
+                    {
+                        ApplyRefreshResult(document, result);
+                        document.ProjectionVersion++;
+                        document.ProjectionRecoveryPending = true;
+                        document.ProjectionRecoveryDueAt = _clock.UtcNow;
+                        document.ProjectionRecoveryStartedAt ??= _clock.UtcNow;
+                        document.ProjectionRecoveryAttempt = 0;
+                        document.ProjectionRecoveryPoison = false;
+                        document.ProjectionRecoveryLastErrorClass = null;
+                        document.ProjectionRecoveryProjectionVersion = null;
+                        document.ProjectionRecoverySubscriptionGeneration = null;
+                        document.ProjectionRecoveryAfterListId = null;
+                    },
                     cancellationToken);
             }
         }
@@ -257,6 +288,87 @@ namespace youtubed.Persistence.Cosmos
                 cancellationToken);
         }
 
+        internal async Task<bool> ReserveSubscriptionAsync(
+            string channelId,
+            Guid listId,
+            CancellationToken cancellationToken)
+        {
+            for (var attempt = 0; attempt < MaxWriteAttempts; attempt++)
+            {
+                var document = await ReadChannelAsync(channelId, cancellationToken);
+                if (document == null)
+                {
+                    return false;
+                }
+
+                var ids = document.SubscribedListIds
+                    .Append(listId.ToString("D"))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(value => value, StringComparer.Ordinal)
+                    .ToArray();
+                ApplySubscriptions(document, ids.Select(Guid.Parse).ToArray());
+                try
+                {
+                    await ReplaceAsync(document, cancellationToken);
+                    return true;
+                }
+                catch (CosmosException exception) when (
+                    exception.StatusCode == HttpStatusCode.PreconditionFailed
+                    && attempt + 1 < MaxWriteAttempts)
+                {
+                    CosmosRecoveryTelemetry.RecordConflict(
+                        "ChannelRepository",
+                        "ReserveSubscription",
+                        retry: true);
+                }
+            }
+
+            return false;
+        }
+
+        internal async Task<bool> RepairSubscriptionFromListTruthAsync(
+            string channelId,
+            Guid listId,
+            CancellationToken cancellationToken)
+        {
+            var list = await ReadListAsync(listId, cancellationToken);
+            var isMember = list?.Channels.Any(channel => string.Equals(
+                channel.Id,
+                channelId,
+                StringComparison.Ordinal)) == true;
+            var changed = false;
+            await UpdateChannelAsync(
+                channelId,
+                document =>
+                {
+                    var normalized = document.SubscribedListIds
+                        .Where(value => Guid.TryParse(value, out _))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    if (isMember)
+                    {
+                        changed = normalized.Add(listId.ToString("D"));
+                    }
+                    else
+                    {
+                        changed = normalized.Remove(listId.ToString("D"));
+                    }
+
+                    var ids = normalized
+                        .Select(Guid.Parse)
+                        .OrderBy(id => id)
+                        .ToArray();
+                    if (!changed && ReferencesMatch(document, ids))
+                    {
+                        return;
+                    }
+
+                    ApplySubscriptions(document, ids);
+                },
+                cancellationToken);
+            return changed;
+        }
+
         private async Task<CosmosChannelDocument> RepairReferencesAsync(
             CosmosChannelDocument document,
             CancellationToken cancellationToken)
@@ -282,6 +394,10 @@ namespace youtubed.Persistence.Cosmos
                     exception.StatusCode == HttpStatusCode.PreconditionFailed
                     && attempt + 1 < MaxWriteAttempts)
                 {
+                    CosmosRecoveryTelemetry.RecordConflict(
+                        "ChannelRepository",
+                        "RepairSubscription",
+                        retry: true);
                     document = await ReadChannelAsync(document.Id, cancellationToken);
                     if (document == null)
                     {
@@ -394,6 +510,10 @@ namespace youtubed.Persistence.Cosmos
                     exception.StatusCode == HttpStatusCode.PreconditionFailed
                     && attempt + 1 < MaxWriteAttempts)
                 {
+                    CosmosRecoveryTelemetry.RecordConflict(
+                        "ChannelRepository",
+                        "RemoveSubscription",
+                        retry: true);
                 }
             }
         }
@@ -407,6 +527,15 @@ namespace youtubed.Persistence.Cosmos
                     document.OrphanedAfter.Value + Constants.ChannelOrphanRetention,
                     _clock.UtcNow)
                 : -1;
+            using (var stream = CosmosSystemTextJsonSerializer.Instance.ToStream(document))
+            {
+                if (stream.Length >= Constants.CosmosChannelSerializedSizeSafetyCeilingBytes)
+                {
+                    throw new ListCapacityExceededException(
+                        $"The canonical channel exceeds the {Constants.CosmosChannelSerializedSizeSafetyCeilingBytes}-byte safety ceiling.");
+                }
+            }
+
             return _channels.ReplaceItemAsync(
                 document,
                 document.Id,
@@ -419,8 +548,26 @@ namespace youtubed.Persistence.Cosmos
             CosmosChannelDocument document,
             IReadOnlyList<Guid> validListIds)
         {
-            document.SubscribedListIds = validListIds.Select(id => id.ToString("D")).ToArray();
-            document.SubscriptionCount = validListIds.Count;
+            var previous = document.SubscribedListIds
+                .Where(value => Guid.TryParse(value, out _))
+                .Select(Guid.Parse)
+                .Distinct()
+                .OrderBy(id => id)
+                .ToArray();
+            var normalized = validListIds.Distinct().OrderBy(id => id).ToArray();
+            document.SubscribedListIds = normalized.Select(id => id.ToString("D")).ToArray();
+            document.SubscriptionCount = normalized.Length;
+            if (!previous.SequenceEqual(normalized))
+            {
+                document.SubscriptionGeneration++;
+                if (document.ProjectionRecoveryPending)
+                {
+                    document.ProjectionRecoveryDueAt = _clock.UtcNow;
+                    document.ProjectionRecoveryProjectionVersion = null;
+                    document.ProjectionRecoverySubscriptionGeneration = null;
+                    document.ProjectionRecoveryAfterListId = null;
+                }
+            }
             if (validListIds.Count == 0)
             {
                 document.OrphanedAfter ??= _clock.UtcNow;

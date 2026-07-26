@@ -16,7 +16,9 @@ namespace youtubed.Persistence.Cosmos
                 PlaybackRate = list.PlaybackRate,
                 ExpiredAfter = list.ExpiredAfter,
                 ExpirationRenewedOn = list.ExpirationRenewedOn,
-                Ttl = GetTtlSeconds(list.ExpiredAfter, now)
+                Ttl = GetTtlSeconds(list.ExpiredAfter, now),
+                MembershipVersion = 0,
+                MembershipRecoveryPending = false
             };
         }
 
@@ -130,9 +132,12 @@ namespace youtubed.Persistence.Cosmos
                 StatusUpdatedAt = channel.StatusUpdatedAt,
                 SubscribedListIds = channel.SubscribedListIds.Select(id => id.ToString("D")).ToArray(),
                 SubscriptionCount = channel.SubscriptionCount,
+                SubscriptionGeneration = 0,
                 OrphanedAfter = channel.OrphanedAfter,
                 Ttl = isOrphaned ? GetTtlSeconds(channel.OrphanedAfter.Value + orphanRetention, now) : -1,
-                Videos = channel.Videos.Select(ToVideoDocument).ToArray()
+                Videos = channel.Videos.Select(ToVideoDocument).ToArray(),
+                ProjectionVersion = 0,
+                ProjectionRecoveryPending = false
             };
         }
 
@@ -203,7 +208,9 @@ namespace youtubed.Persistence.Cosmos
             {
                 NextChannelRefreshAt = state.NextChannelRefreshAt,
                 ChannelRefreshForceCount = state.ChannelRefreshForceCount,
-                NextPurgeAt = state.NextPurgeAt
+                NextPurgeAt = state.NextPurgeAt,
+                NextConsistencyRecoveryAt = state.NextConsistencyRecoveryAt,
+                ConsistencyRecoveryForceCount = state.ConsistencyRecoveryForceCount
             };
         }
 
@@ -213,7 +220,9 @@ namespace youtubed.Persistence.Cosmos
             {
                 NextChannelRefreshAt = document.NextChannelRefreshAt,
                 ChannelRefreshForceCount = document.ChannelRefreshForceCount,
-                NextPurgeAt = document.NextPurgeAt
+                NextPurgeAt = document.NextPurgeAt,
+                NextConsistencyRecoveryAt = document.NextConsistencyRecoveryAt,
+                ConsistencyRecoveryForceCount = document.ConsistencyRecoveryForceCount
             };
         }
 

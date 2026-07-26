@@ -36,5 +36,12 @@ namespace youtubed.Tests.ProviderContracts
 
         [LocalDbFact]
         public Task CompletePurge() => CompletePurgeContractAsync();
+
+        [LocalDbFact]
+        public Task ForceConsistencyRecovery() => ForceConsistencyRecoveryContractAsync();
+
+        [LocalDbFact]
+        public Task RecoveryCompletionProtectsForceGeneration() =>
+            RecoveryCompletionProtectsForceGenerationContractAsync();
     }
 }

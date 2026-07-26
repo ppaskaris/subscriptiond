@@ -32,7 +32,7 @@ namespace youtubed.Persistence.Cosmos
                 cancellationToken: cancellationToken)).Database;
             await _containerInitializer.InitializeAsync(database, _options, cancellationToken);
             _logger.LogInformation(
-                "Cosmos persistence initialized database {DatabaseName} with lists, channels, share links, and system containers.",
+                "Cosmos persistence initialized database {DatabaseName} with lists, channels, share links, system, and recovery containers.",
                 _options.DatabaseName);
         }
 

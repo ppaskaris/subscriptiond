@@ -36,5 +36,12 @@ namespace youtubed.Tests.ProviderContracts
 
         [CosmosFact]
         public Task CompletePurge() => CompletePurgeContractAsync();
+
+        [CosmosFact]
+        public Task ForceConsistencyRecovery() => ForceConsistencyRecoveryContractAsync();
+
+        [CosmosFact]
+        public Task RecoveryCompletionProtectsForceGeneration() =>
+            RecoveryCompletionProtectsForceGenerationContractAsync();
     }
 }

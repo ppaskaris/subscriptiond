@@ -43,6 +43,10 @@ membership/projection version and pending fields make committed cross-container
 work durably discoverable without unbounded operation arrays or list/channel
 scans. Channel `subscriptionGeneration` and generation-bound list-id keysets
 make projection traversal safe when reverse references mutate.
+List membership and channel projection work also carry scalar started-at,
+attempt, poison, due-at, and sanitized last-error-class fields. Failures persist
+bounded backoff and remain daily retryable after poison; successful convergence
+clears failure state and records latency.
 
 Specified add/remove, explicit delete, automatic TTL, renewal, canonical refresh,
 projection, restart, and multi-instance behavior. The design includes a failure

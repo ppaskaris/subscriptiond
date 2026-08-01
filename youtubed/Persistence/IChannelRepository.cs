@@ -3,16 +3,13 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using youtubed.Domain;
-using youtubed.Models;
 
 namespace youtubed.Persistence
 {
     public interface IChannelRepository
     {
-        Task<ChannelModel> GetByIdAsync(string id);
-        Task SaveDiscoveredChannelAsync(ChannelModel channel, DateTimeOffset staleAfter);
-        Task UpdateMetadataAsync(string id, string url, string title, string thumbnail, string playlistId);
-        Task MarkUnavailableAsync(string id, ChannelStatusReason reason, DateTimeOffset statusUpdatedAt, DateTimeOffset staleAfter);
+        Task<Channel> GetByIdAsync(string id);
+        Task SaveDiscoveredChannelAsync(Channel channel, DateTimeOffset staleAfter);
         Task<IReadOnlyList<StaleChannelReference>> GetStaleLookaheadAsync(
             DateTimeOffset now,
             int take,

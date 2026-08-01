@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 
 namespace youtubed.Persistence.Cosmos
 {
-    public sealed class CosmosListDocument
+    internal sealed class CosmosListDocument
     {
         public string Id { get; set; }
         public byte[] Token { get; set; }
@@ -25,7 +25,7 @@ namespace youtubed.Persistence.Cosmos
         public string ETag { get; set; }
     }
 
-    public sealed class CosmosProjectedChannelDocument
+    internal sealed class CosmosProjectedChannelDocument
     {
         public string Id { get; set; }
         public string Url { get; set; }
@@ -38,7 +38,7 @@ namespace youtubed.Persistence.Cosmos
         public IReadOnlyList<CosmosVideoDocument> Videos { get; set; } = Array.Empty<CosmosVideoDocument>();
     }
 
-    public sealed class CosmosVideoDocument
+    internal sealed class CosmosVideoDocument
     {
         public string Id { get; set; }
         public string Title { get; set; }
@@ -47,7 +47,7 @@ namespace youtubed.Persistence.Cosmos
         public string Thumbnail { get; set; }
     }
 
-    public sealed class CosmosChannelDocument
+    internal sealed class CosmosChannelDocument
     {
         public string Id { get; set; }
         public string Url { get; set; }
@@ -78,7 +78,7 @@ namespace youtubed.Persistence.Cosmos
         public string ETag { get; set; }
     }
 
-    public sealed class CosmosShareLinkDocument
+    internal sealed class CosmosShareLinkDocument
     {
         public string Id { get; set; }
         public string ListId { get; set; }
@@ -90,7 +90,7 @@ namespace youtubed.Persistence.Cosmos
         public string ETag { get; set; }
     }
 
-    public sealed class CosmosWorkerStateDocument
+    internal sealed class CosmosWorkerStateDocument
     {
         public const string SchedulerId = "scheduler";
 
@@ -104,7 +104,7 @@ namespace youtubed.Persistence.Cosmos
         public string ETag { get; set; }
     }
 
-    public sealed class CosmosRecoveryLifecycleDocument
+    internal sealed class CosmosRecoveryLifecycleDocument
     {
         public const string DocumentId = "lifecycle";
 
@@ -135,7 +135,7 @@ namespace youtubed.Persistence.Cosmos
         public string ETag { get; set; }
     }
 
-    public sealed class CosmosRecoveryEdgeDocument
+    internal sealed class CosmosRecoveryEdgeDocument
     {
         public string Id { get; set; }
         public string ListId { get; set; }
@@ -156,7 +156,7 @@ namespace youtubed.Persistence.Cosmos
         public string ETag { get; set; }
     }
 
-    public sealed class CosmosRecoveryCursorDocument
+    internal sealed class CosmosRecoveryCursorDocument
     {
         public string Id { get; set; }
         public string ListId { get; set; } = "__system";
@@ -172,7 +172,7 @@ namespace youtubed.Persistence.Cosmos
         public string ETag { get; set; }
     }
 
-    public sealed class CosmosRecoveryTicketCursorDocument
+    internal sealed class CosmosRecoveryTicketCursorDocument
     {
         public const string DocumentId = "cursor:work-kind-rotation";
 

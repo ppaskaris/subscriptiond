@@ -65,7 +65,6 @@ namespace youtubed.Tests.Persistence
             Assert.Contains(
                 provider.GetServices<IHostedService>(),
                 service => service is CosmosPersistenceInitializerHostedService);
-            Assert.Empty(provider.GetServices<IChannelVideoRepository>());
         }
 
         [Fact]
@@ -113,7 +112,6 @@ namespace youtubed.Tests.Persistence
             AssertRegistration<IListRepository, ListRepository>(services);
             AssertRegistration<IShareLinkRepository, ShareLinkRepository>(services);
             AssertRegistration<IChannelRepository, ChannelRepository>(services);
-            AssertRegistration<IChannelVideoRepository, ChannelVideoRepository>(services);
             AssertRegistration<IWorkerStateStore, WorkerStateRepository>(services);
             AssertRegistration<IExpirationPurger, SqlExpirationPurger>(services);
             AssertRegistration<IListProjectionRepository, SqlListProjectionRepository>(services);

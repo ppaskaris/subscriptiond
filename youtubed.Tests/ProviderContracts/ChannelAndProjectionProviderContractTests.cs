@@ -253,7 +253,7 @@ namespace youtubed.Tests.ProviderContracts
                 new[] { refreshed },
                 CancellationToken.None);
 
-            var channelProjection = await Provider.Lists.GetChannelProjectionAsync(ToSubscriptionList(list));
+            var channelProjection = await Provider.Lists.GetChannelProjectionAsync(list);
             var projectedChannel = channelProjection.Channels.Single(channel => channel.Id == refreshed.Id);
             Assert.Equal(refreshed.Url, projectedChannel.Url);
             Assert.Equal("After", projectedChannel.Title);
@@ -271,7 +271,7 @@ namespace youtubed.Tests.ProviderContracts
             Assert.Equal(untouchedModel.StatusReason, untouchedProjectedChannel.StatusReason);
             Assert.Equal(untouchedModel.StatusUpdatedAt, untouchedProjectedChannel.StatusUpdatedAt);
 
-            var videoProjection = await Provider.Lists.GetVideoProjectionAsync(ToSubscriptionList(list), 10);
+            var videoProjection = await Provider.Lists.GetVideoProjectionAsync(list, 10);
             var projectedVideoChannel = videoProjection.Channels.Single(channel => channel.Id == refreshed.Id);
             Assert.Equal(refreshed.Url, projectedVideoChannel.Url);
             Assert.Equal(refreshed.Title, projectedVideoChannel.Title);

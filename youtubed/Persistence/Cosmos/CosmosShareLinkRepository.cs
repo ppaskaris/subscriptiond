@@ -5,7 +5,6 @@ using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
 using youtubed.Domain;
-using youtubed.Models;
 using youtubed.Services;
 
 namespace youtubed.Persistence.Cosmos
@@ -28,18 +27,9 @@ namespace youtubed.Persistence.Cosmos
             _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         }
 
-        public async Task<bool> TryCreateAsync(ShareLinkModel shareLink)
+        public async Task<bool> TryCreateAsync(ShareLink shareLink)
         {
-            var document = CosmosDocumentMapper.ToDocument(
-                new ShareLink
-                {
-                    Password = shareLink.Password,
-                    ListId = shareLink.ListId,
-                    CreatedAt = shareLink.CreatedAt,
-                    ExpiresAfter = shareLink.ExpiresAfter,
-                    UsedAt = shareLink.UsedAt
-                },
-                _clock.UtcNow);
+            var document = CosmosDocumentMapper.ToDocument(shareLink, _clock.UtcNow);
 
             try
             {
@@ -52,19 +42,19 @@ namespace youtubed.Persistence.Cosmos
             }
         }
 
-        public async Task<IReadOnlyList<ShareLinkModel>> GetByListAsync(Guid listId)
+        public async Task<IReadOnlyList<ShareLink>> GetByListAsync(Guid listId)
         {
             var query = new QueryDefinition(
                     "SELECT * FROM c WHERE c.listId = @listId")
                 .WithParameter("@listId", listId.ToString("D"));
-            var links = new List<ShareLinkModel>();
+            var links = new List<ShareLink>();
             using var iterator = _shareLinks.GetItemQueryIterator<CosmosShareLinkDocument>(query);
 
             while (iterator.HasMoreResults)
             {
                 foreach (var document in await iterator.ReadNextAsync())
                 {
-                    links.Add(ToModel(document));
+                    links.Add(CosmosDocumentMapper.ToShareLink(document));
                 }
             }
 
@@ -114,7 +104,7 @@ namespace youtubed.Persistence.Cosmos
             }
         }
 
-        public async Task<ConsumedShareLinkModel> ConsumeAsync(
+        public async Task<ConsumedShareLink> ConsumeAsync(
             string password,
             DateTimeOffset now)
         {
@@ -147,7 +137,7 @@ namespace youtubed.Persistence.Cosmos
                         shareLink.Id,
                         new PartitionKey(shareLink.Id),
                         new ItemRequestOptions { IfMatchEtag = shareLink.ETag });
-                    return new ConsumedShareLinkModel
+                    return new ConsumedShareLink
                     {
                         ListId = listId,
                         Token = list.Token
@@ -196,19 +186,6 @@ namespace youtubed.Persistence.Cosmos
             {
                 return null;
             }
-        }
-
-        private static ShareLinkModel ToModel(CosmosShareLinkDocument document)
-        {
-            var shareLink = CosmosDocumentMapper.ToShareLink(document);
-            return new ShareLinkModel
-            {
-                Password = shareLink.Password,
-                ListId = shareLink.ListId,
-                CreatedAt = shareLink.CreatedAt,
-                ExpiresAfter = shareLink.ExpiresAfter,
-                UsedAt = shareLink.UsedAt
-            };
         }
 
         private static bool ListIdsEqual(string documentListId, Guid listId)

@@ -6,7 +6,6 @@ using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using youtubed.Domain;
-using youtubed.Models;
 using youtubed.Services;
 
 namespace youtubed.Persistence.Cosmos
@@ -40,7 +39,7 @@ namespace youtubed.Persistence.Cosmos
                 ?? Constants.ChannelOrphanRetention;
         }
 
-        public async Task<ChannelModel> GetByIdAsync(string id)
+        public async Task<Channel> GetByIdAsync(string id)
         {
             var document = await ReadChannelAsync(id, CancellationToken.None);
             if (document == null)
@@ -48,22 +47,10 @@ namespace youtubed.Persistence.Cosmos
                 return null;
             }
 
-            var channel = CosmosDocumentMapper.ToChannel(document);
-            return new ChannelModel
-            {
-                Id = channel.Id,
-                Url = channel.Url,
-                Title = channel.Title,
-                Thumbnail = channel.Thumbnail,
-                PlaylistId = channel.PlaylistId,
-                StaleAfter = channel.StaleAfter,
-                Status = channel.Status,
-                StatusReason = channel.StatusReason,
-                StatusUpdatedAt = channel.StatusUpdatedAt
-            };
+            return CosmosDocumentMapper.ToChannel(document);
         }
 
-        public async Task SaveDiscoveredChannelAsync(ChannelModel channel, DateTimeOffset staleAfter)
+        public async Task SaveDiscoveredChannelAsync(Channel channel, DateTimeOffset staleAfter)
         {
             for (var attempt = 0; attempt < MaxWriteAttempts; attempt++)
             {
@@ -122,46 +109,6 @@ namespace youtubed.Persistence.Cosmos
                         retry: true);
                 }
             }
-        }
-
-        public Task UpdateMetadataAsync(
-            string id,
-            string url,
-            string title,
-            string thumbnail,
-            string playlistId)
-        {
-            return UpdateChannelAsync(
-                id,
-                document =>
-                {
-                    document.Url = url;
-                    document.Title = title;
-                    document.Thumbnail = thumbnail;
-                    document.PlaylistId = playlistId;
-                    document.Status = ChannelStatus.Active.ToString();
-                    document.StatusReason = ChannelStatusReason.None.ToString();
-                    document.StatusUpdatedAt = null;
-                },
-                CancellationToken.None);
-        }
-
-        public Task MarkUnavailableAsync(
-            string id,
-            ChannelStatusReason reason,
-            DateTimeOffset statusUpdatedAt,
-            DateTimeOffset staleAfter)
-        {
-            return UpdateChannelAsync(
-                id,
-                document =>
-                {
-                    document.Status = ChannelStatus.Unavailable.ToString();
-                    document.StatusReason = reason.ToString();
-                    document.StatusUpdatedAt = statusUpdatedAt;
-                    document.StaleAfter = staleAfter;
-                },
-                CancellationToken.None);
         }
 
         public async Task<IReadOnlyList<StaleChannelReference>> GetStaleLookaheadAsync(

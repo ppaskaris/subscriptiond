@@ -1,17 +1,16 @@
 using System;
 using System.Threading.Tasks;
 using youtubed.Domain;
-using youtubed.Models;
 
 namespace youtubed.Persistence
 {
     public interface IListRepository
     {
-        Task CreateAsync(ListModel list);
-        Task<ListModel> GetAsync(Guid id);
+        Task CreateAsync(SubscriptionList list);
+        Task<SubscriptionList> GetAsync(Guid id);
         Task<ListVideoProjection> GetAuthenticatedVideoProjectionAsync(
             Guid id,
-            string token,
+            byte[] token,
             DateTimeOffset expiredAfter,
             DateOnly renewedOn,
             int videoLimit);

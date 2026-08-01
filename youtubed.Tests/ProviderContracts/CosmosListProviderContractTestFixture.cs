@@ -6,7 +6,6 @@ using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using youtubed.Domain;
-using youtubed.Models;
 using youtubed.Persistence;
 using youtubed.Persistence.Cosmos;
 using youtubed.Services;
@@ -95,26 +94,14 @@ namespace youtubed.Tests.ProviderContracts
                 _projectRefreshResults = projectRefreshResults;
             }
 
-            public async Task<ChannelModel> GetByIdAsync(string id)
+            public async Task<Channel> GetByIdAsync(string id)
             {
                 try
                 {
                     var response = await _channels.ReadItemAsync<CosmosChannelDocument>(
                         id,
                         new PartitionKey(id));
-                    var channel = CosmosDocumentMapper.ToChannel(response.Resource);
-                    return new ChannelModel
-                    {
-                        Id = channel.Id,
-                        Url = channel.Url,
-                        Title = channel.Title,
-                        Thumbnail = channel.Thumbnail,
-                        PlaylistId = channel.PlaylistId,
-                        StaleAfter = channel.StaleAfter,
-                        Status = channel.Status,
-                        StatusReason = channel.StatusReason,
-                        StatusUpdatedAt = channel.StatusUpdatedAt
-                    };
+                    return CosmosDocumentMapper.ToChannel(response.Resource);
                 }
                 catch (CosmosException exception) when (exception.StatusCode == HttpStatusCode.NotFound)
                 {
@@ -123,22 +110,11 @@ namespace youtubed.Tests.ProviderContracts
             }
 
             public async Task SaveDiscoveredChannelAsync(
-                ChannelModel channel,
+                Channel channel,
                 DateTimeOffset staleAfter)
             {
                 var document = CosmosDocumentMapper.ToChannelDocument(
-                    new Channel
-                    {
-                        Id = channel.Id,
-                        Url = channel.Url,
-                        Title = channel.Title,
-                        Thumbnail = channel.Thumbnail,
-                        PlaylistId = channel.PlaylistId,
-                        StaleAfter = staleAfter,
-                        Status = channel.Status,
-                        StatusReason = channel.StatusReason,
-                        StatusUpdatedAt = channel.StatusUpdatedAt
-                    },
+                    channel,
                     _clock.UtcNow,
                     TimeSpan.FromDays(7));
                 await _channels.CreateItemAsync(document, new PartitionKey(document.Id));
@@ -194,19 +170,6 @@ namespace youtubed.Tests.ProviderContracts
                     }
                 }
             }
-
-            public Task UpdateMetadataAsync(
-                string id,
-                string url,
-                string title,
-                string thumbnail,
-                string playlistId) => throw new NotSupportedException();
-
-            public Task MarkUnavailableAsync(
-                string id,
-                ChannelStatusReason reason,
-                DateTimeOffset statusUpdatedAt,
-                DateTimeOffset staleAfter) => throw new NotSupportedException();
 
             public Task<IReadOnlyList<StaleChannelReference>> GetStaleLookaheadAsync(
                 DateTimeOffset now,

@@ -4,7 +4,6 @@ using System.Linq;
 using System.Threading.Tasks;
 using youtubed.Data;
 using youtubed.Domain;
-using youtubed.Models;
 using youtubed.SecurityTheatre;
 
 namespace youtubed.Persistence
@@ -18,7 +17,7 @@ namespace youtubed.Persistence
             _connectionFactory = connectionFactory;
         }
 
-        public async Task CreateAsync(ListModel list)
+        public async Task CreateAsync(SubscriptionList list)
         {
             using var connection = _connectionFactory.CreateConnection();
             await connection.ExecuteAsync(
@@ -29,10 +28,10 @@ namespace youtubed.Persistence
                 list);
         }
 
-        public async Task<ListModel> GetAsync(Guid id)
+        public async Task<SubscriptionList> GetAsync(Guid id)
         {
             using var connection = _connectionFactory.CreateConnection();
-            return await connection.QueryFirstOrDefaultAsync<ListModel>(
+            return await connection.QueryFirstOrDefaultAsync<SubscriptionList>(
                 @"
                 SELECT Id, Token, Title, PlaybackRate, ExpiredAfter, ExpirationRenewedOn
                 FROM List
@@ -43,15 +42,14 @@ namespace youtubed.Persistence
 
         public async Task<ListVideoProjection> GetAuthenticatedVideoProjectionAsync(
             Guid id,
-            string token,
+            byte[] token,
             DateTimeOffset expiredAfter,
             DateOnly renewedOn,
             int videoLimit)
         {
             var list = await GetAsync(id);
             if (list == null
-                || token == null
-                || TokenUtils.NotEqual(token, list.TokenString))
+                || TokenUtils.NotEqual(token, list.Token))
             {
                 return null;
             }
@@ -61,15 +59,7 @@ namespace youtubed.Persistence
                 await RenewExpirationAsync(id, expiredAfter, renewedOn);
             }
 
-            return await GetVideoProjectionAsync(new SubscriptionList
-            {
-                Id = list.Id,
-                Token = list.Token,
-                Title = list.Title,
-                PlaybackRate = list.PlaybackRate,
-                ExpiredAfter = list.ExpiredAfter,
-                ExpirationRenewedOn = list.ExpirationRenewedOn
-            }, videoLimit);
+            return await GetVideoProjectionCoreAsync(list, videoLimit);
         }
 
         public async Task RenewExpirationAsync(Guid id, DateTimeOffset expiredAfter, DateOnly renewedOn)
@@ -86,7 +76,13 @@ namespace youtubed.Persistence
                 new { id, expiredAfter, renewedOn });
         }
 
-        public async Task<ListVideoProjection> GetVideoProjectionAsync(SubscriptionList list, int videoLimit)
+        public Task<ListVideoProjection> GetVideoProjectionAsync(
+            SubscriptionList list,
+            int videoLimit) => GetVideoProjectionCoreAsync(list, videoLimit);
+
+        private async Task<ListVideoProjection> GetVideoProjectionCoreAsync(
+            SubscriptionList list,
+            int videoLimit)
         {
             using var connection = _connectionFactory.CreateConnection();
             using var query = await connection.QueryMultipleAsync(

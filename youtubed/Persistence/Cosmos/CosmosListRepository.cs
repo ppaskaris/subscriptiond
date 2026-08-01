@@ -1,5 +1,4 @@
 using Microsoft.Azure.Cosmos;
-using Microsoft.AspNetCore.WebUtilities;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -7,7 +6,6 @@ using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using youtubed.Domain;
-using youtubed.Models;
 using youtubed.SecurityTheatre;
 using youtubed.Services;
 
@@ -63,19 +61,9 @@ namespace youtubed.Persistence.Cosmos
             _interleavingHooks = interleavingHooks;
         }
 
-        public async Task CreateAsync(ListModel list)
+        public async Task CreateAsync(SubscriptionList list)
         {
-            var document = CosmosDocumentMapper.ToDocument(
-                new SubscriptionList
-                {
-                    Id = list.Id,
-                    Token = list.Token,
-                    Title = list.Title,
-                    PlaybackRate = list.PlaybackRate,
-                    ExpiredAfter = list.ExpiredAfter,
-                    ExpirationRenewedOn = list.ExpirationRenewedOn
-                },
-                _clock.UtcNow);
+            var document = CosmosDocumentMapper.ToDocument(list, _clock.UtcNow);
 
             if (_recoveryStore != null)
             {
@@ -88,7 +76,7 @@ namespace youtubed.Persistence.Cosmos
             await _lists.CreateItemAsync(document, new PartitionKey(document.Id));
         }
 
-        public async Task<ListModel> GetAsync(Guid id)
+        public async Task<SubscriptionList> GetAsync(Guid id)
         {
             var document = await ReadListAsync(id);
             if (document == null)
@@ -96,21 +84,12 @@ namespace youtubed.Persistence.Cosmos
                 return null;
             }
 
-            var list = CosmosDocumentMapper.ToSubscriptionList(document);
-            return new ListModel
-            {
-                Id = list.Id,
-                Token = list.Token,
-                Title = list.Title,
-                PlaybackRate = list.PlaybackRate,
-                ExpiredAfter = list.ExpiredAfter,
-                ExpirationRenewedOn = list.ExpirationRenewedOn
-            };
+            return CosmosDocumentMapper.ToSubscriptionList(document);
         }
 
         public async Task<ListVideoProjection> GetAuthenticatedVideoProjectionAsync(
             Guid id,
-            string token,
+            byte[] token,
             DateTimeOffset expiredAfter,
             DateOnly renewedOn,
             int videoLimit)
@@ -128,11 +107,7 @@ namespace youtubed.Persistence.Cosmos
                         return null;
                     }
 
-                    if (token == null
-                        || TokenUtils.NotEqual(
-                            token,
-                            WebEncoders.Base64UrlEncode(
-                                document.Token ?? Array.Empty<byte>())))
+                    if (TokenUtils.NotEqual(token, document.Token))
                     {
                         outcome = "rejected_token";
                         return null;

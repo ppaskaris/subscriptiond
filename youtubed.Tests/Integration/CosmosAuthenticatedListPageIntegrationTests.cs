@@ -75,15 +75,13 @@ namespace youtubed.Tests.Integration
                 lists,
                 _fixture.GetContainer(CosmosTestFixture.ChannelsContainerName),
                 new FakeAppClock { UtcNow = now });
-            var routeToken = WebEncoders.Base64UrlEncode(token);
-
             int renewalRequests;
             double renewalCharge;
             using (var scope = CosmosRequestChargeScope.Begin())
             {
                 var projection = await repository.GetAuthenticatedVideoProjectionAsync(
                     listId,
-                    routeToken,
+                    token,
                     now.AddDays(45),
                     today,
                     101);
@@ -99,7 +97,7 @@ namespace youtubed.Tests.Integration
             {
                 Assert.NotNull(await repository.GetAuthenticatedVideoProjectionAsync(
                     listId,
-                    routeToken,
+                    token,
                     now.AddDays(46),
                     today,
                     101));

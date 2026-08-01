@@ -3,7 +3,6 @@ using System.Linq;
 using System.Threading.Tasks;
 using youtubed.Domain;
 using Xunit;
-using youtubed.Models;
 using youtubed.Persistence;
 using youtubed.Tests.Infrastructure;
 
@@ -192,7 +191,7 @@ namespace youtubed.Tests.Integration
         [LocalDbFact]
         public async Task CreateGetAndUpdateAsync_PersistPlaybackRate()
         {
-            var list = new ListModel
+            var list = new SubscriptionList
             {
                 Id = Guid.NewGuid(),
                 Token = new byte[40],

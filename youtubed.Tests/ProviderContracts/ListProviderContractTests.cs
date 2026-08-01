@@ -88,12 +88,12 @@ namespace youtubed.Tests.ProviderContracts
             await AddChannelToListAsync(list.Id, first.Id);
             await AddChannelToListAsync(list.Id, second.Id);
 
-            var added = await Provider.Lists.GetChannelProjectionAsync(ToSubscriptionList(list));
+            var added = await Provider.Lists.GetChannelProjectionAsync(list);
             Assert.Equal(new[] { second.Id, first.Id }, added.Channels.Select(channel => channel.Id));
 
             await Provider.Lists.RemoveChannelAsync(list.Id, first.Id);
             await Provider.Lists.RemoveChannelAsync(list.Id, first.Id);
-            var removed = await Provider.Lists.GetChannelProjectionAsync(ToSubscriptionList(list));
+            var removed = await Provider.Lists.GetChannelProjectionAsync(list);
             Assert.Equal(second.Id, Assert.Single(removed.Channels).Id);
         }
 
@@ -114,13 +114,13 @@ namespace youtubed.Tests.ProviderContracts
                 alsoWithVideos,
                 CreateVideo(alsoWithVideos.Id, "middle", publishedAt: Clock.UtcNow.AddHours(-1)));
 
-            var channelProjection = await Provider.Lists.GetChannelProjectionAsync(ToSubscriptionList(list));
+            var channelProjection = await Provider.Lists.GetChannelProjectionAsync(list);
             Assert.Equal(list.Id, channelProjection.List.Id);
             Assert.Equal(
                 new[] { alsoWithVideos.Id, empty.Id, withVideos.Id },
                 channelProjection.Channels.Select(channel => channel.Id));
 
-            var videoProjection = await Provider.Lists.GetVideoProjectionAsync(ToSubscriptionList(list), 2);
+            var videoProjection = await Provider.Lists.GetVideoProjectionAsync(list, 2);
             Assert.Equal("Projected List", videoProjection.List.Title);
             Assert.Equal(1.5m, videoProjection.List.PlaybackRate);
             Assert.Equal(3, videoProjection.Channels.Count);

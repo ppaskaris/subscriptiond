@@ -2,7 +2,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Xunit;
-using youtubed.Models;
+using youtubed.Domain;
 
 namespace youtubed.Tests.ProviderContracts
 {
@@ -21,14 +21,14 @@ namespace youtubed.Tests.ProviderContracts
             Clock.UtcNow = Clock.UtcNow.AddMinutes(1);
             var newer = await CreateShareLinkAsync(list.Id, "newer");
 
-            var duplicateCreated = await Provider.ShareLinks.TryCreateAsync(new ShareLinkModel
+            var duplicateCreated = await Provider.ShareLinks.TryCreateAsync(new ShareLink
             {
                 Password = older.Password,
                 ListId = list.Id,
                 CreatedAt = Clock.UtcNow,
                 ExpiresAfter = Clock.UtcNow.AddHours(1)
             });
-            var crossListDuplicateCreated = await Provider.ShareLinks.TryCreateAsync(new ShareLinkModel
+            var crossListDuplicateCreated = await Provider.ShareLinks.TryCreateAsync(new ShareLink
             {
                 Password = older.Password,
                 ListId = otherList.Id,

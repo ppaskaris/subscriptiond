@@ -22,11 +22,12 @@ namespace youtubed.Tests.Services
             var id = Guid.NewGuid();
             var now = new DateTimeOffset(2026, 8, 1, 12, 0, 0, TimeSpan.Zero);
             var token = Enumerable.Repeat((byte)5, 40).ToArray();
+            var routeToken = WebEncoders.Base64UrlEncode(token);
             var repository = new Mock<IListRepository>(MockBehavior.Strict);
             repository
                 .Setup(value => value.GetAuthenticatedVideoProjectionAsync(
                     id,
-                    "route-token",
+                    It.Is<byte[]>(value => value.SequenceEqual(token)),
                     now.Add(Constants.ListMaxAgeMin),
                     DateOnly.FromDateTime(now.UtcDateTime),
                     Constants.ListRenderMaxItems + 1))
@@ -45,7 +46,7 @@ namespace youtubed.Tests.Services
                 repository.Object,
                 new FakeAppClock { UtcNow = now });
 
-            var view = await service.GetAuthenticatedListViewAsync(id, "route-token");
+            var view = await service.GetAuthenticatedListViewAsync(id, routeToken);
 
             Assert.Equal(id, view.Id);
             Assert.Equal("Authenticated projection", view.Title);
@@ -123,7 +124,7 @@ namespace youtubed.Tests.Services
                         freshChannel,
                         unavailableChannel
                     }
-            });
+                });
             var service = new ListService(repository.Object, new FakeAppClock { UtcNow = now });
 
             var view = await service.GetListViewAsync(list);
@@ -182,7 +183,7 @@ namespace youtubed.Tests.Services
                             StaleAfter = now.AddMinutes(-1)
                         }
                     }
-            });
+                });
             var service = new ListService(repository.Object, new FakeAppClock { UtcNow = now });
 
             var view = await service.GetListChannelViewAsync(list);
@@ -230,7 +231,7 @@ namespace youtubed.Tests.Services
             var now = new DateTimeOffset(2026, 5, 18, 23, 30, 0, TimeSpan.Zero);
             var token = Enumerable.Range(1, 40).Select(value => (byte)value).ToArray();
             var tokenString = WebEncoders.Base64UrlEncode(token);
-            var expectedList = new ListModel
+            var expectedList = new SubscriptionList
             {
                 Id = id,
                 Token = token,
@@ -251,14 +252,15 @@ namespace youtubed.Tests.Services
 
             var list = await service.GetAuthenticatedListAsync(id, tokenString);
 
-            Assert.Same(expectedList, list);
+            Assert.Equal(expectedList.Id, list.Id);
+            Assert.Equal(expectedList.Token, list.Token);
         }
 
         [Fact]
         public async Task GetAuthenticatedListAsync_TokenMismatchReturnsNullWithoutRenewing()
         {
             var id = Guid.NewGuid();
-            var list = new ListModel
+            var list = new SubscriptionList
             {
                 Id = id,
                 Token = Enumerable.Repeat((byte)1, 40).ToArray(),
@@ -285,7 +287,7 @@ namespace youtubed.Tests.Services
             var id = Guid.NewGuid();
             var now = new DateTimeOffset(2026, 5, 18, 12, 0, 0, TimeSpan.Zero);
             var token = Enumerable.Repeat((byte)4, 40).ToArray();
-            var list = new ListModel
+            var list = new SubscriptionList
             {
                 Id = id,
                 Token = token,
@@ -300,7 +302,8 @@ namespace youtubed.Tests.Services
 
             var result = await service.GetAuthenticatedListAsync(id, WebEncoders.Base64UrlEncode(token));
 
-            Assert.Same(list, result);
+            Assert.Equal(list.Id, result.Id);
+            Assert.Equal(list.Token, result.Token);
             repository.Verify(value => value.RenewExpirationAsync(
                 It.IsAny<Guid>(),
                 It.IsAny<DateTimeOffset>(),

@@ -1,5 +1,4 @@
 using Microsoft.Azure.Cosmos;
-using Microsoft.AspNetCore.WebUtilities;
 using Moq;
 using System;
 using System.Collections.Concurrent;
@@ -37,7 +36,7 @@ namespace youtubed.Tests.Persistence.Cosmos
 
             var projection = await repository.GetAuthenticatedVideoProjectionAsync(
                 listId,
-                WebEncoders.Base64UrlEncode(document.Token),
+                document.Token,
                 document.ExpiredAfter.AddDays(30),
                 today,
                 101);
@@ -57,7 +56,7 @@ namespace youtubed.Tests.Persistence.Cosmos
 
             var projection = await repository.GetAuthenticatedVideoProjectionAsync(
                 listId,
-                "wrong-token",
+                new byte[] { 0 },
                 document.ExpiredAfter.AddDays(30),
                 new DateOnly(2026, 8, 1),
                 101);
@@ -79,7 +78,7 @@ namespace youtubed.Tests.Persistence.Cosmos
 
             Assert.NotNull(await repository.GetAuthenticatedVideoProjectionAsync(
                 listId,
-                WebEncoders.Base64UrlEncode(document.Token),
+                document.Token,
                 document.ExpiredAfter.AddDays(30),
                 today,
                 101));
@@ -116,7 +115,7 @@ namespace youtubed.Tests.Persistence.Cosmos
 
             Assert.NotNull(await repository.GetAuthenticatedVideoProjectionAsync(
                 listId,
-                WebEncoders.Base64UrlEncode(document.Token),
+                document.Token,
                 expiredAfter,
                 today,
                 101));
@@ -165,7 +164,7 @@ namespace youtubed.Tests.Persistence.Cosmos
 
             Assert.NotNull(await repository.GetAuthenticatedVideoProjectionAsync(
                 listId,
-                WebEncoders.Base64UrlEncode(first.Token),
+                first.Token,
                 now.AddDays(45),
                 today,
                 101));
@@ -206,7 +205,7 @@ namespace youtubed.Tests.Persistence.Cosmos
 
             Assert.Null(await repository.GetAuthenticatedVideoProjectionAsync(
                 listId,
-                WebEncoders.Base64UrlEncode(document.Token),
+                document.Token,
                 now.AddDays(45),
                 DateOnly.FromDateTime(now.UtcDateTime),
                 101));
@@ -251,7 +250,7 @@ namespace youtubed.Tests.Persistence.Cosmos
             await Assert.ThrowsAsync<CosmosException>(() =>
                 repository.GetAuthenticatedVideoProjectionAsync(
                     listId,
-                    WebEncoders.Base64UrlEncode(first.Token),
+                    first.Token,
                     now.AddDays(45),
                     DateOnly.FromDateTime(now.UtcDateTime),
                     101));
@@ -282,7 +281,7 @@ namespace youtubed.Tests.Persistence.Cosmos
             await Assert.ThrowsAsync<CosmosException>(() =>
                 repository.GetAuthenticatedVideoProjectionAsync(
                     listId,
-                    "token",
+                    Array.Empty<byte>(),
                     DateTimeOffset.UtcNow.AddDays(45),
                     new DateOnly(2026, 8, 1),
                     101));
@@ -311,7 +310,7 @@ namespace youtubed.Tests.Persistence.Cosmos
             await Assert.ThrowsAsync<InvalidOperationException>(() =>
                 repository.GetAuthenticatedVideoProjectionAsync(
                     listId,
-                    WebEncoders.Base64UrlEncode(document.Token),
+                    document.Token,
                     document.ExpiredAfter.AddDays(45),
                     today,
                     101));
@@ -348,7 +347,7 @@ namespace youtubed.Tests.Persistence.Cosmos
             await Assert.ThrowsAsync<CosmosException>(() =>
                 repository.GetAuthenticatedVideoProjectionAsync(
                     listId,
-                    WebEncoders.Base64UrlEncode(document.Token),
+                    document.Token,
                     now.AddDays(45),
                     DateOnly.FromDateTime(now.UtcDateTime),
                     101));

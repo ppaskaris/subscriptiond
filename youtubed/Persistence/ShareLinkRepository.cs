@@ -4,7 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using youtubed.Data;
-using youtubed.Models;
+using youtubed.Domain;
 
 namespace youtubed.Persistence
 {
@@ -17,7 +17,7 @@ namespace youtubed.Persistence
             _connectionFactory = connectionFactory;
         }
 
-        public async Task<bool> TryCreateAsync(ShareLinkModel shareLink)
+        public async Task<bool> TryCreateAsync(ShareLink shareLink)
         {
             using var connection = _connectionFactory.CreateConnection();
 
@@ -37,10 +37,10 @@ namespace youtubed.Persistence
             }
         }
 
-        public async Task<IReadOnlyList<ShareLinkModel>> GetByListAsync(Guid listId)
+        public async Task<IReadOnlyList<ShareLink>> GetByListAsync(Guid listId)
         {
             using var connection = _connectionFactory.CreateConnection();
-            var rows = await connection.QueryAsync<ShareLinkModel>(
+            var rows = await connection.QueryAsync<ShareLink>(
                 @"
                 SELECT Password, ListId, CreatedAt, ExpiresAfter, UsedAt
                 FROM ShareLink
@@ -75,10 +75,10 @@ namespace youtubed.Persistence
                 new { listId });
         }
 
-        public async Task<ConsumedShareLinkModel> ConsumeAsync(string password, DateTimeOffset now)
+        public async Task<ConsumedShareLink> ConsumeAsync(string password, DateTimeOffset now)
         {
             using var connection = _connectionFactory.CreateConnection();
-            return await connection.QuerySingleOrDefaultAsync<ConsumedShareLinkModel>(
+            return await connection.QuerySingleOrDefaultAsync<ConsumedShareLink>(
                 @"
                 DECLARE @Consumed TABLE (
                     ListId UNIQUEIDENTIFIER NOT NULL

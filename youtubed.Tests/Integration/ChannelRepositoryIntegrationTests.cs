@@ -4,7 +4,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
 using youtubed.Domain;
-using youtubed.Models;
 using youtubed.Persistence;
 using youtubed.Tests.Infrastructure;
 
@@ -35,7 +34,7 @@ namespace youtubed.Tests.Integration
                 new { staleAfter = originalStaleAfter });
 
             await _repository.SaveDiscoveredChannelAsync(
-                new ChannelModel
+                new Channel
                 {
                     Id = "channel-2",
                     Url = "https://www.youtube.com/channel/channel-1",
@@ -86,7 +85,7 @@ namespace youtubed.Tests.Integration
                 });
 
             await _repository.SaveDiscoveredChannelAsync(
-                new ChannelModel
+                new Channel
                 {
                     Id = "channel-1",
                     Url = "https://www.youtube.com/user/legacy-name",
@@ -134,7 +133,7 @@ namespace youtubed.Tests.Integration
             var staleAfter = DateTimeOffset.UtcNow.AddMinutes(-2);
 
             var firstSave = _repository.SaveDiscoveredChannelAsync(
-                new ChannelModel
+                new Channel
                 {
                     Id = "channel-1",
                     Url = url,
@@ -145,7 +144,7 @@ namespace youtubed.Tests.Integration
                 staleAfter);
 
             var secondSave = _repository.SaveDiscoveredChannelAsync(
-                new ChannelModel
+                new Channel
                 {
                     Id = "channel-1",
                     Url = url,
@@ -224,77 +223,6 @@ namespace youtubed.Tests.Integration
             Assert.Equal(ChannelStatus.Unavailable, channel.Status);
             Assert.Equal(ChannelStatusReason.NotFound, channel.StatusReason);
             Assert.Equal(statusUpdatedAt, channel.StatusUpdatedAt);
-        }
-
-        [LocalDbFact]
-        public async Task UpdateMetadataAsync_UpdatesMetadataAndClearsUnavailableStatus()
-        {
-            var staleAfter = DateTimeOffset.UtcNow.AddHours(1);
-            var statusUpdatedAt = DateTimeOffset.UtcNow.AddMinutes(-15);
-
-            await ExecuteAsync(
-                @"
-                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, Status, StatusReason, StatusUpdatedAt)
-                VALUES (N'channel-1', N'https://www.youtube.com/user/channel-1', N'Original', N'old.png', N'playlist-1', @staleAfter, @status, @statusReason, @statusUpdatedAt);
-                ",
-                new
-                {
-                    staleAfter,
-                    status = ChannelStatus.Unavailable,
-                    statusReason = ChannelStatusReason.NotFound,
-                    statusUpdatedAt
-                });
-
-            await _repository.UpdateMetadataAsync(
-                "channel-1",
-                "https://www.youtube.com/channel/channel-1",
-                "Updated",
-                "new.png",
-                "playlist-new");
-
-            var persisted = await QuerySingleAsync<(string Url, string Title, string Thumbnail, string PlaylistId, ChannelStatus Status, ChannelStatusReason StatusReason, DateTimeOffset? StatusUpdatedAt, DateTimeOffset StaleAfter)>(
-                @"
-                SELECT Url, Title, Thumbnail, PlaylistId, Status, StatusReason, StatusUpdatedAt, StaleAfter
-                FROM Channel
-                WHERE Id = N'channel-1';
-                ");
-
-            Assert.Equal("https://www.youtube.com/channel/channel-1", persisted.Url);
-            Assert.Equal("Updated", persisted.Title);
-            Assert.Equal("new.png", persisted.Thumbnail);
-            Assert.Equal("playlist-new", persisted.PlaylistId);
-            Assert.Equal(ChannelStatus.Active, persisted.Status);
-            Assert.Equal(ChannelStatusReason.None, persisted.StatusReason);
-            Assert.Null(persisted.StatusUpdatedAt);
-            Assert.Equal(staleAfter, persisted.StaleAfter);
-        }
-
-        [LocalDbFact]
-        public async Task MarkUnavailableAsync_PersistsStatusAndStaleDelay()
-        {
-            var now = new DateTimeOffset(2026, 5, 10, 12, 0, 0, TimeSpan.Zero);
-            var staleAfter = now.Add(Constants.ChannelUnavailableStaleDelay);
-
-            await ExecuteAsync(
-                @"
-                INSERT INTO Channel (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter)
-                VALUES (N'channel-unavailable', N'https://www.youtube.com/channel/channel-unavailable', N'Unavailable', N'unavailable.png', N'playlist-unavailable', @oldStaleAfter);
-                ",
-                new { oldStaleAfter = now.AddMinutes(-5) });
-
-            await _repository.MarkUnavailableAsync("channel-unavailable", ChannelStatusReason.NotFound, now, staleAfter);
-
-            var persisted = await QuerySingleAsync<(ChannelStatus Status, ChannelStatusReason StatusReason, DateTimeOffset? StatusUpdatedAt, DateTimeOffset StaleAfter)>(
-                @"
-                SELECT Status, StatusReason, StatusUpdatedAt, StaleAfter
-                FROM Channel
-                WHERE Id = N'channel-unavailable';
-                ");
-
-            Assert.Equal(ChannelStatus.Unavailable, persisted.Status);
-            Assert.Equal(ChannelStatusReason.NotFound, persisted.StatusReason);
-            Assert.Equal(now, persisted.StatusUpdatedAt);
-            Assert.Equal(staleAfter, persisted.StaleAfter);
         }
 
         [LocalDbFact]

@@ -3,7 +3,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
-using youtubed.Models;
+using youtubed.Domain;
 
 namespace youtubed.Tests.ProviderContracts
 {
@@ -64,14 +64,14 @@ namespace youtubed.Tests.ProviderContracts
         {
             var list = await CreateListAsync();
             var initialNow = Clock.UtcNow;
-            var delete = new ShareLinkModel
+            var delete = new ShareLink
             {
                 Password = "delete-link",
                 ListId = list.Id,
                 CreatedAt = initialNow,
                 ExpiresAfter = initialNow
             };
-            var keep = new ShareLinkModel
+            var keep = new ShareLink
             {
                 Password = "keep-link",
                 ListId = list.Id,
@@ -124,7 +124,7 @@ namespace youtubed.Tests.ProviderContracts
                     "orphan-video",
                     Assert.Single(unchanged.Single(channel => channel.Id == orphan.Id).Videos).VideoId);
                 var unchangedProjection = await Provider.Lists.GetChannelProjectionAsync(
-                    ToSubscriptionList(list));
+                list);
                 Assert.Equal(attached.Id, Assert.Single(unchangedProjection.Channels).Id);
                 return;
             }
@@ -135,7 +135,7 @@ namespace youtubed.Tests.ProviderContracts
 
             Assert.Equal(1, removed);
             Assert.Equal(attached.Id, Assert.Single(remaining).Id);
-            var projection = await Provider.Lists.GetChannelProjectionAsync(ToSubscriptionList(list));
+            var projection = await Provider.Lists.GetChannelProjectionAsync(list);
             Assert.Equal(attached.Id, Assert.Single(projection.Channels).Id);
         }
     }

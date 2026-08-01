@@ -8,7 +8,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using youtubed.Data;
 using youtubed.Domain;
-using youtubed.Models;
 
 namespace youtubed.Persistence
 {
@@ -31,10 +30,10 @@ namespace youtubed.Persistence
             _connectionFactory = connectionFactory;
         }
 
-        public async Task<ChannelModel> GetByIdAsync(string id)
+        public async Task<Channel> GetByIdAsync(string id)
         {
             using var connection = _connectionFactory.CreateConnection();
-            return await connection.QueryFirstOrDefaultAsync<ChannelModel>(
+            return await connection.QueryFirstOrDefaultAsync<Channel>(
                 @"
                 SELECT Id, Url, Title, Thumbnail, PlaylistId, Status, StatusReason, StatusUpdatedAt
                 FROM Channel
@@ -43,7 +42,7 @@ namespace youtubed.Persistence
                 new { id });
         }
 
-        public async Task SaveDiscoveredChannelAsync(ChannelModel channel, DateTimeOffset staleAfter)
+        public async Task SaveDiscoveredChannelAsync(Channel channel, DateTimeOffset staleAfter)
         {
             using var connection = _connectionFactory.CreateConnection();
             await connection.OpenAsync();
@@ -100,46 +99,6 @@ namespace youtubed.Persistence
             }
 
             transaction.Commit();
-        }
-
-        public async Task UpdateMetadataAsync(string id, string url, string title, string thumbnail, string playlistId)
-        {
-            using var connection = _connectionFactory.CreateConnection();
-            await connection.ExecuteAsync(
-                @"
-                UPDATE Channel
-                SET Url = @url,
-                    Title = @title,
-                    Thumbnail = @thumbnail,
-                    PlaylistId = @playlistId,
-                    Status = @status,
-                    StatusReason = @statusReason,
-                    StatusUpdatedAt = NULL
-                WHERE Id = @id;
-                ",
-                new { id, url, title, thumbnail, playlistId, status = ChannelStatus.Active, statusReason = ChannelStatusReason.None });
-        }
-
-        public async Task MarkUnavailableAsync(string id, ChannelStatusReason reason, DateTimeOffset statusUpdatedAt, DateTimeOffset staleAfter)
-        {
-            using var connection = _connectionFactory.CreateConnection();
-            await connection.ExecuteAsync(
-                @"
-                UPDATE Channel
-                SET Status = @status,
-                    StatusReason = @reason,
-                    StatusUpdatedAt = @statusUpdatedAt,
-                    StaleAfter = @staleAfter
-                WHERE Id = @id;
-                ",
-                new
-                {
-                    id,
-                    status = ChannelStatus.Unavailable,
-                    reason,
-                    statusUpdatedAt,
-                    staleAfter
-                });
         }
 
         public async Task<IReadOnlyList<StaleChannelReference>> GetStaleLookaheadAsync(

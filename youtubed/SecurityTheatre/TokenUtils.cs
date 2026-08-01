@@ -1,29 +1,18 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
+using System.Security.Cryptography;
 
 namespace youtubed.SecurityTheatre
 {
     public static class TokenUtils
     {
-        public static bool NotEqual(string actual, string expected)
+        public static bool NotEqual(byte[] actual, byte[] expected)
         {
-            return !TimingSafeEqual(actual, expected);
-        }
+            if (actual == null || expected == null || actual.Length != expected.Length)
+            {
+                return true;
+            }
 
-        private static bool TimingSafeEqual(string first, string second)
-        {
-            if (first.Length != second.Length)
-            {
-                return false;
-            }
-            uint acc = 0;
-            for (int i = 0; i < first.Length; i++)
-            {
-                acc |= (uint)(first[i] ^ second[i]);
-            }
-            return acc == 0;
+            return !CryptographicOperations.FixedTimeEquals(actual, expected);
         }
     }
 }

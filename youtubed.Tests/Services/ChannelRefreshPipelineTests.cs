@@ -632,10 +632,8 @@ namespace youtubed.Tests.Services
                 return Task.CompletedTask;
             }
 
-            public Task<ChannelModel> GetByIdAsync(string id) => throw new NotImplementedException();
-            public Task SaveDiscoveredChannelAsync(ChannelModel channel, DateTimeOffset staleAfter) => throw new NotImplementedException();
-            public Task UpdateMetadataAsync(string id, string url, string title, string thumbnail, string playlistId) => throw new NotImplementedException();
-            public Task MarkUnavailableAsync(string id, ChannelStatusReason reason, DateTimeOffset statusUpdatedAt, DateTimeOffset staleAfter) => throw new NotImplementedException();
+            public Task<Channel> GetByIdAsync(string id) => throw new NotImplementedException();
+            public Task SaveDiscoveredChannelAsync(Channel channel, DateTimeOffset staleAfter) => throw new NotImplementedException();
             public Task<int> RemoveOrphanChannelsAsync(DateTimeOffset now) => throw new NotImplementedException();
         }
 

@@ -5,7 +5,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
 using youtubed.Domain;
-using youtubed.Models;
 using youtubed.Tests.Infrastructure;
 
 namespace youtubed.Tests.ProviderContracts
@@ -43,7 +42,7 @@ namespace youtubed.Tests.ProviderContracts
             return Task.CompletedTask;
         }
 
-        protected async Task<ListModel> CreateListAsync(
+        protected async Task<SubscriptionList> CreateListAsync(
             Guid? id = null,
             string title = "Contract List",
             decimal? playbackRate = null,
@@ -51,7 +50,7 @@ namespace youtubed.Tests.ProviderContracts
             DateOnly? expirationRenewedOn = null,
             byte[] token = null)
         {
-            var list = new ListModel
+            var list = new SubscriptionList
             {
                 Id = id ?? Guid.NewGuid(),
                 Token = token ?? CreateToken(1),
@@ -65,7 +64,7 @@ namespace youtubed.Tests.ProviderContracts
             return list;
         }
 
-        protected async Task<ChannelModel> CreateChannelAsync(
+        protected async Task<Channel> CreateChannelAsync(
             string id = null,
             string title = "Contract Channel",
             string playlistId = null,
@@ -74,7 +73,7 @@ namespace youtubed.Tests.ProviderContracts
             id ??= CreateUniqueId("contract-channel");
             playlistId ??= CreateUniqueId("playlist");
             var channelStaleAfter = staleAfter ?? Clock.UtcNow.AddMinutes(-5);
-            var channel = new ChannelModel
+            var channel = new Channel
             {
                 Id = id,
                 Url = $"https://www.youtube.com/channel/{id}",
@@ -96,12 +95,12 @@ namespace youtubed.Tests.ProviderContracts
             return Provider.Lists.AddChannelAsync(listId, channelId);
         }
 
-        protected async Task<ShareLinkModel> CreateShareLinkAsync(
+        protected async Task<ShareLink> CreateShareLinkAsync(
             Guid listId,
             string password = null)
         {
             password ??= CreateUniqueId("contract-share-link");
-            var shareLink = new ShareLinkModel
+            var shareLink = new ShareLink
             {
                 Password = password,
                 ListId = listId,
@@ -115,7 +114,7 @@ namespace youtubed.Tests.ProviderContracts
         }
 
         protected async Task SaveVideosAsync(
-            ChannelModel channel,
+            Channel channel,
             params ChannelVideo[] videos)
         {
             var result = new ChannelRefreshResult
@@ -155,19 +154,6 @@ namespace youtubed.Tests.ProviderContracts
             };
         }
 
-        protected static SubscriptionList ToSubscriptionList(ListModel list)
-        {
-            return new SubscriptionList
-            {
-                Id = list.Id,
-                Token = list.Token,
-                Title = list.Title,
-                PlaybackRate = list.PlaybackRate,
-                ExpiredAfter = list.ExpiredAfter,
-                ExpirationRenewedOn = list.ExpirationRenewedOn
-            };
-        }
-
         private static byte[] CreateToken(byte value)
         {
             return Enumerable.Repeat(value, 40).ToArray();
@@ -179,7 +165,7 @@ namespace youtubed.Tests.ProviderContracts
         }
 
         protected static Channel ToDomainChannel(
-            ChannelModel channel,
+            Channel channel,
             IReadOnlyCollection<ChannelVideo> videos)
         {
             return new Channel

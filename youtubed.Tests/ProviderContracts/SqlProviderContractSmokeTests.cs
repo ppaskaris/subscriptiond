@@ -34,7 +34,7 @@ namespace youtubed.Tests.ProviderContracts
                     CancellationToken.None),
                 CancellationToken.None);
             var videoProjection = await Provider.Lists.GetVideoProjectionAsync(
-                ToSubscriptionList(list),
+                list,
                 Constants.ListRenderMaxItems);
             var shareLinks = await Provider.ShareLinks.GetByListAsync(list.Id);
             var workerState = await GetOrCreateWorkerStateAsync();

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
+using youtubed.Domain;
 using youtubed.Models;
 using youtubed.Persistence;
 
@@ -29,7 +30,7 @@ namespace youtubed.Services
             for (var attempt = 0; attempt < MaxCreateAttempts; attempt++)
             {
                 var createdAt = _clock.UtcNow;
-                var shareLink = new ShareLinkModel
+                var shareLink = new ShareLink
                 {
                     Password = CreatePassword(),
                     ListId = listId,
@@ -41,16 +42,18 @@ namespace youtubed.Services
 
                 if (await _shareLinkRepository.TryCreateAsync(shareLink))
                 {
-                    return shareLink;
+                    return ToModel(shareLink);
                 }
             }
 
             throw new InvalidOperationException("Could not create a unique share link.");
         }
 
-        public Task<IReadOnlyList<ShareLinkModel>> GetShareLinksAsync(Guid listId)
+        public async Task<IReadOnlyList<ShareLinkModel>> GetShareLinksAsync(Guid listId)
         {
-            return _shareLinkRepository.GetByListAsync(listId);
+            return (await _shareLinkRepository.GetByListAsync(listId))
+                .Select(ToModel)
+                .ToArray();
         }
 
         public Task DeleteShareLinkInListAsync(Guid listId, string password)
@@ -63,9 +66,28 @@ namespace youtubed.Services
             return _shareLinkRepository.DeleteByListAsync(listId);
         }
 
-        public Task<ConsumedShareLinkModel> ConsumeShareLinkAsync(string password)
+        public async Task<ConsumedShareLinkModel> ConsumeShareLinkAsync(string password)
         {
-            return _shareLinkRepository.ConsumeAsync(password, _clock.UtcNow);
+            var consumed = await _shareLinkRepository.ConsumeAsync(password, _clock.UtcNow);
+            return consumed == null
+                ? null
+                : new ConsumedShareLinkModel
+                {
+                    ListId = consumed.ListId,
+                    Token = consumed.Token
+                };
+        }
+
+        private static ShareLinkModel ToModel(ShareLink shareLink)
+        {
+            return new ShareLinkModel
+            {
+                Password = shareLink.Password,
+                ListId = shareLink.ListId,
+                CreatedAt = shareLink.CreatedAt,
+                ExpiresAfter = shareLink.ExpiresAfter,
+                UsedAt = shareLink.UsedAt
+            };
         }
 
         private static string CreatePassword()

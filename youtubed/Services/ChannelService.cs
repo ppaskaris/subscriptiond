@@ -37,7 +37,7 @@ namespace youtubed.Services
                 var cached = await _channelRepository.GetByIdAsync(cachedChannelId);
                 if (cached != null)
                 {
-                    return cached;
+                    return ToModel(cached);
                 }
 
                 var cachedChannel = await _youtubeService.GetChannelByIdAsync(cachedChannelId);
@@ -74,7 +74,7 @@ namespace youtubed.Services
 
         private async Task<ChannelModel> SaveDiscoveredChannelAsync(YoutubeChannel channel)
         {
-            var model = new ChannelModel
+            var discovered = new Channel
             {
                 Id = channel.Id,
                 Url = string.Format(Constants.YoutubeChannelUrl, channel.Id),
@@ -83,8 +83,24 @@ namespace youtubed.Services
                 PlaylistId = channel.PlaylistId
             };
 
-            await _channelRepository.SaveDiscoveredChannelAsync(model, DateTimeOffset.MinValue);
-            return model;
+            await _channelRepository.SaveDiscoveredChannelAsync(discovered, DateTimeOffset.MinValue);
+            return ToModel(discovered);
+        }
+
+        private static ChannelModel ToModel(Channel channel)
+        {
+            return new ChannelModel
+            {
+                Id = channel.Id,
+                Url = channel.Url,
+                Title = channel.Title,
+                Thumbnail = channel.Thumbnail,
+                PlaylistId = channel.PlaylistId,
+                StaleAfter = channel.StaleAfter,
+                Status = channel.Status,
+                StatusReason = channel.StatusReason,
+                StatusUpdatedAt = channel.StatusUpdatedAt
+            };
         }
     }
 }

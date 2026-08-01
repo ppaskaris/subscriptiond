@@ -4,7 +4,7 @@ using youtubed.Domain;
 
 namespace youtubed.Persistence.Cosmos
 {
-    public static class CosmosDocumentMapper
+    internal static class CosmosDocumentMapper
     {
         public static CosmosListDocument ToDocument(SubscriptionList list, DateTimeOffset now)
         {

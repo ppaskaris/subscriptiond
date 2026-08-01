@@ -11,7 +11,6 @@ using System.Threading.Tasks;
 using System.Text;
 using Xunit;
 using youtubed.Domain;
-using youtubed.Models;
 using youtubed.Persistence;
 using youtubed.Persistence.Cosmos;
 using youtubed.Services;
@@ -2622,9 +2621,9 @@ namespace youtubed.Tests.Integration
                 Constants.ChannelOrphanRetention);
         }
 
-        private static ListModel CreateList(Guid listId, FakeAppClock clock)
+        private static SubscriptionList CreateList(Guid listId, FakeAppClock clock)
         {
-            return new ListModel
+            return new SubscriptionList
             {
                 Id = listId,
                 Token = new byte[] { 1, 2, 3, 4 },

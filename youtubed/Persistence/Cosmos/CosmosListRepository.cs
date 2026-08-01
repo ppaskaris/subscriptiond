@@ -1,4 +1,5 @@
 using Microsoft.Azure.Cosmos;
+using Microsoft.AspNetCore.WebUtilities;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -7,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using youtubed.Domain;
 using youtubed.Models;
+using youtubed.SecurityTheatre;
 using youtubed.Services;
 
 namespace youtubed.Persistence.Cosmos
@@ -104,6 +106,93 @@ namespace youtubed.Persistence.Cosmos
                 ExpiredAfter = list.ExpiredAfter,
                 ExpirationRenewedOn = list.ExpirationRenewedOn
             };
+        }
+
+        public async Task<ListVideoProjection> GetAuthenticatedVideoProjectionAsync(
+            Guid id,
+            string token,
+            DateTimeOffset expiredAfter,
+            DateOnly renewedOn,
+            int videoLimit)
+        {
+            using var requestScope = CosmosRequestChargeScope.Begin();
+            var outcome = "error";
+            try
+            {
+                for (var attempt = 0; attempt < MaxWriteAttempts; attempt++)
+                {
+                    var document = await ReadListAsync(id);
+                    if (document == null)
+                    {
+                        outcome = "missing";
+                        return null;
+                    }
+
+                    if (token == null
+                        || TokenUtils.NotEqual(
+                            token,
+                            WebEncoders.Base64UrlEncode(
+                                document.Token ?? Array.Empty<byte>())))
+                    {
+                        outcome = "rejected_token";
+                        return null;
+                    }
+
+                    var projection = CosmosDocumentMapper.ToVideoProjection(
+                        document,
+                        videoLimit);
+                    if (document.ExpirationRenewedOn == renewedOn)
+                    {
+                        outcome = "same_day";
+                        return projection;
+                    }
+
+                    document.ExpiredAfter = expiredAfter;
+                    document.ExpirationRenewedOn = renewedOn;
+                    document.Ttl = CosmosDocumentMapper.GetTtlSeconds(
+                        expiredAfter,
+                        _clock.UtcNow);
+
+                    try
+                    {
+                        await ReplaceAsync(document);
+                        outcome = "renewed";
+                        return projection;
+                    }
+                    catch (CosmosException exception) when (
+                        exception.StatusCode == HttpStatusCode.PreconditionFailed
+                        && attempt + 1 < MaxWriteAttempts)
+                    {
+                        outcome = "conflict_retry";
+                        CosmosRecoveryTelemetry.RecordConflict(
+                            "ListRepository",
+                            "AuthenticatedListPageRenewal",
+                            retry: true);
+                    }
+                    catch (CosmosException exception) when (
+                        exception.StatusCode == HttpStatusCode.PreconditionFailed)
+                    {
+                        outcome = "conflict_exhausted";
+                        throw;
+                    }
+                    catch (CosmosException exception) when (
+                        exception.StatusCode == HttpStatusCode.NotFound)
+                    {
+                        outcome = "concurrent_deletion";
+                        return null;
+                    }
+                }
+
+                throw new InvalidOperationException(
+                    "Authenticated list-page renewal conflicted twice.");
+            }
+            finally
+            {
+                CosmosListPageTelemetry.Record(
+                    requestScope.RequestCount,
+                    requestScope.RequestCharge,
+                    outcome);
+            }
         }
 
         public async Task RenewExpirationAsync(

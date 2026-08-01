@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using youtubed.Data;
 using youtubed.Domain;
 using youtubed.Models;
+using youtubed.SecurityTheatre;
 
 namespace youtubed.Persistence
 {
@@ -38,6 +39,37 @@ namespace youtubed.Persistence
                 WHERE Id = @id;
                 ",
                 new { id });
+        }
+
+        public async Task<ListVideoProjection> GetAuthenticatedVideoProjectionAsync(
+            Guid id,
+            string token,
+            DateTimeOffset expiredAfter,
+            DateOnly renewedOn,
+            int videoLimit)
+        {
+            var list = await GetAsync(id);
+            if (list == null
+                || token == null
+                || TokenUtils.NotEqual(token, list.TokenString))
+            {
+                return null;
+            }
+
+            if (list.ExpirationRenewedOn != renewedOn)
+            {
+                await RenewExpirationAsync(id, expiredAfter, renewedOn);
+            }
+
+            return await GetVideoProjectionAsync(new SubscriptionList
+            {
+                Id = list.Id,
+                Token = list.Token,
+                Title = list.Title,
+                PlaybackRate = list.PlaybackRate,
+                ExpiredAfter = list.ExpiredAfter,
+                ExpirationRenewedOn = list.ExpirationRenewedOn
+            }, videoLimit);
         }
 
         public async Task RenewExpirationAsync(Guid id, DateTimeOffset expiredAfter, DateOnly renewedOn)

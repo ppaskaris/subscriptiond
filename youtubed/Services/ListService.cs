@@ -72,6 +72,18 @@ namespace youtubed.Services
             return list;
         }
 
+        public async Task<ListViewModel> GetAuthenticatedListViewAsync(Guid id, string token)
+        {
+            var now = _clock.UtcNow;
+            var projection = await _listRepository.GetAuthenticatedVideoProjectionAsync(
+                id,
+                token,
+                CreateExpiredAfter(now),
+                DateOnly.FromDateTime(now.UtcDateTime),
+                Constants.ListRenderMaxItems + 1);
+            return CreateListView(projection, now);
+        }
+
         public async Task<ListViewModel> GetListViewAsync(Guid id)
         {
             var list = await GetListAsync(id);
@@ -137,6 +149,18 @@ namespace youtubed.Services
             var projection = await _listRepository.GetVideoProjectionAsync(
                 ToSubscriptionList(list),
                 Constants.ListRenderMaxItems + 1);
+            if (projection == null)
+            {
+                return null;
+            }
+
+            return CreateListView(projection, now);
+        }
+
+        private static ListViewModel CreateListView(
+            ListVideoProjection projection,
+            DateTimeOffset now)
+        {
             if (projection == null)
             {
                 return null;

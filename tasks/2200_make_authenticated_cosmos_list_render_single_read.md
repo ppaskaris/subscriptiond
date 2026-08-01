@@ -1,6 +1,6 @@
 # Task 022: Make Authenticated Cosmos List Rendering A Single Read
 
-Status: Not Started
+Status: Completed
 
 Depends On: 2000_bound_cosmos_list_projections, 2120_implement_cosmos_lifecycle_reconciliation
 
@@ -34,4 +34,40 @@ Render the normal authenticated Cosmos list page from one list-document point re
 
 ## Implementation Summary
 
-Not implemented.
+Added a provider-neutral authenticated video-projection operation and routed the
+normal list-page controller action through it. SQL composes its existing
+normalized authentication, renewal, and projection behavior. Cosmos now
+point-reads the list once, constant-time compares the secret route token, maps
+the bounded video projection from that document, and conditionally renews with
+the already-read ETag. A 412 causes exactly one reread/reapply; a concurrent
+delete returns no projection. The list lifecycle record is intentionally not
+synchronously written on this page path: its prior deadline remains a safe
+early check at which reconciliation reads the authoritative renewed list and
+reschedules it.
+
+Added operation-level Cosmos SDK request-count and request-charge histograms,
+tagged by outcome, while preserving per-request debug logging. Documented and
+enforced representative emulator budgets of one request/10 RU for the common
+same-day page and two requests/25 RU for renewal. Added repository unit coverage
+for successful mapping, rejected tokens, same-day access, renewal using the
+initial ETag, one conflict retry, and concurrent deletion; service/controller
+coverage proves the combined use-case path and existing routes; emulator
+coverage instruments the actual SDK pipeline. Incremented `AssemblyVersion`
+from `2.20.0.0` to `2.21.0.0` for the backward-compatible feature.
+
+Review follow-up corrected terminal telemetry classification: unhandled
+read/mapping/write failures now record `error`, an actual missing point read
+records `missing`, and a second renewal 412 records `conflict_exhausted` before
+the exception is rethrown. Meter-listener tests assert each failure outcome.
+
+Validation passed sequentially on 2026-08-01:
+
+- `dotnet build youtubed.sln`: passed with 0 warnings and 0 errors;
+- tests excluding LocalDB and Cosmos: 193 passed, 0 failed, 0 skipped;
+- opted-in LocalDB tests with `YOUTUBED_RUN_LOCALDB_TESTS=true`: 79 passed,
+  0 failed, 0 skipped;
+- opted-in Cosmos emulator tests with `YOUTUBED_RUN_COSMOS_TESTS=true`: 68
+  passed, 0 failed, 0 skipped;
+- focused emulator measurement: renewal used 2 SDK requests and 12.81 RU;
+  same-day rendering used exactly 1 SDK request and 1.00 RU;
+- `git diff --check`: passed.

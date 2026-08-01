@@ -9,6 +9,12 @@ namespace youtubed.Persistence
     {
         Task CreateAsync(ListModel list);
         Task<ListModel> GetAsync(Guid id);
+        Task<ListVideoProjection> GetAuthenticatedVideoProjectionAsync(
+            Guid id,
+            string token,
+            DateTimeOffset expiredAfter,
+            DateOnly renewedOn,
+            int videoLimit);
         Task RenewExpirationAsync(Guid id, DateTimeOffset expiredAfter, DateOnly renewedOn);
         Task<ListVideoProjection> GetVideoProjectionAsync(SubscriptionList list, int videoLimit);
         Task<ListChannelProjection> GetChannelProjectionAsync(SubscriptionList list);

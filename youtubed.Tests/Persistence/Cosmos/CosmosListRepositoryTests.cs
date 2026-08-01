@@ -1,6 +1,9 @@
 using Microsoft.Azure.Cosmos;
+using Microsoft.AspNetCore.WebUtilities;
 using Moq;
 using System;
+using System.Collections.Concurrent;
+using System.Diagnostics.Metrics;
 using System.Linq;
 using System.Net;
 using System.Threading;
@@ -14,6 +17,345 @@ namespace youtubed.Tests.Persistence.Cosmos
 {
     public sealed class CosmosListRepositoryTests
     {
+        [Fact]
+        public async Task GetAuthenticatedVideoProjectionAsync_MapsSuccessfulReadWithoutAnotherRead()
+        {
+            var today = new DateOnly(2026, 8, 1);
+            var listId = Guid.NewGuid();
+            var document = CreateListDocument(listId, "etag-1");
+            document.ExpirationRenewedOn = today;
+            document.Channels = new[]
+            {
+                CreateProjectedChannel(
+                    "channel-1",
+                    ChannelStatus.Active,
+                    DateTimeOffset.UtcNow,
+                    1)
+            };
+            var lists = SetupAuthenticatedRead(listId, document);
+            var repository = CreateRepository(lists);
+
+            var projection = await repository.GetAuthenticatedVideoProjectionAsync(
+                listId,
+                WebEncoders.Base64UrlEncode(document.Token),
+                document.ExpiredAfter.AddDays(30),
+                today,
+                101);
+
+            Assert.Equal(listId, projection.List.Id);
+            Assert.Single(Assert.Single(projection.Channels).Videos);
+            VerifyListReads(lists, listId, Times.Once());
+        }
+
+        [Fact]
+        public async Task GetAuthenticatedVideoProjectionAsync_RejectsTokenWithoutRenewal()
+        {
+            var listId = Guid.NewGuid();
+            var document = CreateListDocument(listId, "etag-1");
+            var lists = SetupAuthenticatedRead(listId, document);
+            var repository = CreateRepository(lists);
+
+            var projection = await repository.GetAuthenticatedVideoProjectionAsync(
+                listId,
+                "wrong-token",
+                document.ExpiredAfter.AddDays(30),
+                new DateOnly(2026, 8, 1),
+                101);
+
+            Assert.Null(projection);
+            VerifyListReads(lists, listId, Times.Once());
+            VerifyListReplaces(lists, listId, Times.Never());
+        }
+
+        [Fact]
+        public async Task GetAuthenticatedVideoProjectionAsync_SameDayUsesOneReadAndNoWrite()
+        {
+            var today = new DateOnly(2026, 8, 1);
+            var listId = Guid.NewGuid();
+            var document = CreateListDocument(listId, "etag-1");
+            document.ExpirationRenewedOn = today;
+            var lists = SetupAuthenticatedRead(listId, document);
+            var repository = CreateRepository(lists);
+
+            Assert.NotNull(await repository.GetAuthenticatedVideoProjectionAsync(
+                listId,
+                WebEncoders.Base64UrlEncode(document.Token),
+                document.ExpiredAfter.AddDays(30),
+                today,
+                101));
+
+            VerifyListReads(lists, listId, Times.Once());
+            VerifyListReplaces(lists, listId, Times.Never());
+        }
+
+        [Fact]
+        public async Task GetAuthenticatedVideoProjectionAsync_RenewalUsesInitialEtagWithoutReread()
+        {
+            var now = new DateTimeOffset(2026, 8, 1, 12, 0, 0, TimeSpan.Zero);
+            var today = DateOnly.FromDateTime(now.UtcDateTime);
+            var expiredAfter = now.AddDays(45);
+            var listId = Guid.NewGuid();
+            var document = CreateListDocument(listId, "etag-1");
+            document.ExpirationRenewedOn = today.AddDays(-1);
+            var lists = SetupAuthenticatedRead(listId, document);
+            CosmosListDocument replaced = null;
+            lists
+                .Setup(container => container.ReplaceItemAsync(
+                    It.IsAny<CosmosListDocument>(),
+                    listId.ToString("D"),
+                    It.IsAny<PartitionKey?>(),
+                    It.IsAny<ItemRequestOptions>(),
+                    It.IsAny<CancellationToken>()))
+                .Callback<CosmosListDocument, string, PartitionKey?, ItemRequestOptions, CancellationToken>(
+                    (value, _, _, _, _) => replaced = value)
+                .ReturnsAsync(CreateResponse<CosmosListDocument>(null).Object);
+            var repository = new CosmosListRepository(
+                lists.Object,
+                new Mock<Container>().Object,
+                new FakeAppClock { UtcNow = now });
+
+            Assert.NotNull(await repository.GetAuthenticatedVideoProjectionAsync(
+                listId,
+                WebEncoders.Base64UrlEncode(document.Token),
+                expiredAfter,
+                today,
+                101));
+
+            VerifyListReads(lists, listId, Times.Once());
+            Assert.Equal("etag-1", replaced.ETag);
+            Assert.Equal(expiredAfter, replaced.ExpiredAfter);
+            Assert.Equal(today, replaced.ExpirationRenewedOn);
+        }
+
+        [Fact]
+        public async Task GetAuthenticatedVideoProjectionAsync_RereadsAndReappliesOnceAfterConflict()
+        {
+            var now = new DateTimeOffset(2026, 8, 1, 12, 0, 0, TimeSpan.Zero);
+            var today = DateOnly.FromDateTime(now.UtcDateTime);
+            var listId = Guid.NewGuid();
+            var first = CreateListDocument(listId, "etag-1");
+            var retry = CreateListDocument(listId, "etag-2");
+            var lists = new Mock<Container>();
+            lists
+                .SetupSequence(container => container.ReadItemAsync<CosmosListDocument>(
+                    listId.ToString("D"),
+                    It.IsAny<PartitionKey>(),
+                    It.IsAny<ItemRequestOptions>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(CreateResponse(first).Object)
+                .ReturnsAsync(CreateResponse(retry).Object);
+            lists
+                .SetupSequence(container => container.ReplaceItemAsync(
+                    It.IsAny<CosmosListDocument>(),
+                    listId.ToString("D"),
+                    It.IsAny<PartitionKey?>(),
+                    It.IsAny<ItemRequestOptions>(),
+                    It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new CosmosException(
+                    "conflict",
+                    HttpStatusCode.PreconditionFailed,
+                    0,
+                    null,
+                    0))
+                .ReturnsAsync(CreateResponse<CosmosListDocument>(null).Object);
+            var repository = new CosmosListRepository(
+                lists.Object,
+                new Mock<Container>().Object,
+                new FakeAppClock { UtcNow = now });
+
+            Assert.NotNull(await repository.GetAuthenticatedVideoProjectionAsync(
+                listId,
+                WebEncoders.Base64UrlEncode(first.Token),
+                now.AddDays(45),
+                today,
+                101));
+
+            VerifyListReads(lists, listId, Times.Exactly(2));
+            lists.Verify(container => container.ReplaceItemAsync(
+                It.Is<CosmosListDocument>(value => value.ETag == "etag-2"),
+                listId.ToString("D"),
+                It.IsAny<PartitionKey?>(),
+                It.IsAny<ItemRequestOptions>(),
+                It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        [Fact]
+        public async Task GetAuthenticatedVideoProjectionAsync_ReturnsNullWhenDeletedDuringRenewal()
+        {
+            var now = new DateTimeOffset(2026, 8, 1, 12, 0, 0, TimeSpan.Zero);
+            var listId = Guid.NewGuid();
+            var document = CreateListDocument(listId, "etag-1");
+            var lists = SetupAuthenticatedRead(listId, document);
+            lists
+                .Setup(container => container.ReplaceItemAsync(
+                    It.IsAny<CosmosListDocument>(),
+                    listId.ToString("D"),
+                    It.IsAny<PartitionKey?>(),
+                    It.IsAny<ItemRequestOptions>(),
+                    It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new CosmosException(
+                    "missing",
+                    HttpStatusCode.NotFound,
+                    0,
+                    null,
+                    0));
+            var repository = new CosmosListRepository(
+                lists.Object,
+                new Mock<Container>().Object,
+                new FakeAppClock { UtcNow = now });
+
+            Assert.Null(await repository.GetAuthenticatedVideoProjectionAsync(
+                listId,
+                WebEncoders.Base64UrlEncode(document.Token),
+                now.AddDays(45),
+                DateOnly.FromDateTime(now.UtcDateTime),
+                101));
+            VerifyListReads(lists, listId, Times.Once());
+        }
+
+        [Fact]
+        public async Task GetAuthenticatedVideoProjectionAsync_TagsExhaustedConflictBeforeRethrow()
+        {
+            var now = new DateTimeOffset(2026, 8, 1, 12, 0, 0, TimeSpan.Zero);
+            var listId = Guid.NewGuid();
+            var first = CreateListDocument(listId, "etag-1");
+            var retry = CreateListDocument(listId, "etag-2");
+            var lists = new Mock<Container>();
+            lists
+                .SetupSequence(container => container.ReadItemAsync<CosmosListDocument>(
+                    listId.ToString("D"),
+                    It.IsAny<PartitionKey>(),
+                    It.IsAny<ItemRequestOptions>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(CreateResponse(first).Object)
+                .ReturnsAsync(CreateResponse(retry).Object);
+            lists
+                .Setup(container => container.ReplaceItemAsync(
+                    It.IsAny<CosmosListDocument>(),
+                    listId.ToString("D"),
+                    It.IsAny<PartitionKey?>(),
+                    It.IsAny<ItemRequestOptions>(),
+                    It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new CosmosException(
+                    "conflict",
+                    HttpStatusCode.PreconditionFailed,
+                    0,
+                    null,
+                    0));
+            var repository = new CosmosListRepository(
+                lists.Object,
+                new Mock<Container>().Object,
+                new FakeAppClock { UtcNow = now });
+            using var outcomes = new ListPageOutcomeListener();
+
+            await Assert.ThrowsAsync<CosmosException>(() =>
+                repository.GetAuthenticatedVideoProjectionAsync(
+                    listId,
+                    WebEncoders.Base64UrlEncode(first.Token),
+                    now.AddDays(45),
+                    DateOnly.FromDateTime(now.UtcDateTime),
+                    101));
+
+            Assert.Equal(new[] { "conflict_exhausted" }, outcomes.Values);
+        }
+
+        [Fact]
+        public async Task GetAuthenticatedVideoProjectionAsync_TagsUnhandledReadFailureAsError()
+        {
+            var listId = Guid.NewGuid();
+            var lists = new Mock<Container>();
+            lists
+                .Setup(container => container.ReadItemAsync<CosmosListDocument>(
+                    listId.ToString("D"),
+                    It.IsAny<PartitionKey>(),
+                    It.IsAny<ItemRequestOptions>(),
+                    It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new CosmosException(
+                    "service unavailable",
+                    HttpStatusCode.ServiceUnavailable,
+                    0,
+                    null,
+                    0));
+            var repository = CreateRepository(lists);
+            using var outcomes = new ListPageOutcomeListener();
+
+            await Assert.ThrowsAsync<CosmosException>(() =>
+                repository.GetAuthenticatedVideoProjectionAsync(
+                    listId,
+                    "token",
+                    DateTimeOffset.UtcNow.AddDays(45),
+                    new DateOnly(2026, 8, 1),
+                    101));
+
+            Assert.Equal(new[] { "error" }, outcomes.Values);
+        }
+
+        [Fact]
+        public async Task GetAuthenticatedVideoProjectionAsync_TagsUnhandledMappingFailureAsError()
+        {
+            var today = new DateOnly(2026, 8, 1);
+            var listId = Guid.NewGuid();
+            var document = CreateListDocument(listId, "etag-1");
+            document.ExpirationRenewedOn = today;
+            document.Channels = new[]
+            {
+                new CosmosProjectedChannelDocument
+                {
+                    Id = "invalid-channel",
+                    Status = "invalid-status"
+                }
+            };
+            var repository = CreateRepository(SetupAuthenticatedRead(listId, document));
+            using var outcomes = new ListPageOutcomeListener();
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                repository.GetAuthenticatedVideoProjectionAsync(
+                    listId,
+                    WebEncoders.Base64UrlEncode(document.Token),
+                    document.ExpiredAfter.AddDays(45),
+                    today,
+                    101));
+
+            Assert.Equal(new[] { "error" }, outcomes.Values);
+        }
+
+        [Fact]
+        public async Task GetAuthenticatedVideoProjectionAsync_TagsUnhandledWriteFailureAsError()
+        {
+            var now = new DateTimeOffset(2026, 8, 1, 12, 0, 0, TimeSpan.Zero);
+            var listId = Guid.NewGuid();
+            var document = CreateListDocument(listId, "etag-1");
+            var lists = SetupAuthenticatedRead(listId, document);
+            lists
+                .Setup(container => container.ReplaceItemAsync(
+                    It.IsAny<CosmosListDocument>(),
+                    listId.ToString("D"),
+                    It.IsAny<PartitionKey?>(),
+                    It.IsAny<ItemRequestOptions>(),
+                    It.IsAny<CancellationToken>()))
+                .ThrowsAsync(new CosmosException(
+                    "service unavailable",
+                    HttpStatusCode.ServiceUnavailable,
+                    0,
+                    null,
+                    0));
+            var repository = new CosmosListRepository(
+                lists.Object,
+                new Mock<Container>().Object,
+                new FakeAppClock { UtcNow = now });
+            using var outcomes = new ListPageOutcomeListener();
+
+            await Assert.ThrowsAsync<CosmosException>(() =>
+                repository.GetAuthenticatedVideoProjectionAsync(
+                    listId,
+                    WebEncoders.Base64UrlEncode(document.Token),
+                    now.AddDays(45),
+                    DateOnly.FromDateTime(now.UtcDateTime),
+                    101));
+
+            Assert.Equal(new[] { "error" }, outcomes.Values);
+        }
+
         [Fact]
         public async Task UpdateAsync_RecomputesTtlFromAbsoluteExpirationBeforeReplacing()
         {
@@ -712,6 +1054,48 @@ namespace youtubed.Tests.Persistence.Cosmos
             };
         }
 
+        private static CosmosListRepository CreateRepository(Mock<Container> lists)
+        {
+            return new CosmosListRepository(
+                lists.Object,
+                new Mock<Container>().Object,
+                new FakeAppClock());
+        }
+
+        private static Mock<Container> SetupAuthenticatedRead(
+            Guid listId,
+            CosmosListDocument document)
+        {
+            var lists = new Mock<Container>();
+            lists
+                .Setup(container => container.ReadItemAsync<CosmosListDocument>(
+                    listId.ToString("D"),
+                    It.IsAny<PartitionKey>(),
+                    It.IsAny<ItemRequestOptions>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync(CreateResponse(document).Object);
+            return lists;
+        }
+
+        private static void VerifyListReads(Mock<Container> lists, Guid listId, Times times)
+        {
+            lists.Verify(container => container.ReadItemAsync<CosmosListDocument>(
+                listId.ToString("D"),
+                It.IsAny<PartitionKey>(),
+                It.IsAny<ItemRequestOptions>(),
+                It.IsAny<CancellationToken>()), times);
+        }
+
+        private static void VerifyListReplaces(Mock<Container> lists, Guid listId, Times times)
+        {
+            lists.Verify(container => container.ReplaceItemAsync(
+                It.IsAny<CosmosListDocument>(),
+                listId.ToString("D"),
+                It.IsAny<PartitionKey?>(),
+                It.IsAny<ItemRequestOptions>(),
+                It.IsAny<CancellationToken>()), times);
+        }
+
         private static CosmosProjectedChannelDocument CreateProjectedChannel(
             string id,
             ChannelStatus status,
@@ -836,6 +1220,43 @@ namespace youtubed.Tests.Persistence.Cosmos
             var response = new Mock<ItemResponse<T>>();
             response.SetupGet(value => value.Resource).Returns(resource);
             return response;
+        }
+
+        private sealed class ListPageOutcomeListener : IDisposable
+        {
+            private readonly ConcurrentQueue<string> _values = new();
+            private readonly MeterListener _listener = new();
+
+            public ListPageOutcomeListener()
+            {
+                _listener.InstrumentPublished = (instrument, listener) =>
+                {
+                    if (instrument.Meter.Name == CosmosListPageTelemetry.MeterName
+                        && instrument.Name == "list_page.requests")
+                    {
+                        listener.EnableMeasurementEvents(instrument);
+                    }
+                };
+                _listener.SetMeasurementEventCallback<long>(
+                    (_, _, tags, _) =>
+                    {
+                        foreach (var tag in tags)
+                        {
+                            if (tag.Key == "outcome" && tag.Value is string outcome)
+                            {
+                                _values.Enqueue(outcome);
+                            }
+                        }
+                    });
+                _listener.Start();
+            }
+
+            public string[] Values => _values.ToArray();
+
+            public void Dispose()
+            {
+                _listener.Dispose();
+            }
         }
     }
 }

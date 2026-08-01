@@ -39,7 +39,7 @@ namespace youtubed.Tests.Controllers
         {
             var id = Guid.NewGuid();
             var listService = new Mock<IListService>(MockBehavior.Strict);
-            listService.Setup(service => service.GetAuthenticatedListAsync(id, "token")).ReturnsAsync((ListModel)null);
+            listService.Setup(service => service.GetAuthenticatedListViewAsync(id, "token")).ReturnsAsync((ListViewModel)null);
 
             var result = await CreateController(listService: listService).Index(id, "token");
 
@@ -52,8 +52,8 @@ namespace youtubed.Tests.Controllers
             var id = Guid.NewGuid();
             var listService = new Mock<IListService>(MockBehavior.Strict);
             listService
-                .Setup(service => service.GetAuthenticatedListAsync(id, "wrong"))
-                .ReturnsAsync((ListModel)null);
+                .Setup(service => service.GetAuthenticatedListViewAsync(id, "wrong"))
+                .ReturnsAsync((ListViewModel)null);
 
             var result = await CreateController(listService: listService).Index(id, "wrong");
 
@@ -64,7 +64,6 @@ namespace youtubed.Tests.Controllers
         public async Task Index_ValidRequest_ReturnsViewWithStaleCount()
         {
             var id = Guid.NewGuid();
-            var list = CreateList(id);
             var model = new ListViewModel
             {
                 Id = id,
@@ -74,8 +73,7 @@ namespace youtubed.Tests.Controllers
                 Videos = new[] { new VideoViewModel { VideoId = "video-1", VideoTitle = "Video" } }
             };
             var listService = new Mock<IListService>(MockBehavior.Strict);
-            listService.Setup(service => service.GetAuthenticatedListAsync(id, "expected")).ReturnsAsync(list);
-            listService.Setup(service => service.GetListViewAsync(list)).ReturnsAsync(model);
+            listService.Setup(service => service.GetAuthenticatedListViewAsync(id, "expected")).ReturnsAsync(model);
 
             var result = await CreateController(listService: listService).Index(id, "expected");
 

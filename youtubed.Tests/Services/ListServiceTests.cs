@@ -17,6 +17,46 @@ namespace youtubed.Tests.Services
     public sealed class ListServiceTests
     {
         [Fact]
+        public async Task GetAuthenticatedListViewAsync_UsesCombinedProjectionOperation()
+        {
+            var id = Guid.NewGuid();
+            var now = new DateTimeOffset(2026, 8, 1, 12, 0, 0, TimeSpan.Zero);
+            var token = Enumerable.Repeat((byte)5, 40).ToArray();
+            var repository = new Mock<IListRepository>(MockBehavior.Strict);
+            repository
+                .Setup(value => value.GetAuthenticatedVideoProjectionAsync(
+                    id,
+                    "route-token",
+                    now.Add(Constants.ListMaxAgeMin),
+                    DateOnly.FromDateTime(now.UtcDateTime),
+                    Constants.ListRenderMaxItems + 1))
+                .ReturnsAsync(new ListVideoProjection
+                {
+                    List = new SubscriptionList
+                    {
+                        Id = id,
+                        Token = token,
+                        Title = "Authenticated projection",
+                        ExpiredAfter = now.AddDays(45)
+                    },
+                    Channels = Array.Empty<ListVideoProjection.Channel>()
+                });
+            var service = new ListService(
+                repository.Object,
+                new FakeAppClock { UtcNow = now });
+
+            var view = await service.GetAuthenticatedListViewAsync(id, "route-token");
+
+            Assert.Equal(id, view.Id);
+            Assert.Equal("Authenticated projection", view.Title);
+            Assert.Equal(now, view.Now);
+            repository.Verify(value => value.GetAsync(It.IsAny<Guid>()), Times.Never);
+            repository.Verify(value => value.GetVideoProjectionAsync(
+                It.IsAny<SubscriptionList>(),
+                It.IsAny<int>()), Times.Never);
+        }
+
+        [Fact]
         public async Task GetListViewAsync_MapsVideoProjectionWithStableNowStaleCountAndVideoCap()
         {
             var id = Guid.NewGuid();

@@ -61,13 +61,27 @@ Do not expose Cosmos DTOs from repository interfaces.
 
 Authenticated list access:
 
-1. point-read list document
+1. for the normal list page, enter one request-count/request-charge scope and
+   point-read the list document
 2. compare route token with stored raw token using constant-time comparison
-3. if authenticated and `expirationRenewedOn != clock.UtcToday`, patch:
+3. map the requested bounded projection from that same document
+4. if authenticated and `expirationRenewedOn != clock.UtcToday`, conditionally
+   replace with the already-read ETag after updating:
    - `expiredAfter`
    - `expirationRenewedOn`
    - `ttl`
-4. return the requested domain read model
+5. on a 412, point-read and reapply once; on a concurrent-delete 404 return no
+   projection
+6. return the requested domain read model
+
+The common same-day list page is exactly one list point read. Renewal is one
+initial read plus one conditional list write; it does not synchronously update
+the lifecycle record because the prior lifecycle deadline safely causes an
+early authoritative check and reschedule. Record operation histograms for SDK
+request count and RU tagged by outcome. A representative one-channel/one-video
+document is budgeted at at most 10 RU same-day and at most 25 RU including the
+renewal write; the maximum supported list-document point read remains bounded
+separately at 350 RU.
 
 Read-model reads:
 

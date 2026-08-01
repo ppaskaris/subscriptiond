@@ -41,13 +41,12 @@ namespace youtubed.Controllers
                 return BadRequest();
             }
 
-            var list = await _listService.GetAuthenticatedListAsync(id.Value, token);
-            if (list == null)
+            var listView = await _listService.GetAuthenticatedListViewAsync(id.Value, token);
+            if (listView == null)
             {
                 return NotFound();
             }
 
-            var listView = await _listService.GetListViewAsync(list);
             return View(listView);
         }
 

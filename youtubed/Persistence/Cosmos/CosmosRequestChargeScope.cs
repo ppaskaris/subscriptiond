@@ -16,13 +16,19 @@ namespace youtubed.Persistence.Cosmos
 
         internal double RequestCharge { get; private set; }
 
+        internal int RequestCount { get; private set; }
+
         internal static CosmosRequestChargeScope Begin() => new();
 
         internal static void Record(double requestCharge)
         {
-            if (requestCharge > 0 && CurrentScope.Value != null)
+            for (var scope = CurrentScope.Value; scope != null; scope = scope._parent)
             {
-                CurrentScope.Value.RequestCharge += requestCharge;
+                scope.RequestCount++;
+                if (requestCharge > 0)
+                {
+                    scope.RequestCharge += requestCharge;
+                }
             }
         }
 

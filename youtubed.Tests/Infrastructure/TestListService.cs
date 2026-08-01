@@ -58,6 +58,14 @@ namespace youtubed.Tests.Infrastructure
             return Task.FromResult(id == ExistingListId && token == ExistingList.TokenString ? ExistingList : null);
         }
 
+        public Task<ListViewModel> GetAuthenticatedListViewAsync(Guid id, string token)
+        {
+            return GetListViewAsync(
+                id == ExistingListId && token == ExistingList.TokenString
+                    ? ExistingList
+                    : null);
+        }
+
         public Task<ListViewModel> GetListViewAsync(Guid id)
         {
             return GetListViewAsync(id == ExistingListId ? ExistingList : null);

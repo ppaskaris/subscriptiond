@@ -32,6 +32,24 @@ public interface IListRepository
 
 Authenticated access renews list expiration at most once per UTC day. Maintenance and projection reads do not renew expiration.
 
+The normal authenticated list-page use case is exposed as one provider-neutral
+operation that returns `ListVideoProjection`. SQL may compose its normalized
+list and projection reads. Cosmos must point-read the list document once,
+constant-time compare the route token, map the bounded video projection from
+that document, and use its ETag for the renewal replacement when renewal is due.
+A 412 permits one reread/reapply; a second 412 is surfaced. A 404 from the
+renewal replacement is treated as concurrent deletion and returns no projection.
+The list lifecycle record need not be synchronously renewed on this page path:
+its old deadline is a safe early check, at which lifecycle recovery point-reads
+the authoritative renewed list and reschedules it.
+
+The Cosmos SDK pipeline records `list_page.requests` and
+`list_page.request_charge` histograms, tagged by outcome. For a representative
+list with one projected channel and video, the emulator regression budgets are
+one request and at most 10 RU on the common same-day path, and two requests and
+at most 25 RU on the renewal path. The existing maximum supported document
+point-read ceiling remains 350 RU.
+
 ### Channels
 
 ```csharp

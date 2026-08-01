@@ -1,9 +1,11 @@
 using System;
 using Xunit;
+using Xunit.Sdk;
 
 namespace youtubed.Tests.Infrastructure
 {
-    public sealed class CosmosFactAttribute : FactAttribute
+    [TraitDiscoverer("youtubed.Tests.Infrastructure.CosmosTraitDiscoverer", "youtubed.Tests")]
+    public sealed class CosmosFactAttribute : FactAttribute, ITraitAttribute
     {
         public const string EnvironmentVariableName = "YOUTUBED_RUN_COSMOS_TESTS";
 

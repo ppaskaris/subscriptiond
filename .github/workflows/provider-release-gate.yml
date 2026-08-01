@@ -1,0 +1,102 @@
+name: Provider release gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: provider-release-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: SQL and Cosmos release validation
+    runs-on: windows-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Verify LocalDB and start an isolated instance
+        shell: pwsh
+        run: |
+          sqllocaldb info MSSQLLocalDB
+          sqllocaldb start MSSQLLocalDB
+          sqllocaldb info MSSQLLocalDB
+
+      - name: Start Cosmos DB emulator
+        shell: pwsh
+        run: |
+          $module = "$env:ProgramFiles\Azure Cosmos DB Emulator\PSModules\Microsoft.Azure.CosmosDB.Emulator"
+          if (-not (Test-Path -LiteralPath $module)) {
+            throw "The required Cosmos DB emulator is not installed on this runner."
+          }
+          Import-Module $module
+          Start-CosmosDbEmulator -NoFirewall -NoUI -NoTelemetry -PartitionCount 10 -Timeout 600
+          $status = Get-CosmosDbEmulatorStatus
+          if ($status -ne 'Running') {
+            throw "Cosmos DB emulator did not reach Running state (status: $status)."
+          }
+
+      - name: Exercise release-gate failure policies
+        shell: pwsh
+        run: ./scripts/Test-ReleaseGatePolicy.ps1
+
+      - name: Run sequential release validation
+        shell: pwsh
+        env:
+          RELEASE_GATE_EVENT_NAME: ${{ github.event_name }}
+          RELEASE_GATE_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          RELEASE_GATE_BEFORE_SHA: ${{ github.event.before }}
+          RELEASE_GATE_HEAD_SHA: ${{ github.sha }}
+        run: ./scripts/Invoke-ReleaseValidation.ps1
+
+      - name: Prove disabled provider suites fail closed
+        shell: pwsh
+        run: ./scripts/Test-ProviderOptInPolicy.ps1
+
+      - name: Capture provider diagnostics
+        if: failure()
+        shell: pwsh
+        run: |
+          $diagnostics = 'artifacts/provider-diagnostics'
+          New-Item -ItemType Directory -Force -Path $diagnostics | Out-Null
+          sqllocaldb info MSSQLLocalDB | Set-Content "$diagnostics/localdb-status.txt"
+          $emulator = "$env:ProgramFiles\Azure Cosmos DB Emulator\Microsoft.Azure.Cosmos.Emulator.exe"
+          if (Test-Path -LiteralPath $emulator) {
+            & $emulator /GetStatus
+            "GetStatus exit code: $LASTEXITCODE" | Set-Content "$diagnostics/cosmos-status.txt"
+            (Get-Item -LiteralPath $emulator).VersionInfo | Format-List * | Out-File "$diagnostics/cosmos-version.txt"
+          }
+          $emulatorData = "$env:LOCALAPPDATA\CosmosDBEmulator"
+          if (Test-Path -LiteralPath $emulatorData) {
+            Get-ChildItem -LiteralPath $emulatorData -Recurse -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.Extension -in '.log', '.etl', '.txt' } |
+              Select-Object Name, Length, LastWriteTimeUtc |
+              Format-Table -AutoSize |
+              Out-File "$diagnostics/cosmos-log-inventory.txt"
+          }
+
+      - name: Publish test logs and coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: provider-release-gate-${{ github.run_id }}
+          path: |
+            artifacts/release-validation
+            artifacts/provider-diagnostics
+          if-no-files-found: error
+          retention-days: 14

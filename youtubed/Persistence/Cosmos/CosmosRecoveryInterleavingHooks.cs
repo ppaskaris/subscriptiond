@@ -24,5 +24,13 @@ namespace youtubed.Persistence.Cosmos
         internal Func<string, Task> AfterProjectionListWriteAsync { get; init; }
 
         internal Func<string, Task> BeforeCursorAdvanceAsync { get; init; }
+
+        internal Func<string, string, Task> AfterLifecycleSideEffectAsync { get; init; }
+
+        internal Func<CosmosRecoveryEdgeDocument, Task> BeforeLifecycleEdgeAsync
+        {
+            get;
+            init;
+        }
     }
 }

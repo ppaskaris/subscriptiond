@@ -1,6 +1,6 @@
 # Task 021b: Implement Cosmos Lifecycle Reconciliation
 
-Status: Not Started
+Status: Completed
 
 Depends On: 2110_implement_recoverable_cosmos_membership
 
@@ -66,4 +66,67 @@ Ensure explicit deletion and TTL expiration converge all channel reverse referen
 
 ## Implementation Summary
 
-Not implemented.
+Implemented lifecycle renewal, explicit deletion, TTL-404 reconciliation, and
+conditional completion on top of Task 2110's recovery container. Explicit
+deletion now marks durable `Deleting` state, seeds/verifies every current list
+edge before the ETag-conditional list delete, performs immediate reverse repair,
+and leaves every partial side effect restartable. Due lifecycle work point-reads
+the list, reschedules from current expiry when present, resumes interrupted
+explicit deletion, or records the first 404 and pages deleted edges by the
+separate generation-bound cleanup keyset.
+
+Each cleanup retirement transactionally deletes its edge, updates count and
+generation, and adopts the returned generation/checkpoint. Completion rereads
+the list/lifecycle, queries active edges from the beginning, requires a zero
+count, and conditionally deletes the lifecycle. Counter drift blocks completion,
+emits error/poison evidence, and is corrected by a bounded partition recount.
+Channel repair now rereads list truth on its one ETag retry, so a concurrent
+membership re-add clears orphan state and cannot be erased by stale cleanup.
+Structured metrics cover lifecycle overdue age, 404s, orphan transitions,
+per-pass items/RU, poison, convergence, conflicts, and lease takeover without
+tokens.
+
+Updated the schema and implementation docs with the first-404 anchor, one-minute
+poll, ten-minute present-expired recheck, 15-minute cleanup alert, explicit
+delete restart behavior, and conditional completion guarantees. Production list
+and channel retention durations are unchanged; opted-in emulator coverage uses
+an internal short orphan retention to prove physical TTL deletion.
+
+Validation passed sequentially on 2026-08-01:
+
+- `dotnet build youtubed.sln`: passed with 0 warnings and 0 errors.
+- Tests excluding LocalDB and Cosmos: 182 passed, 0 failed, 0 skipped.
+- Opted-in LocalDB tests: 79 passed, 0 failed, 0 skipped.
+- Opted-in Cosmos emulator tests: 67 passed, 0 failed, 0 skipped.
+- Emulator coverage includes restart after partial explicit-delete seeding,
+  unavailable-channel orphan repair, authoritative renewal rescheduling,
+  concurrent same-list membership re-add during cleanup, bounded lifecycle
+  checkpoints/cursors, generation-bound transactional retirement/cap behavior,
+  and bounded polling for physical list and orphan-channel TTL deletion.
+- Review follow-up coverage injects failure after deletion state, each of two
+  edge seeds, list deletion, each of two channel repairs, first 404, each of two
+  edge retirements, and lifecycle completion, proving fresh-service restart to
+  convergence from every durable boundary. Lifecycle failures preserve their
+  first-404 timestamp and attempt count through poison/daily retry; a service
+  test also proves expired-lease takeover. Additional emulator cases prove
+  bounded two-item passes, external-generation keyset restart, candidate,
+  leased, poison, and newly inserted completion blockers, transactional
+  retirement/capacity reuse at 125 edges, drift-blocked completion and bounded
+  recount, concurrent re-add safety, and authoritative renewal.
+- Metrics assertions cover first-404 cleanup age and the 15-minute overdue
+  signal, lifecycle deadline overdue age, 404 observations, orphan transitions,
+  per-pass items/RU, poison, and lease takeover without exposing list tokens.
+- Review fixes preserve failure attempts across one missing episode, release the
+  lifecycle lease after a successful recount, and increment `AssemblyVersion`
+  from `2.19.0.0` to `2.20.0.0` for the backward-compatible feature.
+- Re-review fixes use the post-persistence lifecycle attempt for poison
+  observability: attempts one through nine emit no positive poison metric or
+  poison error, while attempt ten emits exactly one of each and logs
+  `Attempt=10`. Emulator coverage cycles 130 distinct failed-add candidates in
+  bounded groups through authoritative-absence repair and transactional
+  retirement, asserting both active and physical edge counts never exceed 125
+  and return to zero. A synchronized cleanup-service instance versus repository
+  instance race proves a genuine concurrent same-list re-add preserves list
+  truth, the channel reference, cleared orphan/TTL state, active lifecycle, and
+  tracked edge convergence.
+- `git diff --check`: passed.

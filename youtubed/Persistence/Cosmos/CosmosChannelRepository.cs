@@ -19,6 +19,7 @@ namespace youtubed.Persistence.Cosmos
         private readonly Container _channels;
         private readonly Container _lists;
         private readonly IAppClock _clock;
+        private readonly TimeSpan _orphanRetention;
 
         public CosmosChannelRepository(Container channels, Container lists, IAppClock clock)
             : this(channels, lists, null, clock, null)
@@ -35,6 +36,8 @@ namespace youtubed.Persistence.Cosmos
             _channels = channels ?? throw new ArgumentNullException(nameof(channels));
             _lists = lists ?? throw new ArgumentNullException(nameof(lists));
             _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+            _orphanRetention = recoveryOptions?.ChannelOrphanRetention
+                ?? Constants.ChannelOrphanRetention;
         }
 
         public async Task<ChannelModel> GetByIdAsync(string id)
@@ -81,7 +84,7 @@ namespace youtubed.Persistence.Cosmos
                             OrphanedAfter = _clock.UtcNow
                         },
                         _clock.UtcNow,
-                        Constants.ChannelOrphanRetention);
+                        _orphanRetention);
 
                     try
                     {
@@ -331,42 +334,58 @@ namespace youtubed.Persistence.Cosmos
             Guid listId,
             CancellationToken cancellationToken)
         {
-            var list = await ReadListAsync(listId, cancellationToken);
-            var isMember = list?.Channels.Any(channel => string.Equals(
-                channel.Id,
-                channelId,
-                StringComparison.Ordinal)) == true;
-            var changed = false;
-            await UpdateChannelAsync(
-                channelId,
-                document =>
+            for (var attempt = 0; attempt < MaxWriteAttempts; attempt++)
+            {
+                // List truth must be reread together with the channel on an ETag
+                // retry. An add reserves the channel reference before committing
+                // the list, so stale deletion repair will conflict and then see
+                // the newly committed membership instead of erasing it.
+                var list = await ReadListAsync(listId, cancellationToken);
+                var isMember = list?.Channels.Any(channel => string.Equals(
+                    channel.Id,
+                    channelId,
+                    StringComparison.Ordinal)) == true;
+                var document = await ReadChannelAsync(channelId, cancellationToken);
+                if (document == null)
                 {
-                    var normalized = document.SubscribedListIds
-                        .Where(value => Guid.TryParse(value, out _))
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
-                    if (isMember)
-                    {
-                        changed = normalized.Add(listId.ToString("D"));
-                    }
-                    else
-                    {
-                        changed = normalized.Remove(listId.ToString("D"));
-                    }
+                    return false;
+                }
 
-                    var ids = normalized
-                        .Select(Guid.Parse)
-                        .OrderBy(id => id)
-                        .ToArray();
-                    if (!changed && ReferencesMatch(document, ids))
-                    {
-                        return;
-                    }
+                var normalized = document.SubscribedListIds
+                    .Where(value => Guid.TryParse(value, out _))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var changed = isMember
+                    ? normalized.Add(listId.ToString("D"))
+                    : normalized.Remove(listId.ToString("D"));
+                var ids = normalized
+                    .Select(Guid.Parse)
+                    .OrderBy(id => id)
+                    .ToArray();
+                if (!changed && ReferencesMatch(document, ids))
+                {
+                    return false;
+                }
 
-                    ApplySubscriptions(document, ids);
-                },
-                cancellationToken);
-            return changed;
+                ApplySubscriptions(document, ids);
+                try
+                {
+                    await ReplaceAsync(document, cancellationToken);
+                    return changed;
+                }
+                catch (CosmosException exception) when (
+                    exception.StatusCode == HttpStatusCode.PreconditionFailed
+                    && attempt + 1 < MaxWriteAttempts)
+                {
+                    CosmosRecoveryTelemetry.RecordConflict(
+                        "ChannelRepository",
+                        "RepairSubscriptionFromListTruth",
+                        retry: true);
+                }
+            }
+
+            throw new CosmosRecoveryConflictException(
+                $"Channel '{channelId}' subscription repair conflicted twice.");
         }
 
         private async Task<CosmosChannelDocument> RepairReferencesAsync(
@@ -524,7 +543,7 @@ namespace youtubed.Persistence.Cosmos
         {
             document.Ttl = document.SubscriptionCount == 0 && document.OrphanedAfter.HasValue
                 ? CosmosDocumentMapper.GetTtlSeconds(
-                    document.OrphanedAfter.Value + Constants.ChannelOrphanRetention,
+                    document.OrphanedAfter.Value + _orphanRetention,
                     _clock.UtcNow)
                 : -1;
             using (var stream = CosmosSystemTextJsonSerializer.Instance.ToStream(document))

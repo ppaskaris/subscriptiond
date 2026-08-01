@@ -319,6 +319,38 @@ exists. Alert on ordinary work older than 15 minutes and on cleanup incomplete
 15 minutes after the first list 404; Cosmos TTL's physical-deletion delay is
 outside the application SLO.
 
+The deadline is never proof of deletion. Every due lifecycle first point-reads
+the list. A present list moves the deadline to its authoritative expiry (or ten
+minutes later when already expired), clears deletion-cleanup state, and releases
+the lease. A 404 records the first observation time and starts the separate
+generation-bound cleanup keyset. Explicit `Deleting` state is the exception: if
+the list remains present, recovery first verifies all current membership edges
+and resumes its ETag-conditional delete.
+
+Cleanup deletes each edge in the same partition transaction that decrements the
+count, increments the generation, and adopts the returned generation/checkpoint.
+After a short page it rereads the lifecycle and list, queries active edges again
+from the beginning, and requires both an empty query and a zero count before an
+ETag-conditional lifecycle delete. A count disagreement emits error/poison
+evidence and runs a generation-bound recount over only the at-most-125-edge list
+partition. A concurrent list recreation or membership re-add is reread before
+retirement; its channel reference is retained, orphan state/TTL is cleared, and
+the lifecycle returns to `Active`.
+
+Production retention remains unchanged at seven days for orphan channels. The
+emulator fixture can inject a shorter internal retention only to prove eventual
+physical TTL deletion with a bounded poll.
+
+Repeated 404 observations within one missing episode preserve the lifecycle
+attempt count and first-observed timestamp. Failures therefore use the standard
+one-minute-to-one-hour backoff, reach poison on attempt ten, and retry daily;
+successful drift recounts release their lifecycle lease so the corrected
+zero-count record can immediately proceed to completion. Metrics expose
+`recovery.lifecycle.cleanup_age` and
+`recovery.lifecycle.cleanup_overdue`, and the overdue transition emits an
+actionable warning containing list id and first-404 time but never the list
+token.
+
 Log and measure pending/poison counts, attempts, successes, conflicts, list 404s,
 orphan transitions, oldest age, convergence latency, request charge, per-pass
 items/RU, and expired-lease claims. Never log list tokens or Cosmos credentials.

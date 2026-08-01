@@ -83,6 +83,748 @@ namespace youtubed.Tests.Integration
         }
 
         [CosmosFact]
+        public async Task ExplicitDeletionResumesAfterPartialSeedingAndOrphansUnavailableChannels()
+        {
+            var clock = CreateClock();
+            var listId = Guid.NewGuid();
+            var channelIds = new[]
+            {
+                $"UC-{Guid.NewGuid():N}",
+                $"UC-{Guid.NewGuid():N}"
+            };
+            foreach (var channelId in channelIds)
+            {
+                await SeedChannelAsync(channelId, clock);
+                var channel = await ReadChannelAsync(channelId);
+                channel.SubscribedListIds = new[] { listId.ToString("D") };
+                channel.SubscriptionCount = 1;
+                channel.OrphanedAfter = null;
+                channel.Ttl = -1;
+                if (channelId == channelIds[1])
+                {
+                    channel.Status = ChannelStatus.Unavailable.ToString();
+                    channel.StatusReason = ChannelStatusReason.NotFound.ToString();
+                }
+                await Channels.ReplaceItemAsync(
+                    channel,
+                    channel.Id,
+                    new PartitionKey(channel.Id),
+                    new ItemRequestOptions { IfMatchEtag = channel.ETag });
+            }
+
+            var list = CreateListDocument(
+                listId,
+                clock,
+                channelIds[0],
+                membershipVersion: 2,
+                pending: false);
+            list.Channels = list.Channels.Append(new CosmosProjectedChannelDocument
+            {
+                Id = channelIds[1],
+                Status = ChannelStatus.Unavailable.ToString(),
+                StatusReason = ChannelStatusReason.NotFound.ToString(),
+                Videos = Array.Empty<CosmosVideoDocument>()
+            }).ToArray();
+            await Lists.CreateItemAsync(list, new PartitionKey(list.Id));
+
+            var seeded = 0;
+            var interruptedRepository = CreateListRepository(
+                clock,
+                new CosmosRecoveryInterleavingHooks
+                {
+                    AfterLifecycleSideEffectAsync = (_, sideEffect) =>
+                    {
+                        if (sideEffect.StartsWith("EdgeSeeded:", StringComparison.Ordinal)
+                            && Interlocked.Increment(ref seeded) == 1)
+                        {
+                            throw new InvalidOperationException("injected lifecycle interruption");
+                        }
+                        return Task.CompletedTask;
+                    }
+                });
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => interruptedRepository.DeleteAsync(listId));
+            Assert.NotNull(await ReadListAsync(listId));
+            Assert.Equal("Deleting", (await ReadLifecycleAsync(listId)).State);
+
+            await DeleteRecoverySystemCursorsAsync();
+            var result = await CreateRecoveryService(clock).RecoverAsync(
+                ConsistencyRecoveryPassBudget.Default,
+                CancellationToken.None);
+
+            Assert.True(result.Succeeded > 0);
+            await Assert.ThrowsAsync<CosmosException>(() => ReadListAsync(listId));
+            Assert.Null(await TryReadLifecycleAsync(listId));
+            foreach (var channelId in channelIds)
+            {
+                var channel = await ReadChannelAsync(channelId);
+                Assert.Empty(channel.SubscribedListIds);
+                Assert.Equal(0, channel.SubscriptionCount);
+                Assert.NotNull(channel.OrphanedAfter);
+                Assert.True(channel.Ttl > 0);
+                Assert.Null(await TryReadEdgeAsync(listId, channelId));
+            }
+        }
+
+        [CosmosFact]
+        public async Task EveryLifecycleDurableSideEffectIsRestartable()
+        {
+            foreach (var sideEffectKind in new[]
+            {
+                "Deleting",
+                "FirstEdgeSeeded",
+                "SecondEdgeSeeded",
+                "ListDeleted",
+                "FirstChannelRepaired",
+                "SecondChannelRepaired",
+                "MissingObserved",
+                "FirstEdgeRetired",
+                "SecondEdgeRetired",
+                "LifecycleCompleted"
+            })
+            {
+                var clock = CreateClock();
+                var listId = Guid.NewGuid();
+                var channelIds = new[]
+                {
+                    $"UC-side-effect-a-{Guid.NewGuid():N}",
+                    $"UC-side-effect-b-{Guid.NewGuid():N}"
+                };
+                await SeedLegacyListWithReverseReferencesAsync(
+                    listId,
+                    channelIds,
+                    clock);
+                var target = sideEffectKind switch
+                {
+                    "FirstEdgeSeeded" => $"EdgeSeeded:{channelIds[0]}",
+                    "SecondEdgeSeeded" => $"EdgeSeeded:{channelIds[1]}",
+                    "FirstChannelRepaired" => $"ChannelRepaired:{channelIds[0]}",
+                    "SecondChannelRepaired" => $"ChannelRepaired:{channelIds[1]}",
+                    "FirstEdgeRetired" => $"EdgeRetired:{channelIds[0]}",
+                    "SecondEdgeRetired" => $"EdgeRetired:{channelIds[1]}",
+                    _ => sideEffectKind
+                };
+                var injected = 0;
+                var hooks = new CosmosRecoveryInterleavingHooks
+                {
+                    AfterLifecycleSideEffectAsync = (_, sideEffect) =>
+                    {
+                        if (string.Equals(sideEffect, target, StringComparison.Ordinal)
+                            && Interlocked.Exchange(ref injected, 1) == 0)
+                        {
+                            throw new InvalidOperationException(
+                                $"injected after {sideEffect}");
+                        }
+                        return Task.CompletedTask;
+                    }
+                };
+
+                _ = await CaptureAsync(
+                    () => CreateListRepository(clock, hooks).DeleteAsync(listId));
+                for (var pass = 0; pass < 8; pass++)
+                {
+                    var lifecycle = await TryReadLifecycleAsync(listId);
+                    if (lifecycle == null)
+                    {
+                        break;
+                    }
+                    if (lifecycle.NextCheckAt > clock.UtcNow)
+                    {
+                        clock.UtcNow = lifecycle.NextCheckAt;
+                    }
+                    await DeleteRecoverySystemCursorsAsync();
+                    _ = await CaptureAsync(
+                        () => CreateRecoveryService(clock, hooks).RecoverAsync(
+                            ConsistencyRecoveryPassBudget.Default,
+                            CancellationToken.None));
+                }
+
+                Assert.Equal(1, Volatile.Read(ref injected));
+                Assert.Null(await TryReadLifecycleAsync(listId));
+                foreach (var channelId in channelIds)
+                {
+                    var channel = await ReadChannelAsync(channelId);
+                    Assert.Empty(channel.SubscribedListIds);
+                    Assert.Equal(0, channel.SubscriptionCount);
+                    Assert.NotNull(channel.OrphanedAfter);
+                    Assert.Null(await TryReadEdgeAsync(listId, channelId));
+                }
+            }
+        }
+
+        [CosmosFact]
+        public async Task EarlyLifecycleDeadlineReschedulesFromRenewedListTruth()
+        {
+            var clock = CreateClock();
+            var listId = Guid.NewGuid();
+            var repository = CreateListRepository(clock);
+            await repository.CreateAsync(CreateList(listId, clock));
+
+            var list = await ReadListAsync(listId);
+            list.ExpiredAfter = clock.UtcNow.AddDays(90);
+            list.Ttl = CosmosDocumentMapper.GetTtlSeconds(list.ExpiredAfter, clock.UtcNow);
+            await Lists.ReplaceItemAsync(
+                list,
+                list.Id,
+                new PartitionKey(list.Id),
+                new ItemRequestOptions { IfMatchEtag = list.ETag });
+            var lifecycle = await ReadLifecycleAsync(listId);
+            lifecycle.NextCheckAt = clock.UtcNow.AddMinutes(-1);
+            await Recovery.ReplaceItemAsync(
+                lifecycle,
+                lifecycle.Id,
+                new PartitionKey(lifecycle.ListId),
+                new ItemRequestOptions { IfMatchEtag = lifecycle.ETag });
+
+            await DeleteRecoverySystemCursorsAsync();
+            await CreateRecoveryService(clock).RecoverAsync(
+                ConsistencyRecoveryPassBudget.Default,
+                CancellationToken.None);
+
+            lifecycle = await ReadLifecycleAsync(listId);
+            Assert.Equal("Active", lifecycle.State);
+            Assert.Equal(list.ExpiredAfter, lifecycle.ExpiredAfter);
+            Assert.Equal(list.ExpiredAfter, lifecycle.NextCheckAt);
+            Assert.NotNull(await ReadListAsync(listId));
+        }
+
+        [CosmosFact]
+        public async Task LifecycleCleanupCannotEraseMembershipReaddedDuringRepair()
+        {
+            var clock = CreateClock();
+            var listId = Guid.NewGuid();
+            var channelId = $"UC-{Guid.NewGuid():N}";
+            await SeedChannelAsync(channelId, clock);
+            var repository = CreateListRepository(clock);
+            await repository.CreateAsync(CreateList(listId, clock));
+            await repository.AddChannelAsync(listId, channelId);
+            await Lists.DeleteItemAsync<CosmosListDocument>(
+                listId.ToString("D"),
+                new PartitionKey(listId.ToString("D")));
+            var lifecycle = await ReadLifecycleAsync(listId);
+            lifecycle.NextCheckAt = clock.UtcNow;
+            await Recovery.ReplaceItemAsync(
+                lifecycle,
+                lifecycle.Id,
+                new PartitionKey(lifecycle.ListId),
+                new ItemRequestOptions { IfMatchEtag = lifecycle.ETag });
+
+            var readded = 0;
+            var hooks = new CosmosRecoveryInterleavingHooks
+            {
+                BeforeLifecycleEdgeAsync = async _ =>
+                {
+                    if (Interlocked.Exchange(ref readded, 1) != 0)
+                    {
+                        return;
+                    }
+                    await Lists.CreateItemAsync(
+                        CreateListDocument(
+                            listId,
+                            clock,
+                            channelId,
+                            membershipVersion: 1,
+                            pending: false),
+                        new PartitionKey(listId.ToString("D")));
+                }
+            };
+            await DeleteRecoverySystemCursorsAsync();
+            await CreateRecoveryService(clock, hooks).RecoverAsync(
+                ConsistencyRecoveryPassBudget.Default,
+                CancellationToken.None);
+
+            var channel = await ReadChannelAsync(channelId);
+            Assert.Contains(listId.ToString("D"), channel.SubscribedListIds);
+            Assert.Equal(1, channel.SubscriptionCount);
+            Assert.Null(channel.OrphanedAfter);
+            Assert.Equal(-1, channel.Ttl);
+            Assert.Equal("Active", (await ReadLifecycleAsync(listId)).State);
+            Assert.NotNull(await ReadEdgeAsync(listId, channelId));
+        }
+
+        [CosmosFact]
+        public async Task PhysicalListTtlDeletionRepairsReverseReferenceAndChannelAlsoExpires()
+        {
+            using var metrics = new RecordingMeterListener("youtubed.cosmos.recovery");
+            var clock = CreateClock();
+            var options = new CosmosRecoveryOptions
+            {
+                ChannelOrphanRetention = TimeSpan.FromSeconds(2)
+            };
+            var listId = Guid.NewGuid();
+            var channelId = $"UC-{Guid.NewGuid():N}";
+            await SeedChannelAsync(channelId, clock);
+            var repository = CreateListRepository(clock, options: options);
+            var expiring = CreateList(listId, clock);
+            expiring.ExpiredAfter = clock.UtcNow.AddSeconds(2);
+            await repository.CreateAsync(expiring);
+            await repository.AddChannelAsync(listId, channelId);
+
+            await WaitForNotFoundAsync(
+                Lists,
+                listId.ToString("D"),
+                TimeSpan.FromSeconds(90));
+            clock.UtcNow = expiring.ExpiredAfter.AddSeconds(1);
+            await DeleteRecoverySystemCursorsAsync();
+            await CreateRecoveryService(clock, options: options).RecoverAsync(
+                ConsistencyRecoveryPassBudget.Default,
+                CancellationToken.None);
+
+            var orphan = await ReadChannelAsync(channelId);
+            Assert.Empty(orphan.SubscribedListIds);
+            Assert.Equal(0, orphan.SubscriptionCount);
+            Assert.NotNull(orphan.OrphanedAfter);
+            Assert.InRange(orphan.Ttl.Value, 1, 2);
+            Assert.Null(await TryReadLifecycleAsync(listId));
+            Assert.Contains(
+                metrics.Measurements,
+                measurement => measurement.Name == "recovery.list_not_found"
+                    && measurement.Value >= 1);
+            Assert.Contains(
+                metrics.Measurements,
+                measurement => measurement.Name == "recovery.lifecycle.orphan_transitions"
+                    && measurement.Value == 1);
+            Assert.Contains(
+                metrics.Measurements,
+                measurement => measurement.Name == "recovery.pass.items"
+                    && measurement.Value >= 2);
+            Assert.Contains(
+                metrics.Measurements,
+                measurement => measurement.Name == "recovery.request_charge"
+                    && measurement.Value > 0);
+            await WaitForNotFoundAsync(
+                Channels,
+                channelId,
+                TimeSpan.FromSeconds(90));
+        }
+
+        [CosmosFact]
+        public async Task LifecycleFailuresPreserveFirst404AttemptsBecomePoisonAndLeaseIsTakenOver()
+        {
+            using var metrics = new RecordingMeterListener("youtubed.cosmos.recovery");
+            var clock = CreateClock();
+            var listId = Guid.NewGuid().ToString("D");
+            var store = new CosmosRecoveryStore(
+                Recovery,
+                clock,
+                new CosmosRecoveryOptions());
+            var lifecycle = await store.CreateLifecycleAsync(
+                listId,
+                clock.UtcNow,
+                CancellationToken.None);
+            lifecycle.Owner = "stopped-instance";
+            lifecycle.LeaseUntil = clock.UtcNow.AddMinutes(-1);
+            lifecycle.NextCheckAt = clock.UtcNow;
+            await Recovery.ReplaceItemAsync(
+                lifecycle,
+                lifecycle.Id,
+                new PartitionKey(listId),
+                new ItemRequestOptions { IfMatchEtag = lifecycle.ETag });
+            var logger = new RecordingLogger<CosmosConsistencyRecoveryService>();
+            var hooks = new CosmosRecoveryInterleavingHooks
+            {
+                AfterLifecycleSideEffectAsync = (_, sideEffect) =>
+                {
+                    if (sideEffect == "MissingObserved")
+                    {
+                        throw new InvalidOperationException("persistent lifecycle failure");
+                    }
+                    return Task.CompletedTask;
+                }
+            };
+            DateTimeOffset? first404 = null;
+            DateTimeOffset? poisonAttemptAt = null;
+
+            for (var attempt = 1;
+                attempt <= Constants.ConsistencyRecoveryPoisonAttemptCount;
+                attempt++)
+            {
+                if (attempt == Constants.ConsistencyRecoveryPoisonAttemptCount)
+                {
+                    poisonAttemptAt = clock.UtcNow;
+                }
+                await DeleteRecoverySystemCursorsAsync();
+                await CreateRecoveryService(clock, hooks, logger).RecoverAsync(
+                    ConsistencyRecoveryPassBudget.Default,
+                    CancellationToken.None);
+                lifecycle = await store.ReadLifecycleAsync(listId, CancellationToken.None);
+                first404 ??= lifecycle.MissingObservedAt;
+                Assert.Equal(first404, lifecycle.MissingObservedAt);
+                Assert.Equal(attempt, lifecycle.Attempt);
+                Assert.Equal("InvalidOperationException", lifecycle.LastErrorClass);
+                var expectedPoisonEvidence =
+                    attempt == Constants.ConsistencyRecoveryPoisonAttemptCount
+                        ? 1
+                        : 0;
+                Assert.Equal(
+                    expectedPoisonEvidence,
+                    logger.Entries.Count(entry =>
+                        entry.Level == LogLevel.Error
+                        && entry.Message.Contains(
+                            "WorkKind=LifecycleDue",
+                            StringComparison.Ordinal)
+                        && entry.Message.Contains(
+                            "Result=Poison",
+                            StringComparison.Ordinal)));
+                Assert.Equal(
+                    expectedPoisonEvidence,
+                    metrics.Measurements.Count(measurement =>
+                        measurement.Name == "recovery.poison"
+                        && measurement.Value == 1));
+                clock.UtcNow = lifecycle.NextCheckAt;
+            }
+
+            Assert.Equal(
+                poisonAttemptAt.Value.Add(Constants.ConsistencyRecoveryPoisonBackoff),
+                lifecycle.NextCheckAt);
+            Assert.Contains(
+                logger.Entries,
+                entry => entry.Level == LogLevel.Error
+                    && entry.Message.Contains("WorkKind=LifecycleDue", StringComparison.Ordinal)
+                    && entry.Message.Contains("Attempt=10", StringComparison.Ordinal)
+                    && entry.Message.Contains("Result=Poison", StringComparison.Ordinal));
+            Assert.Contains(
+                logger.Entries,
+                entry => entry.Message.Contains("Result=LeaseTakenOver", StringComparison.Ordinal));
+            Assert.Contains(
+                metrics.Measurements,
+                measurement => measurement.Name == "recovery.lease_takeovers"
+                    && measurement.Value == 1);
+            Assert.Single(
+                metrics.Measurements,
+                measurement =>
+                    measurement.Name == "recovery.poison"
+                    && measurement.Value == 1);
+
+            await DeleteRecoverySystemCursorsAsync();
+            await CreateRecoveryService(clock).RecoverAsync(
+                ConsistencyRecoveryPassBudget.Default,
+                CancellationToken.None);
+            Assert.Null(await store.ReadLifecycleAsync(listId, CancellationToken.None));
+        }
+
+        [CosmosFact]
+        public async Task First404CleanupAgeEmitsFifteenMinuteOperationalSignal()
+        {
+            using var metrics = new RecordingMeterListener("youtubed.cosmos.recovery");
+            var clock = CreateClock();
+            var listId = Guid.NewGuid().ToString("D");
+            var store = new CosmosRecoveryStore(
+                Recovery,
+                clock,
+                new CosmosRecoveryOptions());
+            var lifecycle = await store.CreateLifecycleAsync(
+                listId,
+                clock.UtcNow,
+                CancellationToken.None);
+            lifecycle.State = "Cleaning";
+            lifecycle.MissingObservedAt = clock.UtcNow
+                .Subtract(Constants.ConsistencyRecoveryLifecycleCleanupSlo)
+                .AddSeconds(-1);
+            lifecycle.Attempt = 4;
+            lifecycle.LastErrorClass = "PriorFailure";
+            lifecycle.NextCheckAt = clock.UtcNow;
+            await Recovery.ReplaceItemAsync(
+                lifecycle,
+                lifecycle.Id,
+                new PartitionKey(listId),
+                new ItemRequestOptions { IfMatchEtag = lifecycle.ETag });
+            var logger = new RecordingLogger<CosmosConsistencyRecoveryService>();
+
+            await DeleteRecoverySystemCursorsAsync();
+            await CreateRecoveryService(clock, logger: logger).RecoverAsync(
+                ConsistencyRecoveryPassBudget.Default,
+                CancellationToken.None);
+
+            Assert.Contains(
+                metrics.Measurements,
+                measurement => measurement.Name == "recovery.lifecycle.cleanup_age"
+                    && measurement.WorkKind == "LifecycleDue"
+                    && measurement.Value
+                        >= Constants.ConsistencyRecoveryLifecycleCleanupSlo.TotalMilliseconds);
+            Assert.Contains(
+                metrics.Measurements,
+                measurement => measurement.Name == "recovery.lifecycle.cleanup_overdue"
+                    && measurement.WorkKind == "LifecycleDue"
+                    && measurement.Value == 1);
+            Assert.Contains(
+                metrics.Measurements,
+                measurement => measurement.Name == "recovery.lifecycle.overdue_age"
+                    && measurement.Value >= 0);
+            Assert.Contains(
+                logger.Entries,
+                entry => entry.Level == LogLevel.Warning
+                    && entry.Message.Contains("first-404 SLO", StringComparison.Ordinal)
+                    && entry.Message.Contains(listId, StringComparison.Ordinal));
+            Assert.Null(await store.ReadLifecycleAsync(listId, CancellationToken.None));
+        }
+
+        [CosmosFact]
+        public async Task CleanupIsBoundedRestartsOnExternalGenerationAndIncludesEveryActiveState()
+        {
+            var clock = CreateClock();
+            var listId = Guid.NewGuid().ToString("D");
+            var store = new CosmosRecoveryStore(
+                Recovery,
+                clock,
+                new CosmosRecoveryOptions());
+            await store.CreateLifecycleAsync(listId, clock.UtcNow, default);
+            var channelIds = new[]
+            {
+                $"UC-active-candidate-{Guid.NewGuid():N}",
+                $"UC-active-leased-{Guid.NewGuid():N}",
+                $"UC-active-poison-{Guid.NewGuid():N}"
+            };
+            var edges = new List<CosmosRecoveryEdgeDocument>();
+            foreach (var channelId in channelIds)
+            {
+                edges.Add(await store.ActivateCandidateAsync(
+                    listId,
+                    channelId,
+                    "mutation-owner",
+                    default));
+            }
+            var leased = edges[1];
+            leased.State = "Due";
+            leased.Owner = "other-instance";
+            leased.LeaseUntil = clock.UtcNow.AddHours(1);
+            await Recovery.ReplaceItemAsync(
+                leased,
+                leased.Id,
+                new PartitionKey(listId),
+                new ItemRequestOptions { IfMatchEtag = leased.ETag });
+            var poison = edges[2];
+            poison.State = "Poison";
+            poison.Owner = null;
+            poison.LeaseUntil = null;
+            poison.Attempt = Constants.ConsistencyRecoveryPoisonAttemptCount;
+            poison.NextAttemptAt = clock.UtcNow.AddDays(1);
+            await Recovery.ReplaceItemAsync(
+                poison,
+                poison.Id,
+                new PartitionKey(listId),
+                new ItemRequestOptions { IfMatchEtag = poison.ETag });
+
+            var inserted = 0;
+            var insertedChannelId = $"UC-active-new-{Guid.NewGuid():N}";
+            var hooks = new CosmosRecoveryInterleavingHooks
+            {
+                BeforeLifecycleEdgeAsync = async _ =>
+                {
+                    if (Interlocked.Exchange(ref inserted, 1) == 0)
+                    {
+                        await store.ActivateCandidateAsync(
+                            listId,
+                            insertedChannelId,
+                            "external-instance",
+                            default);
+                    }
+                }
+            };
+            await DeleteRecoverySystemCursorsAsync();
+            var first = await CreateRecoveryService(clock, hooks).RecoverAsync(
+                new ConsistencyRecoveryPassBudget(1, 2, 2_000),
+                default);
+            Assert.True(first.HasMoreEligibleWork);
+            var afterRestart = await store.ReadLifecycleAsync(listId, default);
+            Assert.Null(afterRestart.CleanupEdgeAfterChannelId);
+            Assert.Equal(afterRestart.EdgeGeneration, afterRestart.CleanupTraversalEdgeGeneration);
+
+            for (var pass = 0; pass < 12; pass++)
+            {
+                await DeleteRecoverySystemCursorsAsync();
+                await CreateRecoveryService(clock).RecoverAsync(
+                    new ConsistencyRecoveryPassBudget(1, 2, 2_000),
+                    default);
+                if (await store.ReadLifecycleAsync(listId, default) == null)
+                {
+                    break;
+                }
+            }
+
+            Assert.Null(await store.ReadLifecycleAsync(listId, default));
+            foreach (var channelId in channelIds.Append(insertedChannelId))
+            {
+                Assert.Null(await store.ReadEdgeAsync(
+                    listId,
+                    CosmosRecoveryStore.GetEdgeId(channelId),
+                    default));
+            }
+        }
+
+        [CosmosFact]
+        public async Task MoreThan125DistinctFailedAddsRetireTransactionallyWithoutPartitionGrowth()
+        {
+            var clock = CreateClock();
+            var listId = Guid.NewGuid();
+            await CreateListRepository(clock).CreateAsync(CreateList(listId, clock));
+            var listIdText = listId.ToString("D");
+            var store = new CosmosRecoveryStore(
+                Recovery,
+                clock,
+                new CosmosRecoveryOptions());
+            const int distinctFailedAdds = 130;
+            const int failedAddsPerCycle = 25;
+
+            for (var cycleStart = 0;
+                cycleStart < distinctFailedAdds;
+                cycleStart += failedAddsPerCycle)
+            {
+                var cycleEnd = Math.Min(
+                    distinctFailedAdds,
+                    cycleStart + failedAddsPerCycle);
+                for (var index = cycleStart; index < cycleEnd; index++)
+                {
+                    var edge = await store.ActivateCandidateAsync(
+                        listIdText,
+                        $"UC-failed-add-{index:D3}-{Guid.NewGuid():N}",
+                        $"failed-request-{index:D3}",
+                        default);
+                    await store.MarkDueAsync(edge, default);
+                }
+
+                var lifecycle = await store.ReadLifecycleAsync(listIdText, default);
+                Assert.InRange(
+                    lifecycle.ActiveEdgeCount,
+                    1,
+                    Constants.RecoveryMaxActiveEdgesPerList);
+                Assert.InRange(
+                    await CountRecoveryEdgesAsync(listIdText, activeOnly: false),
+                    1,
+                    Constants.RecoveryMaxActiveEdgesPerList);
+
+                for (var pass = 0; pass < 4; pass++)
+                {
+                    await DeleteRecoverySystemCursorsAsync();
+                    await CreateRecoveryService(clock).RecoverAsync(
+                        ConsistencyRecoveryPassBudget.Default,
+                        default);
+                    if (await CountRecoveryEdgesAsync(
+                        listIdText,
+                        activeOnly: false) == 0)
+                    {
+                        break;
+                    }
+                }
+
+                lifecycle = await store.ReadLifecycleAsync(listIdText, default);
+                Assert.Equal(0, lifecycle.ActiveEdgeCount);
+                Assert.Equal(0, await CountRecoveryEdgesAsync(
+                    listIdText,
+                    activeOnly: true));
+                Assert.Equal(0, await CountRecoveryEdgesAsync(
+                    listIdText,
+                    activeOnly: false));
+            }
+        }
+
+        [CosmosFact]
+        public async Task CleanupInstanceCannotEraseConcurrentRepositoryInstanceReadd()
+        {
+            var clock = CreateClock();
+            var listId = Guid.NewGuid();
+            var channelId = $"UC-genuine-readd-{Guid.NewGuid():N}";
+            await SeedChannelAsync(channelId, clock);
+            var initialRepository = CreateListRepository(clock);
+            await initialRepository.CreateAsync(CreateList(listId, clock));
+            await initialRepository.AddChannelAsync(listId, channelId);
+            await Lists.DeleteItemAsync<CosmosListDocument>(
+                listId.ToString("D"),
+                new PartitionKey(listId.ToString("D")));
+            var lifecycle = await ReadLifecycleAsync(listId);
+            lifecycle.NextCheckAt = clock.UtcNow;
+            await Recovery.ReplaceItemAsync(
+                lifecycle,
+                lifecycle.Id,
+                new PartitionKey(lifecycle.ListId),
+                new ItemRequestOptions { IfMatchEtag = lifecycle.ETag });
+
+            var cleanupReachedStaleRepair =
+                new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var allowCleanup =
+                new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var hooks = new CosmosRecoveryInterleavingHooks
+            {
+                BeforeLifecycleEdgeAsync = async edge =>
+                {
+                    if (edge.ChannelId == channelId)
+                    {
+                        cleanupReachedStaleRepair.TrySetResult();
+                        await allowCleanup.Task;
+                    }
+                }
+            };
+            await DeleteRecoverySystemCursorsAsync();
+            var cleanupInstance = CreateRecoveryService(clock, hooks);
+            var cleanup = cleanupInstance.RecoverAsync(
+                ConsistencyRecoveryPassBudget.Default,
+                default);
+            await cleanupReachedStaleRepair.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+            var repositoryInstance = CreateListRepository(clock);
+            await repositoryInstance.CreateAsync(CreateList(listId, clock));
+            await repositoryInstance.AddChannelAsync(listId, channelId);
+            allowCleanup.SetResult();
+            await cleanup;
+
+            var list = await ReadListAsync(listId);
+            var channel = await ReadChannelAsync(channelId);
+            lifecycle = await ReadLifecycleAsync(listId);
+            var edge = await ReadEdgeAsync(listId, channelId);
+            Assert.Contains(list.Channels, projected => projected.Id == channelId);
+            Assert.Contains(listId.ToString("D"), channel.SubscribedListIds);
+            Assert.Equal(1, channel.SubscriptionCount);
+            Assert.Null(channel.OrphanedAfter);
+            Assert.Equal(-1, channel.Ttl);
+            Assert.Equal("Active", lifecycle.State);
+            Assert.Equal(1, lifecycle.ActiveEdgeCount);
+            Assert.Equal("Tracked", edge.State);
+            Assert.Null(edge.Owner);
+            Assert.Null(edge.LeaseUntil);
+            Assert.False(list.MembershipRecoveryPending);
+        }
+
+        [CosmosFact]
+        public async Task CounterDriftBlocksCompletionEmitsPoisonEvidenceAndRecountsPartition()
+        {
+            var clock = CreateClock();
+            var listId = Guid.NewGuid().ToString("D");
+            var store = new CosmosRecoveryStore(
+                Recovery,
+                clock,
+                new CosmosRecoveryOptions());
+            var lifecycle = await store.CreateLifecycleAsync(listId, clock.UtcNow, default);
+            lifecycle.ActiveEdgeCount = 1;
+            lifecycle.NextCheckAt = clock.UtcNow;
+            await Recovery.ReplaceItemAsync(
+                lifecycle,
+                lifecycle.Id,
+                new PartitionKey(listId),
+                new ItemRequestOptions { IfMatchEtag = lifecycle.ETag });
+            var logger = new RecordingLogger<CosmosConsistencyRecoveryService>();
+
+            await DeleteRecoverySystemCursorsAsync();
+            await CreateRecoveryService(clock, logger: logger).RecoverAsync(
+                ConsistencyRecoveryPassBudget.Default,
+                default);
+            lifecycle = await store.ReadLifecycleAsync(listId, default);
+            Assert.Equal(0, lifecycle.ActiveEdgeCount);
+            Assert.Equal(1, lifecycle.EdgeGeneration);
+            Assert.Equal(Constants.ConsistencyRecoveryPoisonAttemptCount, lifecycle.Attempt);
+            Assert.Equal("ActiveEdgeCountDrift", lifecycle.LastErrorClass);
+            Assert.Contains(
+                logger.Entries,
+                entry => entry.Level == LogLevel.Error
+                    && entry.Message.Contains("Result=Recounted", StringComparison.Ordinal));
+
+            await DeleteRecoverySystemCursorsAsync();
+            await CreateRecoveryService(clock).RecoverAsync(
+                ConsistencyRecoveryPassBudget.Default,
+                default);
+            Assert.Null(await store.ReadLifecycleAsync(listId, default));
+        }
+
+        [CosmosFact]
         public async Task FirstMutationBootstrapsLegacyLifecycleAndAllExistingMembershipEdges()
         {
             var clock = CreateClock();
@@ -913,6 +1655,36 @@ namespace youtubed.Tests.Integration
                 new PartitionKey(listId))).Resource;
             Assert.Equal(Constants.RecoveryMaxActiveEdgesPerList, lifecycle.ActiveEdgeCount);
             Assert.Equal(Constants.RecoveryMaxActiveEdgesPerList, lifecycle.EdgeGeneration);
+
+            var retiredEdge = await store.ReadEdgeAsync(
+                listId,
+                CosmosRecoveryStore.GetEdgeId("UC-cap-000"),
+                CancellationToken.None);
+            var retirement = await store.RetireEdgeAsync(
+                retiredEdge,
+                lifecycle,
+                0,
+                null,
+                null,
+                CancellationToken.None);
+            Assert.True(retirement.Retired);
+            await store.ActivateCandidateAsync(
+                listId,
+                "UC-cap-replacement",
+                "capacity-test",
+                CancellationToken.None);
+            var edgeCountQuery = new QueryDefinition(
+                "SELECT VALUE COUNT(1) FROM c WHERE c.kind = \"Edge\"");
+            using var edgeCountIterator = Recovery.GetItemQueryIterator<int>(
+                edgeCountQuery,
+                requestOptions: new QueryRequestOptions
+                {
+                    PartitionKey = new PartitionKey(listId),
+                    MaxItemCount = 1
+                });
+            Assert.Equal(
+                Constants.RecoveryMaxActiveEdgesPerList,
+                (await edgeCountIterator.ReadNextAsync()).Single());
         }
 
         [CosmosFact]
@@ -1769,10 +2541,64 @@ namespace youtubed.Tests.Integration
             }
         }
 
+        private async Task<int> CountRecoveryEdgesAsync(
+            string listId,
+            bool activeOnly)
+        {
+            var query = new QueryDefinition(
+                "SELECT VALUE COUNT(1) FROM c WHERE c.kind = \"Edge\""
+                + (activeOnly ? " AND c.active = true" : string.Empty));
+            using var iterator = Recovery.GetItemQueryIterator<int>(
+                query,
+                requestOptions: new QueryRequestOptions
+                {
+                    PartitionKey = new PartitionKey(listId),
+                    MaxItemCount = 1
+                });
+            return (await iterator.ReadNextAsync()).Single();
+        }
+
         private async Task SeedChannelAsync(string channelId, FakeAppClock clock)
         {
             var document = CreateChannelDocument(channelId, clock);
             await Channels.CreateItemAsync(document, new PartitionKey(channelId));
+        }
+
+        private async Task SeedLegacyListWithReverseReferencesAsync(
+            Guid listId,
+            IReadOnlyList<string> channelIds,
+            FakeAppClock clock)
+        {
+            foreach (var channelId in channelIds)
+            {
+                await SeedChannelAsync(channelId, clock);
+                var channel = await ReadChannelAsync(channelId);
+                channel.SubscribedListIds = new[] { listId.ToString("D") };
+                channel.SubscriptionCount = 1;
+                channel.OrphanedAfter = null;
+                channel.Ttl = -1;
+                await Channels.ReplaceItemAsync(
+                    channel,
+                    channel.Id,
+                    new PartitionKey(channel.Id),
+                    new ItemRequestOptions { IfMatchEtag = channel.ETag });
+            }
+
+            var list = CreateListDocument(
+                listId,
+                clock,
+                channelIds[0],
+                membershipVersion: channelIds.Count,
+                pending: false);
+            list.Channels = channelIds.Select(channelId =>
+                new CosmosProjectedChannelDocument
+                {
+                    Id = channelId,
+                    Status = ChannelStatus.Active.ToString(),
+                    StatusReason = ChannelStatusReason.None.ToString(),
+                    Videos = Array.Empty<CosmosVideoDocument>()
+                }).ToArray();
+            await Lists.CreateItemAsync(list, new PartitionKey(list.Id));
         }
 
         private static CosmosChannelDocument CreateChannelDocument(
@@ -1866,14 +2692,15 @@ namespace youtubed.Tests.Integration
         private CosmosConsistencyRecoveryService CreateRecoveryService(
             FakeAppClock clock,
             CosmosRecoveryInterleavingHooks hooks = null,
-            ILogger<CosmosConsistencyRecoveryService> logger = null)
+            ILogger<CosmosConsistencyRecoveryService> logger = null,
+            CosmosRecoveryOptions options = null)
         {
             return new CosmosConsistencyRecoveryService(
                 Lists,
                 Channels,
                 Recovery,
                 clock,
-                new CosmosRecoveryOptions(),
+                options ?? new CosmosRecoveryOptions(),
                 logger ?? NullLogger<CosmosConsistencyRecoveryService>.Instance,
                 hooks);
         }
@@ -1930,6 +2757,19 @@ namespace youtubed.Tests.Integration
                 new PartitionKey(listId.ToString("D")))).Resource;
         }
 
+        private async Task<CosmosRecoveryLifecycleDocument> TryReadLifecycleAsync(Guid listId)
+        {
+            try
+            {
+                return await ReadLifecycleAsync(listId);
+            }
+            catch (CosmosException exception) when (
+                exception.StatusCode == HttpStatusCode.NotFound)
+            {
+                return null;
+            }
+        }
+
         private async Task<CosmosRecoveryEdgeDocument> ReadEdgeAsync(
             Guid listId,
             string channelId)
@@ -1952,6 +2792,30 @@ namespace youtubed.Tests.Integration
             {
                 return null;
             }
+        }
+
+        private static async Task WaitForNotFoundAsync(
+            Container container,
+            string id,
+            TimeSpan timeout)
+        {
+            var deadline = DateTimeOffset.UtcNow.Add(timeout);
+            while (DateTimeOffset.UtcNow < deadline)
+            {
+                try
+                {
+                    await container.ReadItemAsync<object>(id, new PartitionKey(id));
+                }
+                catch (CosmosException exception) when (
+                    exception.StatusCode == HttpStatusCode.NotFound)
+                {
+                    return;
+                }
+                await Task.Delay(TimeSpan.FromMilliseconds(250));
+            }
+
+            throw new TimeoutException(
+                $"Cosmos item '{id}' was not physically deleted within {timeout}.");
         }
 
         private static async Task<Exception> CaptureAsync(Func<Task> operation)

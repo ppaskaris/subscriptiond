@@ -87,6 +87,16 @@ namespace youtubed.Persistence.Cosmos
                     cancellationToken);
                 lifecycle.ExpiredAfter = expiredAfter;
                 lifecycle.NextCheckAt = expiredAfter;
+                lifecycle.NextAttemptAt = expiredAfter;
+                lifecycle.State = "Active";
+                lifecycle.CleanupEdgeAfterChannelId = null;
+                lifecycle.CleanupEdgeAfterId = null;
+                lifecycle.CleanupTraversalEdgeGeneration = null;
+                lifecycle.MissingObservedAt = null;
+                lifecycle.Owner = null;
+                lifecycle.LeaseUntil = null;
+                lifecycle.Attempt = 0;
+                lifecycle.LastErrorClass = null;
                 try
                 {
                     await ReplaceLifecycleAsync(lifecycle, cancellationToken);
@@ -102,6 +112,111 @@ namespace youtubed.Persistence.Cosmos
                         retry: true);
                 }
             }
+        }
+
+        internal async Task<CosmosRecoveryLifecycleDocument> MarkDeletingAsync(
+            string listId,
+            DateTimeOffset? expiredAfter,
+            CancellationToken cancellationToken)
+        {
+            for (var attempt = 0; attempt < MaxWriteAttempts; attempt++)
+            {
+                var lifecycle = await ReadLifecycleAsync(listId, cancellationToken);
+                if (lifecycle == null)
+                {
+                    if (!expiredAfter.HasValue)
+                    {
+                        return null;
+                    }
+
+                    lifecycle = await CreateLifecycleAsync(
+                        listId,
+                        expiredAfter.Value,
+                        cancellationToken);
+                }
+
+                if (expiredAfter.HasValue)
+                {
+                    lifecycle.ExpiredAfter = expiredAfter.Value;
+                }
+                lifecycle.State = "Deleting";
+                lifecycle.NextCheckAt = _clock.UtcNow;
+                lifecycle.NextAttemptAt = _clock.UtcNow;
+                lifecycle.MissingObservedAt = null;
+                lifecycle.CleanupEdgeAfterChannelId = null;
+                lifecycle.CleanupEdgeAfterId = null;
+                lifecycle.CleanupTraversalEdgeGeneration = null;
+                lifecycle.Owner = null;
+                lifecycle.LeaseUntil = null;
+                lifecycle.Attempt = 0;
+                lifecycle.LastErrorClass = null;
+                try
+                {
+                    return (await ReplaceLifecycleAsync(lifecycle, cancellationToken)).Resource;
+                }
+                catch (CosmosException exception) when (
+                    exception.StatusCode == HttpStatusCode.PreconditionFailed
+                    && attempt + 1 < MaxWriteAttempts)
+                {
+                    CosmosRecoveryTelemetry.RecordConflict(
+                        "RecoveryStore",
+                        "MarkDeleting",
+                        retry: true);
+                }
+            }
+
+            throw new CosmosRecoveryConflictException(
+                $"Recovery lifecycle '{listId}' deletion state conflicted twice.");
+        }
+
+        internal async Task<CosmosRecoveryLifecycleDocument> ReschedulePresentLifecycleAsync(
+            CosmosRecoveryLifecycleDocument lifecycle,
+            DateTimeOffset expiredAfter,
+            CancellationToken cancellationToken)
+        {
+            var expectedOwner = lifecycle.Owner;
+            for (var attempt = 0; attempt < MaxWriteAttempts; attempt++)
+            {
+                lifecycle.State = "Active";
+                lifecycle.ExpiredAfter = expiredAfter;
+                lifecycle.NextCheckAt = expiredAfter > _clock.UtcNow
+                    ? expiredAfter
+                    : _clock.UtcNow.Add(Constants.ConsistencyRecoveryLifecycleRecheckInterval);
+                lifecycle.NextAttemptAt = lifecycle.NextCheckAt;
+                lifecycle.CleanupEdgeAfterChannelId = null;
+                lifecycle.CleanupEdgeAfterId = null;
+                lifecycle.CleanupTraversalEdgeGeneration = null;
+                lifecycle.MissingObservedAt = null;
+                lifecycle.Owner = null;
+                lifecycle.LeaseUntil = null;
+                lifecycle.Attempt = 0;
+                lifecycle.LastErrorClass = null;
+                try
+                {
+                    return (await ReplaceLifecycleAsync(lifecycle, cancellationToken)).Resource;
+                }
+                catch (CosmosException exception) when (
+                    exception.StatusCode == HttpStatusCode.PreconditionFailed
+                    && attempt + 1 < MaxWriteAttempts)
+                {
+                    CosmosRecoveryTelemetry.RecordConflict(
+                        "RecoveryStore",
+                        "RescheduleLifecycle",
+                        retry: true);
+                    var latest = await ReadLifecycleAsync(lifecycle.ListId, cancellationToken);
+                    if (latest == null
+                        || !string.Equals(latest.Owner, expectedOwner, StringComparison.Ordinal))
+                    {
+                        throw new CosmosRecoveryConflictException(
+                            $"Recovery lifecycle '{lifecycle.ListId}' changed before rescheduling.");
+                    }
+
+                    lifecycle = latest;
+                }
+            }
+
+            throw new CosmosRecoveryConflictException(
+                $"Recovery lifecycle '{lifecycle.ListId}' rescheduling conflicted twice.");
         }
 
         internal async Task<CosmosRecoveryEdgeDocument> ActivateCandidateAsync(
@@ -335,11 +450,14 @@ namespace youtubed.Persistence.Cosmos
                     return null;
                 }
 
+                var leaseTakenOver = !string.IsNullOrWhiteSpace(lifecycle.Owner)
+                    && !string.Equals(lifecycle.Owner, owner, StringComparison.Ordinal);
                 lifecycle.Owner = owner;
                 lifecycle.LeaseUntil = now.Add(_options.LeaseDuration);
                 try
                 {
                     var response = await ReplaceLifecycleAsync(lifecycle, cancellationToken);
+                    response.Resource.LeaseTakenOver = leaseTakenOver;
                     return response.Resource;
                 }
                 catch (CosmosException exception) when (
@@ -406,6 +524,51 @@ namespace youtubed.Persistence.Cosmos
             return null;
         }
 
+        internal async Task<CosmosRecoveryLifecycleDocument> MarkMissingAsync(
+            CosmosRecoveryLifecycleDocument lifecycle,
+            CancellationToken cancellationToken)
+        {
+            var expectedOwner = lifecycle.Owner;
+            for (var attempt = 0; attempt < MaxWriteAttempts; attempt++)
+            {
+                lifecycle.State = "Cleaning";
+                var firstMissingObservation = !lifecycle.MissingObservedAt.HasValue;
+                lifecycle.MissingObservedAt ??= _clock.UtcNow;
+                lifecycle.NextCheckAt = _clock.UtcNow;
+                lifecycle.NextAttemptAt = _clock.UtcNow;
+                if (firstMissingObservation)
+                {
+                    lifecycle.Attempt = 0;
+                    lifecycle.LastErrorClass = null;
+                }
+                try
+                {
+                    return (await ReplaceLifecycleAsync(lifecycle, cancellationToken)).Resource;
+                }
+                catch (CosmosException exception) when (
+                    exception.StatusCode == HttpStatusCode.PreconditionFailed
+                    && attempt + 1 < MaxWriteAttempts)
+                {
+                    CosmosRecoveryTelemetry.RecordConflict(
+                        "RecoveryStore",
+                        "MarkMissing",
+                        retry: true);
+                    var latest = await ReadLifecycleAsync(lifecycle.ListId, cancellationToken);
+                    if (latest == null
+                        || !string.Equals(latest.Owner, expectedOwner, StringComparison.Ordinal))
+                    {
+                        throw new CosmosRecoveryConflictException(
+                            $"Recovery lifecycle '{lifecycle.ListId}' changed before its 404 observation was recorded.");
+                    }
+
+                    lifecycle = latest;
+                }
+            }
+
+            throw new CosmosRecoveryConflictException(
+                $"Recovery lifecycle '{lifecycle.ListId}' 404 observation conflicted twice.");
+        }
+
         internal async Task<CosmosRecoveryLifecycleDocument> SaveMembershipCheckpointAsync(
             CosmosRecoveryLifecycleDocument lifecycle,
             long membershipVersion,
@@ -461,6 +624,58 @@ namespace youtubed.Persistence.Cosmos
                 $"Recovery lifecycle '{lifecycle.ListId}' checkpoint conflicted twice.");
         }
 
+        internal async Task<CosmosRecoveryLifecycleDocument> SaveCleanupCheckpointAsync(
+            CosmosRecoveryLifecycleDocument lifecycle,
+            long traversalGeneration,
+            string afterChannelId,
+            string afterId,
+            bool releaseLease,
+            CancellationToken cancellationToken)
+        {
+            var expectedOwner = lifecycle.Owner;
+            for (var attempt = 0; attempt < MaxWriteAttempts; attempt++)
+            {
+                lifecycle.CleanupTraversalEdgeGeneration = traversalGeneration;
+                lifecycle.CleanupEdgeAfterChannelId = afterChannelId;
+                lifecycle.CleanupEdgeAfterId = afterId;
+                lifecycle.NextCheckAt = _clock.UtcNow;
+                lifecycle.NextAttemptAt = _clock.UtcNow;
+                if (releaseLease)
+                {
+                    lifecycle.Owner = null;
+                    lifecycle.LeaseUntil = null;
+                }
+
+                EnsureBounded(lifecycle);
+                try
+                {
+                    return (await ReplaceLifecycleAsync(lifecycle, cancellationToken)).Resource;
+                }
+                catch (CosmosException exception) when (
+                    exception.StatusCode == HttpStatusCode.PreconditionFailed
+                    && attempt + 1 < MaxWriteAttempts)
+                {
+                    CosmosRecoveryTelemetry.RecordConflict(
+                        "RecoveryStore",
+                        "CleanupCheckpoint",
+                        retry: true);
+                    var latest = await ReadLifecycleAsync(lifecycle.ListId, cancellationToken);
+                    if (latest == null
+                        || latest.EdgeGeneration != traversalGeneration
+                        || !string.Equals(latest.Owner, expectedOwner, StringComparison.Ordinal))
+                    {
+                        throw new CosmosRecoveryConflictException(
+                            $"Recovery lifecycle '{lifecycle.ListId}' changed before cleanup checkpoint.");
+                    }
+
+                    lifecycle = latest;
+                }
+            }
+
+            throw new CosmosRecoveryConflictException(
+                $"Recovery lifecycle '{lifecycle.ListId}' cleanup checkpoint conflicted twice.");
+        }
+
         internal async Task<(bool Retired, long EdgeGeneration)> RetireEdgeAsync(
             CosmosRecoveryEdgeDocument edge,
             CosmosRecoveryLifecycleDocument lifecycle,
@@ -469,6 +684,7 @@ namespace youtubed.Persistence.Cosmos
             string afterId,
             CancellationToken cancellationToken,
             bool adoptMembershipCheckpoint = false,
+            bool adoptCleanupCheckpoint = false,
             Func<CancellationToken, Task<bool>> revalidateAuthoritativeAbsenceAsync = null)
         {
             var expectedEdgeGeneration = edge.Generation;
@@ -491,6 +707,14 @@ namespace youtubed.Persistence.Cosmos
                     lifecycle.MembershipTraversalEdgeGeneration = lifecycle.EdgeGeneration;
                     lifecycle.MembershipEdgeAfterChannelId = afterChannelId;
                     lifecycle.MembershipEdgeAfterId = afterId;
+                }
+                if (adoptCleanupCheckpoint)
+                {
+                    lifecycle.CleanupTraversalEdgeGeneration = lifecycle.EdgeGeneration;
+                    lifecycle.CleanupEdgeAfterChannelId = afterChannelId;
+                    lifecycle.CleanupEdgeAfterId = afterId;
+                    lifecycle.NextCheckAt = _clock.UtcNow;
+                    lifecycle.NextAttemptAt = _clock.UtcNow;
                 }
                 EnsureBounded(lifecycle);
 
@@ -680,6 +904,182 @@ namespace youtubed.Persistence.Cosmos
             return results;
         }
 
+        internal async Task<CosmosRecoveryEdgeDocument> QueryFirstActiveEdgeAsync(
+            string listId,
+            CancellationToken cancellationToken)
+        {
+            var edges = await QueryMembershipEdgesAsync(
+                listId,
+                null,
+                null,
+                1,
+                cancellationToken);
+            return edges.FirstOrDefault();
+        }
+
+        internal async Task<int> CountActiveEdgesAsync(
+            string listId,
+            CancellationToken cancellationToken)
+        {
+            var query = new QueryDefinition(
+                    "SELECT VALUE COUNT(1) FROM c WHERE c.kind = \"Edge\" AND c.active = true")
+                ;
+            using var iterator = _recovery.GetItemQueryIterator<int>(
+                query,
+                requestOptions: new QueryRequestOptions
+                {
+                    PartitionKey = new PartitionKey(listId),
+                    MaxItemCount = 1
+                });
+            return iterator.HasMoreResults
+                ? (await iterator.ReadNextAsync(cancellationToken)).Single()
+                : 0;
+        }
+
+        internal async Task<CosmosRecoveryLifecycleDocument> CorrectActiveEdgeCountAsync(
+            CosmosRecoveryLifecycleDocument lifecycle,
+            int activeEdgeCount,
+            CancellationToken cancellationToken)
+        {
+            if (activeEdgeCount < 0 || activeEdgeCount > _options.MaxActiveEdgesPerList)
+            {
+                throw new InvalidOperationException(
+                    $"Recovery lifecycle '{lifecycle.ListId}' recount exceeded the supported edge bound.");
+            }
+
+            var expectedGeneration = lifecycle.EdgeGeneration;
+            var expectedOwner = lifecycle.Owner;
+            for (var attempt = 0; attempt < MaxWriteAttempts; attempt++)
+            {
+                lifecycle.ActiveEdgeCount = activeEdgeCount;
+                lifecycle.EdgeGeneration = expectedGeneration + 1;
+                lifecycle.CleanupTraversalEdgeGeneration = null;
+                lifecycle.CleanupEdgeAfterChannelId = null;
+                lifecycle.CleanupEdgeAfterId = null;
+                lifecycle.Attempt = Math.Max(
+                    lifecycle.Attempt,
+                    _options.PoisonAttemptCount);
+                lifecycle.LastErrorClass = "ActiveEdgeCountDrift";
+                lifecycle.NextCheckAt = _clock.UtcNow;
+                lifecycle.NextAttemptAt = _clock.UtcNow;
+                lifecycle.Owner = null;
+                lifecycle.LeaseUntil = null;
+                try
+                {
+                    return (await ReplaceLifecycleAsync(
+                        lifecycle,
+                        cancellationToken)).Resource;
+                }
+                catch (CosmosException exception) when (
+                    exception.StatusCode == HttpStatusCode.PreconditionFailed
+                    && attempt + 1 < MaxWriteAttempts)
+                {
+                    CosmosRecoveryTelemetry.RecordConflict(
+                        "RecoveryStore",
+                        "CorrectActiveEdgeCount",
+                        retry: true);
+                    var latest = await ReadLifecycleAsync(
+                        lifecycle.ListId,
+                        cancellationToken);
+                    if (latest == null
+                        || latest.EdgeGeneration != expectedGeneration
+                        || !string.Equals(
+                            latest.Owner,
+                            expectedOwner,
+                            StringComparison.Ordinal))
+                    {
+                        throw new CosmosRecoveryConflictException(
+                            $"Recovery lifecycle '{lifecycle.ListId}' changed during bounded recount.");
+                    }
+
+                    lifecycle = latest;
+                }
+            }
+
+            throw new CosmosRecoveryConflictException(
+                $"Recovery lifecycle '{lifecycle.ListId}' recount conflicted twice.");
+        }
+
+        internal async Task<bool> DeleteLifecycleAsync(
+            CosmosRecoveryLifecycleDocument lifecycle,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                await _recovery.DeleteItemAsync<CosmosRecoveryLifecycleDocument>(
+                    lifecycle.Id,
+                    new PartitionKey(lifecycle.ListId),
+                    new ItemRequestOptions { IfMatchEtag = lifecycle.ETag },
+                    cancellationToken);
+                return true;
+            }
+            catch (CosmosException exception) when (
+                exception.StatusCode is HttpStatusCode.NotFound
+                    or HttpStatusCode.PreconditionFailed)
+            {
+                if (exception.StatusCode == HttpStatusCode.PreconditionFailed)
+                {
+                    CosmosRecoveryTelemetry.RecordConflict(
+                        "RecoveryStore",
+                        "CompleteLifecycle",
+                        retry: false);
+                }
+                return exception.StatusCode == HttpStatusCode.NotFound;
+            }
+        }
+
+        internal async Task FailLifecycleAsync(
+            CosmosRecoveryLifecycleDocument lifecycle,
+            Exception exception,
+            CancellationToken cancellationToken)
+        {
+            var expectedOwner = lifecycle.Owner;
+            for (var attempt = 0; attempt < MaxWriteAttempts; attempt++)
+            {
+                lifecycle.Attempt++;
+                lifecycle.Owner = null;
+                lifecycle.LeaseUntil = null;
+                lifecycle.LastErrorClass = exception.GetType().Name;
+                lifecycle.NextCheckAt = lifecycle.Attempt >= _options.PoisonAttemptCount
+                    ? _clock.UtcNow.Add(Constants.ConsistencyRecoveryPoisonBackoff)
+                    : _clock.UtcNow.Add(GetBackoff(lifecycle.Attempt));
+                lifecycle.NextAttemptAt = lifecycle.NextCheckAt;
+                try
+                {
+                    await ReplaceLifecycleAsync(lifecycle, cancellationToken);
+                    return;
+                }
+                catch (CosmosException cosmosException) when (
+                    cosmosException.StatusCode == HttpStatusCode.NotFound)
+                {
+                    return;
+                }
+                catch (CosmosException cosmosException) when (
+                    cosmosException.StatusCode == HttpStatusCode.PreconditionFailed
+                    && attempt + 1 < MaxWriteAttempts)
+                {
+                    CosmosRecoveryTelemetry.RecordConflict(
+                        "RecoveryStore",
+                        "FailLifecycle",
+                        retry: true);
+                    var latest = await ReadLifecycleAsync(lifecycle.ListId, cancellationToken);
+                    if (latest == null)
+                    {
+                        return;
+                    }
+                    if (!string.Equals(latest.Owner, expectedOwner, StringComparison.Ordinal))
+                    {
+                        throw new CosmosRecoveryConflictException(
+                            $"Recovery lifecycle '{lifecycle.ListId}' changed owner before failure persistence.");
+                    }
+                    lifecycle = latest;
+                }
+            }
+
+            throw new CosmosRecoveryConflictException(
+                $"Recovery lifecycle '{lifecycle.ListId}' failure persistence conflicted twice.");
+        }
+
         internal async Task<CosmosRecoveryLifecycleDocument> ReadLifecycleAsync(
             string listId,
             CancellationToken cancellationToken)
@@ -738,6 +1138,17 @@ namespace youtubed.Persistence.Cosmos
                 throw new InvalidOperationException(
                     $"Recovery document exceeds the {_options.RecoveryDocumentSizeCeilingBytes}-byte ceiling.");
             }
+        }
+
+        private TimeSpan GetBackoff(int attempt)
+        {
+            var exponent = Math.Min(Math.Max(0, attempt - 1), 6);
+            var max = TimeSpan.FromTicks(Math.Min(
+                Constants.ConsistencyRecoveryMaxBackoff.Ticks,
+                Constants.ConsistencyRecoveryMinBackoff.Ticks * (1L << exponent)));
+            return max <= Constants.ConsistencyRecoveryMinBackoff
+                ? Constants.ConsistencyRecoveryMinBackoff
+                : _clock.RandomDelay(Constants.ConsistencyRecoveryMinBackoff, max);
         }
 
         private static CosmosException CreateBatchException(

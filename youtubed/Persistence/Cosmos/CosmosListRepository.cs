@@ -352,6 +352,90 @@ namespace youtubed.Persistence.Cosmos
         public async Task DeleteAsync(Guid id)
         {
             var documentId = id.ToString("D");
+            if (_recoveryStore == null)
+            {
+                await DeleteWithoutRecoveryAsync(id);
+                return;
+            }
+
+            for (var attempt = 0; attempt < MaxWriteAttempts; attempt++)
+            {
+                var document = await ReadListAsync(id);
+                if (document == null)
+                {
+                    await _recoveryStore.MarkDeletingAsync(
+                        documentId,
+                        null,
+                        CancellationToken.None);
+                    await ForceRecoveryAsync();
+                    return;
+                }
+
+                await _recoveryStore.MarkDeletingAsync(
+                    documentId,
+                    document.ExpiredAfter,
+                    CancellationToken.None);
+                if (_interleavingHooks?.AfterLifecycleSideEffectAsync != null)
+                {
+                    await _interleavingHooks.AfterLifecycleSideEffectAsync(
+                        documentId,
+                        "Deleting");
+                }
+
+                await EnsureLifecycleForExistingListAsync(
+                    document,
+                    reportLifecycleSideEffects: true);
+                try
+                {
+                    await _lists.DeleteItemAsync<CosmosListDocument>(
+                        documentId,
+                        new PartitionKey(documentId),
+                        new ItemRequestOptions { IfMatchEtag = document.ETag });
+                    if (_interleavingHooks?.AfterLifecycleSideEffectAsync != null)
+                    {
+                        await _interleavingHooks.AfterLifecycleSideEffectAsync(
+                            documentId,
+                            "ListDeleted");
+                    }
+                    foreach (var channelId in document.Channels
+                        .Where(channel => channel != null)
+                        .Select(channel => channel.Id)
+                        .Distinct(StringComparer.Ordinal))
+                    {
+                        await _channelRepository.RepairSubscriptionFromListTruthAsync(
+                            channelId,
+                            id,
+                            CancellationToken.None);
+                        if (_interleavingHooks?.AfterLifecycleSideEffectAsync != null)
+                        {
+                            await _interleavingHooks.AfterLifecycleSideEffectAsync(
+                                documentId,
+                                $"ChannelRepaired:{channelId}");
+                        }
+                    }
+                    await ForceRecoveryAsync();
+                    return;
+                }
+                catch (CosmosException exception) when (
+                    exception.StatusCode == HttpStatusCode.PreconditionFailed
+                    && attempt + 1 < MaxWriteAttempts)
+                {
+                    CosmosRecoveryTelemetry.RecordConflict(
+                        "ListRepository",
+                        "ReplaceList",
+                        retry: true);
+                }
+                catch (CosmosException exception) when (exception.StatusCode == HttpStatusCode.NotFound)
+                {
+                    await ForceRecoveryAsync();
+                    return;
+                }
+            }
+        }
+
+        private async Task DeleteWithoutRecoveryAsync(Guid id)
+        {
+            var documentId = id.ToString("D");
             CosmosListDocument deletedDocument = null;
             for (var attempt = 0; attempt < MaxWriteAttempts; attempt++)
             {
@@ -376,23 +460,21 @@ namespace youtubed.Persistence.Cosmos
                 {
                     CosmosRecoveryTelemetry.RecordConflict(
                         "ListRepository",
-                        "ReplaceList",
+                        "DeleteList",
                         retry: true);
                 }
-                catch (CosmosException exception) when (exception.StatusCode == HttpStatusCode.NotFound)
+                catch (CosmosException exception) when (
+                    exception.StatusCode == HttpStatusCode.NotFound)
                 {
                     return;
                 }
             }
 
-            if (deletedDocument != null)
+            foreach (var channelId in deletedDocument?.Channels
+                .Select(channel => channel.Id)
+                .Distinct(StringComparer.Ordinal) ?? Enumerable.Empty<string>())
             {
-                foreach (var channelId in deletedDocument.Channels
-                    .Select(channel => channel.Id)
-                    .Distinct(StringComparer.Ordinal))
-                {
-                    await _channelRepository.UpdateSubscriptionAsync(channelId, id);
-                }
+                await _channelRepository.UpdateSubscriptionAsync(channelId, id);
             }
         }
 
@@ -578,7 +660,8 @@ namespace youtubed.Persistence.Cosmos
         }
 
         private async Task EnsureLifecycleForExistingListAsync(
-            CosmosListDocument list)
+            CosmosListDocument list,
+            bool reportLifecycleSideEffects = false)
         {
             var lifecycle = await _recoveryStore.ReadLifecycleAsync(
                 list.Id,
@@ -617,6 +700,13 @@ namespace youtubed.Persistence.Cosmos
                     edge,
                     list.MembershipVersion,
                     CancellationToken.None);
+                if (reportLifecycleSideEffects
+                    && _interleavingHooks?.AfterLifecycleSideEffectAsync != null)
+                {
+                    await _interleavingHooks.AfterLifecycleSideEffectAsync(
+                        list.Id,
+                        $"EdgeSeeded:{channel.Id}");
+                }
             }
         }
 

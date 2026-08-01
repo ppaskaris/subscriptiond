@@ -327,6 +327,7 @@ Lifecycle records are point-addressable as `(id = "lifecycle", listId)`:
   "cleanupEdgeAfterChannelId": null,
   "cleanupEdgeAfterId": null,
   "cleanupTraversalEdgeGeneration": null,
+  "missingObservedAt": null,
   "owner": null,
   "leaseUntil": null,
   "attempt": 0,
@@ -386,6 +387,27 @@ unexpected/external generation change restarts from the beginning. Cleanup may
 complete only after `activeEdgeCount == 0`, a fresh from-start active-edge query
 is empty, and a conditional lifecycle update succeeds. Leased/poison/new
 candidates therefore cannot be skipped.
+
+`missingObservedAt` is set exactly once when a lifecycle point read first sees
+the list's 404. It anchors cleanup-latency metrics and the 15-minute alert; it is
+cleared whenever a current list is observed. Successful completion conditionally
+deletes the lifecycle document itself. Because edge creation conditionally
+updates that same lifecycle item, completion cannot race past a new or
+reactivated edge.
+
+The first 404 also starts one durable cleanup failure episode. Reobserving the
+same missing list preserves `attempt`, `lastErrorClass`, and the original
+`missingObservedAt`; it does not reset backoff. Only observing a present list or
+starting a genuinely new missing episode clears those fields. This lets a
+persistent cleanup failure reach attempt ten, emit poison evidence, and retry
+daily while keeping its SLO age anchored to the first 404.
+
+Explicit deletion marks the lifecycle `Deleting`, sets `nextCheckAt` due, and
+seeds/verifies every current membership edge before the list's ETag-conditional
+delete. The request still attempts immediate reverse-reference repair for its
+observed channels, while the durable lifecycle/edges make every interruption
+restartable. A recovery instance that finds `Deleting` with the list still
+present repeats seeding before retrying the conditional delete.
 
 This container is a recovery index, not membership authority. Every processor
 point-reads the list before updating a channel. Creating edges before add,

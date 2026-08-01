@@ -37,6 +37,8 @@ namespace youtubed
         public static readonly TimeSpan MaintenanceFrequencyMax = TimeSpan.FromMinutes(12);
         public static readonly TimeSpan PurgeInterval = TimeSpan.FromMinutes(10);
         public static readonly TimeSpan ConsistencyRecoveryPollInterval = TimeSpan.FromMinutes(1);
+        public static readonly TimeSpan ConsistencyRecoveryLifecycleRecheckInterval = TimeSpan.FromMinutes(10);
+        public static readonly TimeSpan ConsistencyRecoveryLifecycleCleanupSlo = TimeSpan.FromMinutes(15);
         public static readonly TimeSpan ConsistencyRecoveryLeaseDuration = TimeSpan.FromMinutes(2);
         public static readonly TimeSpan ConsistencyRecoveryMinBackoff = TimeSpan.FromMinutes(1);
         public static readonly TimeSpan ConsistencyRecoveryMaxBackoff = TimeSpan.FromHours(1);

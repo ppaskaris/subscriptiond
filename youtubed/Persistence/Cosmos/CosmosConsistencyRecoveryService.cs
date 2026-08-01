@@ -2,6 +2,7 @@ using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Linq;
 using System.Net;
@@ -41,6 +42,16 @@ namespace youtubed.Persistence.Cosmos
             RecoveryMeter.CreateCounter<long>("recovery.lease_takeovers");
         private static readonly Counter<long> MissingListCounter =
             RecoveryMeter.CreateCounter<long>("recovery.list_not_found");
+        private static readonly Counter<long> OrphanTransitionCounter =
+            RecoveryMeter.CreateCounter<long>("recovery.lifecycle.orphan_transitions");
+        private static readonly Histogram<double> LifecycleOverdueAge =
+            RecoveryMeter.CreateHistogram<double>("recovery.lifecycle.overdue_age", "ms");
+        private static readonly Histogram<double> LifecycleCleanupAge =
+            RecoveryMeter.CreateHistogram<double>("recovery.lifecycle.cleanup_age", "ms");
+        private static readonly Counter<long> LifecycleCleanupOverdueCounter =
+            RecoveryMeter.CreateCounter<long>("recovery.lifecycle.cleanup_overdue");
+        private static readonly Histogram<long> PassItems =
+            RecoveryMeter.CreateHistogram<long>("recovery.pass.items", "items");
         private static readonly Counter<double> RequestChargeCounter =
             RecoveryMeter.CreateCounter<double>("recovery.request_charge");
         private static readonly Histogram<double> PassDuration =
@@ -207,6 +218,7 @@ namespace youtubed.Persistence.Cosmos
             FailureCounter.Add(result.Failed);
             PoisonCounter.Add(result.Poison);
             RequestChargeCounter.Add(result.RequestCharge);
+            PassItems.Record(result.Examined);
             PassDuration.Record((_clock.UtcNow - startedAt).TotalMilliseconds);
             var oldestPendingAgeMs = oldestPendingAt.HasValue
                 ? Math.Max(0, (_clock.UtcNow - oldestPendingAt.Value).TotalMilliseconds)
@@ -866,8 +878,6 @@ namespace youtubed.Persistence.Cosmos
             RecoveryAdmissionBudget admission,
             CancellationToken cancellationToken)
         {
-            // Task 2120 owns lifecycle deadline/deletion processing. Task 2110 owns
-            // the indexed queue, cursor, fair ticket, and shared claim substrate.
             var cursor = await GetOrCreateCursorAsync("LifecycleDue", cancellationToken);
             var query = CreateLifecycleDueQuery(cursor);
             using var iterator = _recovery.GetItemQueryIterator<LifecycleWorkItem>(
@@ -877,17 +887,136 @@ namespace youtubed.Persistence.Cosmos
             admission.RecordQueryCharge(response.RequestCharge);
             var items = response.Take(take).ToArray();
             CosmosRecoveryTelemetry.RecordPending("LifecycleDue", items.Length);
-            var admittedItems = 0;
+            var page = new PageResult
+            {
+                RequestCharge = response.RequestCharge,
+                HasMore = items.Length == take,
+                FoundEligibleWork = items.Length > 0,
+                PendingItems = items.Length,
+                OldestPendingAt = items.FirstOrDefault()?.NextCheckAt
+            };
             LifecycleWorkItem lastAdmitted = null;
-            foreach (var _ in items)
+            foreach (var item in items)
             {
                 if (!admission.TryAdmitItem())
                 {
+                    page.HasMore = true;
                     break;
                 }
 
-                admittedItems++;
-                lastAdmitted = _;
+                lastAdmitted = item;
+                page.Examined++;
+                var lifecycle = await _store.ClaimLifecycleAsync(
+                    item.ListId,
+                    _owner,
+                    cancellationToken);
+                if (lifecycle == null)
+                {
+                    continue;
+                }
+
+                page.Claimed++;
+                if (lifecycle.LeaseTakenOver)
+                {
+                    LeaseTakeoverCounter.Add(1);
+                    _logger.LogInformation(
+                        "Cosmos lifecycle recovery lease taken over. WorkKind={WorkKind}; ListId={ListId}; Generation={Generation}; Result={Result}.",
+                        "LifecycleDue",
+                        lifecycle.ListId,
+                        lifecycle.EdgeGeneration,
+                        "LeaseTakenOver");
+                }
+
+                LifecycleOverdueAge.Record(Math.Max(
+                    0,
+                    (_clock.UtcNow - lifecycle.NextCheckAt).TotalMilliseconds));
+                try
+                {
+                    var list = await ReadListAsync(lifecycle.ListId, cancellationToken);
+                    if (list != null
+                        && string.Equals(lifecycle.State, "Deleting", StringComparison.Ordinal))
+                    {
+                        await ResumeExplicitDeletionAsync(
+                            lifecycle,
+                            list,
+                            cancellationToken);
+                        lifecycle = await _store.ReadLifecycleAsync(
+                            lifecycle.ListId,
+                            cancellationToken);
+                        list = await ReadListAsync(item.ListId, cancellationToken);
+                    }
+
+                    if (lifecycle == null)
+                    {
+                        page.Succeeded++;
+                        continue;
+                    }
+
+                    if (list != null)
+                    {
+                        await _store.ReschedulePresentLifecycleAsync(
+                            lifecycle,
+                            list.ExpiredAfter,
+                            cancellationToken);
+                        page.Succeeded++;
+                        _logger.LogInformation(
+                            "Cosmos lifecycle deadline was rescheduled from current list truth. WorkKind={WorkKind}; ListId={ListId}; Generation={Generation}; Result={Result}.",
+                            "LifecycleDue",
+                            lifecycle.ListId,
+                            lifecycle.EdgeGeneration,
+                            "Present");
+                        continue;
+                    }
+
+                    MissingListCounter.Add(1);
+                    lifecycle = await _store.MarkMissingAsync(
+                        lifecycle,
+                        cancellationToken);
+                    RecordLifecycleCleanupAge(lifecycle);
+                    if (_interleavingHooks?.AfterLifecycleSideEffectAsync != null)
+                    {
+                        await _interleavingHooks.AfterLifecycleSideEffectAsync(
+                            lifecycle.ListId,
+                            "MissingObserved");
+                    }
+                    var cleanup = await ProcessLifecycleCleanupAsync(
+                        lifecycle,
+                        admission,
+                        cancellationToken);
+                    page.Examined += cleanup.Examined;
+                    page.Succeeded += cleanup.Succeeded ? 1 : 0;
+                    page.HasMore |= cleanup.HasMore;
+                }
+                catch (Exception exception) when (
+                    exception is not OperationCanceledException
+                    || !cancellationToken.IsCancellationRequested)
+                {
+                    var latest = await _store.ReadLifecycleAsync(
+                        item.ListId,
+                        cancellationToken);
+                    if (latest != null
+                        && string.Equals(latest.Owner, _owner, StringComparison.Ordinal))
+                    {
+                        await _store.FailLifecycleAsync(latest, exception, cancellationToken);
+                        page.Failed++;
+                        if (latest.Attempt >= _options.PoisonAttemptCount)
+                        {
+                            page.Poison++;
+                            _logger.LogError(
+                                exception,
+                                "Cosmos lifecycle recovery is poison. WorkKind={WorkKind}; ListId={ListId}; Generation={Generation}; Attempt={Attempt}; Result={Result}.",
+                                "LifecycleDue",
+                                latest.ListId,
+                                latest.EdgeGeneration,
+                                latest.Attempt,
+                                "Poison");
+                        }
+                    }
+                    else
+                    {
+                        RecordContentionDeferred("LifecycleDue", item.ListId);
+                    }
+                }
             }
             await AdvanceCursorAsync(
                 cursor,
@@ -896,15 +1025,408 @@ namespace youtubed.Persistence.Cosmos
                 lastAdmitted?.Id,
                 items.Length == 0,
                 cancellationToken);
-            return new PageResult
+            return page;
+        }
+
+        private async Task ResumeExplicitDeletionAsync(
+            CosmosRecoveryLifecycleDocument lifecycle,
+            CosmosListDocument list,
+            CancellationToken cancellationToken)
+        {
+            foreach (var channel in list.Channels
+                .Where(value => value != null)
+                .DistinctBy(value => value.Id, StringComparer.Ordinal))
             {
-                Examined = admittedItems,
-                RequestCharge = response.RequestCharge,
-                HasMore = admittedItems < items.Length,
-                FoundEligibleWork = items.Length > 0,
-                PendingItems = items.Length,
-                OldestPendingAt = items.FirstOrDefault()?.NextCheckAt
-            };
+                var edgeId = CosmosRecoveryStore.GetEdgeId(channel.Id);
+                if (await _store.ReadEdgeAsync(list.Id, edgeId, cancellationToken) != null)
+                {
+                    continue;
+                }
+
+                var edge = await _store.ActivateCandidateAsync(
+                    list.Id,
+                    channel.Id,
+                    _owner,
+                    cancellationToken);
+                await _store.MarkTrackedAsync(
+                    edge,
+                    list.MembershipVersion,
+                    cancellationToken);
+                if (_interleavingHooks?.AfterLifecycleSideEffectAsync != null)
+                {
+                    await _interleavingHooks.AfterLifecycleSideEffectAsync(
+                        list.Id,
+                        $"EdgeSeeded:{channel.Id}");
+                }
+            }
+
+            try
+            {
+                await _lists.DeleteItemAsync<CosmosListDocument>(
+                    list.Id,
+                    new PartitionKey(list.Id),
+                    new ItemRequestOptions { IfMatchEtag = list.ETag },
+                    cancellationToken);
+            }
+            catch (CosmosException exception) when (
+                exception.StatusCode == HttpStatusCode.NotFound)
+            {
+            }
+            catch (CosmosException exception) when (
+                exception.StatusCode == HttpStatusCode.PreconditionFailed)
+            {
+                throw new CosmosRecoveryConflictException(
+                    $"List '{list.Id}' changed while explicit deletion edges were being verified.");
+            }
+
+            if (_interleavingHooks?.AfterLifecycleSideEffectAsync != null)
+            {
+                await _interleavingHooks.AfterLifecycleSideEffectAsync(
+                    list.Id,
+                    "ListDeleted");
+            }
+        }
+
+        private void RecordLifecycleCleanupAge(
+            CosmosRecoveryLifecycleDocument lifecycle)
+        {
+            if (!lifecycle.MissingObservedAt.HasValue)
+            {
+                return;
+            }
+
+            var age = _clock.UtcNow - lifecycle.MissingObservedAt.Value;
+            var ageMilliseconds = Math.Max(0, age.TotalMilliseconds);
+            var tags = new TagList { { "work.kind", "LifecycleDue" } };
+            LifecycleCleanupAge.Record(ageMilliseconds, tags);
+            if (age < Constants.ConsistencyRecoveryLifecycleCleanupSlo)
+            {
+                return;
+            }
+
+            LifecycleCleanupOverdueCounter.Add(1, tags);
+            _logger.LogWarning(
+                "Cosmos lifecycle cleanup exceeded its first-404 SLO. WorkKind={WorkKind}; ListId={ListId}; MissingObservedAt={MissingObservedAt}; CleanupAgeMs={CleanupAgeMs}; SloMs={SloMs}; Result={Result}.",
+                "LifecycleDue",
+                lifecycle.ListId,
+                lifecycle.MissingObservedAt,
+                ageMilliseconds,
+                Constants.ConsistencyRecoveryLifecycleCleanupSlo.TotalMilliseconds,
+                "Overdue");
+        }
+
+        private async Task<WorkOutcome> ProcessLifecycleCleanupAsync(
+            CosmosRecoveryLifecycleDocument lifecycle,
+            RecoveryAdmissionBudget admission,
+            CancellationToken cancellationToken)
+        {
+            var expectedGeneration = lifecycle.CleanupTraversalEdgeGeneration;
+            if (!expectedGeneration.HasValue
+                || expectedGeneration.Value != lifecycle.EdgeGeneration)
+            {
+                lifecycle = await _store.SaveCleanupCheckpointAsync(
+                    lifecycle,
+                    lifecycle.EdgeGeneration,
+                    null,
+                    null,
+                    releaseLease: false,
+                    cancellationToken);
+            }
+
+            var take = Math.Min(_options.PageSize, admission.RemainingItems);
+            if (take <= 0)
+            {
+                var firstActive = await _store.QueryFirstActiveEdgeAsync(
+                    lifecycle.ListId,
+                    cancellationToken);
+                if (firstActive == null && lifecycle.ActiveEdgeCount == 0)
+                {
+                    var recreated = await ReadListAsync(
+                        lifecycle.ListId,
+                        cancellationToken);
+                    if (recreated != null)
+                    {
+                        await _store.ReschedulePresentLifecycleAsync(
+                            lifecycle,
+                            recreated.ExpiredAfter,
+                            cancellationToken);
+                        return new WorkOutcome(true, true, false, 0);
+                    }
+
+                    var zeroEdgeCompleted = await _store.DeleteLifecycleAsync(
+                        lifecycle,
+                        cancellationToken);
+                    if (zeroEdgeCompleted
+                        && _interleavingHooks?.AfterLifecycleSideEffectAsync != null)
+                    {
+                        await _interleavingHooks.AfterLifecycleSideEffectAsync(
+                            lifecycle.ListId,
+                            "LifecycleCompleted");
+                    }
+                    if (zeroEdgeCompleted)
+                    {
+                        CosmosRecoveryTelemetry.RecordConvergence(
+                            "LifecycleDue",
+                            _clock.UtcNow,
+                            lifecycle.MissingObservedAt);
+                    }
+                    return new WorkOutcome(
+                        true,
+                        zeroEdgeCompleted,
+                        !zeroEdgeCompleted,
+                        0);
+                }
+
+                await _store.SaveCleanupCheckpointAsync(
+                    lifecycle,
+                    lifecycle.EdgeGeneration,
+                    lifecycle.CleanupEdgeAfterChannelId,
+                    lifecycle.CleanupEdgeAfterId,
+                    releaseLease: true,
+                    cancellationToken);
+                return new WorkOutcome(true, false, true, 0);
+            }
+
+            var edges = await _store.QueryMembershipEdgesAsync(
+                lifecycle.ListId,
+                lifecycle.CleanupEdgeAfterChannelId,
+                lifecycle.CleanupEdgeAfterId,
+                take,
+                cancellationToken);
+            var examined = 0;
+            foreach (var edge in edges)
+            {
+                if (!admission.TryAdmitItem())
+                {
+                    await _store.SaveCleanupCheckpointAsync(
+                        lifecycle,
+                        lifecycle.EdgeGeneration,
+                        lifecycle.CleanupEdgeAfterChannelId,
+                        lifecycle.CleanupEdgeAfterId,
+                        releaseLease: true,
+                        cancellationToken);
+                    return new WorkOutcome(true, false, true, examined);
+                }
+
+                examined++;
+                if (_interleavingHooks?.BeforeLifecycleEdgeAsync != null)
+                {
+                    await _interleavingHooks.BeforeLifecycleEdgeAsync(edge);
+                }
+
+                var current = await _store.ReadLifecycleAsync(
+                    lifecycle.ListId,
+                    cancellationToken);
+                if (current == null)
+                {
+                    return new WorkOutcome(true, true, false, examined);
+                }
+                if (current.EdgeGeneration != lifecycle.EdgeGeneration)
+                {
+                    await _store.SaveCleanupCheckpointAsync(
+                        current,
+                        current.EdgeGeneration,
+                        null,
+                        null,
+                        releaseLease: true,
+                        cancellationToken);
+                    return new WorkOutcome(true, false, true, examined);
+                }
+
+                var wasOrphaned = await IsChannelOrphanedAsync(
+                    edge.ChannelId,
+                    cancellationToken);
+                await _channelRepository.RepairSubscriptionFromListTruthAsync(
+                    edge.ChannelId,
+                    Guid.Parse(edge.ListId),
+                    cancellationToken);
+                var currentList = await ReadListAsync(edge.ListId, cancellationToken);
+                var membershipWasReadded = currentList?.Channels.Any(channel =>
+                    string.Equals(
+                        channel.Id,
+                        edge.ChannelId,
+                        StringComparison.Ordinal)) == true;
+                await EnsureChannelConvergedAsync(
+                    edge.ChannelId,
+                    edge.ListId,
+                    shouldContain: membershipWasReadded,
+                    cancellationToken);
+                if (membershipWasReadded)
+                {
+                    var currentLifecycle = await _store.ReadLifecycleAsync(
+                        lifecycle.ListId,
+                        cancellationToken);
+                    if (currentLifecycle != null)
+                    {
+                        await _store.ReschedulePresentLifecycleAsync(
+                            currentLifecycle,
+                            currentList.ExpiredAfter,
+                            cancellationToken);
+                    }
+                    return new WorkOutcome(true, true, false, examined);
+                }
+                var isOrphaned = await IsChannelOrphanedAsync(
+                    edge.ChannelId,
+                    cancellationToken);
+                if (!wasOrphaned && isOrphaned)
+                {
+                    OrphanTransitionCounter.Add(1);
+                }
+                if (_interleavingHooks?.AfterLifecycleSideEffectAsync != null)
+                {
+                    await _interleavingHooks.AfterLifecycleSideEffectAsync(
+                        lifecycle.ListId,
+                        $"ChannelRepaired:{edge.ChannelId}");
+                }
+
+                var retirement = await _store.RetireEdgeAsync(
+                    edge,
+                    lifecycle,
+                    0,
+                    edge.ChannelId,
+                    edge.Id,
+                    cancellationToken,
+                    adoptCleanupCheckpoint: true,
+                    revalidateAuthoritativeAbsenceAsync: async retryToken =>
+                    {
+                        var authoritativeList = await ReadListAsync(
+                            edge.ListId,
+                            retryToken);
+                        return authoritativeList == null
+                            || !authoritativeList.Channels.Any(channel =>
+                                string.Equals(
+                                    channel.Id,
+                                    edge.ChannelId,
+                                    StringComparison.Ordinal));
+                    });
+                if (!retirement.Retired)
+                {
+                    return new WorkOutcome(true, false, true, examined);
+                }
+
+                lifecycle.EdgeGeneration = retirement.EdgeGeneration;
+                lifecycle.CleanupTraversalEdgeGeneration = retirement.EdgeGeneration;
+                lifecycle.CleanupEdgeAfterChannelId = edge.ChannelId;
+                lifecycle.CleanupEdgeAfterId = edge.Id;
+                if (_interleavingHooks?.AfterLifecycleSideEffectAsync != null)
+                {
+                    await _interleavingHooks.AfterLifecycleSideEffectAsync(
+                        lifecycle.ListId,
+                        $"EdgeRetired:{edge.ChannelId}");
+                }
+            }
+
+            if (edges.Count == take)
+            {
+                lifecycle = await _store.ReadLifecycleAsync(
+                    lifecycle.ListId,
+                    cancellationToken);
+                if (lifecycle != null)
+                {
+                    await _store.SaveCleanupCheckpointAsync(
+                        lifecycle,
+                        lifecycle.EdgeGeneration,
+                        lifecycle.CleanupEdgeAfterChannelId,
+                        lifecycle.CleanupEdgeAfterId,
+                        releaseLease: true,
+                        cancellationToken);
+                }
+                return new WorkOutcome(true, false, true, examined);
+            }
+
+            lifecycle = await _store.ReadLifecycleAsync(
+                lifecycle.ListId,
+                cancellationToken);
+            if (lifecycle == null)
+            {
+                return new WorkOutcome(true, true, false, examined);
+            }
+
+            var recreatedList = await ReadListAsync(lifecycle.ListId, cancellationToken);
+            if (recreatedList != null)
+            {
+                await _store.ReschedulePresentLifecycleAsync(
+                    lifecycle,
+                    recreatedList.ExpiredAfter,
+                    cancellationToken);
+                return new WorkOutcome(true, true, false, examined);
+            }
+
+            var firstActiveEdge = await _store.QueryFirstActiveEdgeAsync(
+                lifecycle.ListId,
+                cancellationToken);
+            if (firstActiveEdge != null || lifecycle.ActiveEdgeCount != 0)
+            {
+                var counted = await _store.CountActiveEdgesAsync(
+                    lifecycle.ListId,
+                    cancellationToken);
+                if (counted != lifecycle.ActiveEdgeCount)
+                {
+                    await _store.CorrectActiveEdgeCountAsync(
+                        lifecycle,
+                        counted,
+                        cancellationToken);
+                    PoisonCounter.Add(1);
+                    _logger.LogError(
+                        "Cosmos lifecycle active-edge counter drift was corrected by a bounded partition recount. WorkKind={WorkKind}; ListId={ListId}; Generation={Generation}; StoredCount={StoredCount}; Counted={Counted}; Result={Result}.",
+                        "LifecycleDue",
+                        lifecycle.ListId,
+                        lifecycle.EdgeGeneration,
+                        lifecycle.ActiveEdgeCount,
+                        counted,
+                        "Recounted");
+                }
+                else
+                {
+                    await _store.SaveCleanupCheckpointAsync(
+                        lifecycle,
+                        lifecycle.EdgeGeneration,
+                        null,
+                        null,
+                        releaseLease: true,
+                        cancellationToken);
+                }
+                return new WorkOutcome(true, false, true, examined);
+            }
+
+            var completed = await _store.DeleteLifecycleAsync(
+                lifecycle,
+                cancellationToken);
+            if (completed && _interleavingHooks?.AfterLifecycleSideEffectAsync != null)
+            {
+                await _interleavingHooks.AfterLifecycleSideEffectAsync(
+                    lifecycle.ListId,
+                    "LifecycleCompleted");
+            }
+            if (completed)
+            {
+                CosmosRecoveryTelemetry.RecordConvergence(
+                    "LifecycleDue",
+                    _clock.UtcNow,
+                    lifecycle.MissingObservedAt);
+            }
+            return new WorkOutcome(true, completed, !completed, examined);
+        }
+
+        private async Task<bool> IsChannelOrphanedAsync(
+            string channelId,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var channel = (await _channels.ReadItemAsync<CosmosChannelDocument>(
+                    channelId,
+                    new PartitionKey(channelId),
+                    cancellationToken: cancellationToken)).Resource;
+                return channel.SubscriptionCount == 0
+                    && channel.OrphanedAfter.HasValue
+                    && channel.Ttl > 0;
+            }
+            catch (CosmosException exception) when (
+                exception.StatusCode == HttpStatusCode.NotFound)
+            {
+                return true;
+            }
         }
 
         private async Task<string> TakeTicketAsync(CancellationToken cancellationToken)

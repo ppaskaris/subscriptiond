@@ -123,11 +123,14 @@ namespace youtubed.Persistence.Cosmos
         public string CleanupEdgeAfterChannelId { get; set; }
         public string CleanupEdgeAfterId { get; set; }
         public long? CleanupTraversalEdgeGeneration { get; set; }
+        public DateTimeOffset? MissingObservedAt { get; set; }
         public string Owner { get; set; }
         public DateTimeOffset? LeaseUntil { get; set; }
         public int Attempt { get; set; }
         public DateTimeOffset NextAttemptAt { get; set; }
         public string LastErrorClass { get; set; }
+        [JsonIgnore]
+        public bool LeaseTakenOver { get; set; }
         [JsonPropertyName("_etag")]
         public string ETag { get; set; }
     }

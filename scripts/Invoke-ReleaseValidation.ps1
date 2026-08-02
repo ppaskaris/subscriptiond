@@ -165,11 +165,15 @@ try {
         -HeadSha $env:RELEASE_GATE_HEAD_SHA `
         -LogPath (Join-Path $resultsRoot 'git-diff-check.log')
 
+    $inventoryPath = Join-Path $resultsRoot 'nuget-package-inventory.json'
+    Invoke-CheckedCommand -Name 'Direct and transitive NuGet package inventory' -LogPath $inventoryPath -Command {
+        & dotnet list youtubed.sln package --include-transitive --format json --no-restore
+    }
     $auditPath = Join-Path $resultsRoot 'nuget-vulnerabilities.json'
     Invoke-CheckedCommand -Name 'Direct and transitive NuGet vulnerability scan' -LogPath $auditPath -Command {
         & dotnet list youtubed.sln package --vulnerable --include-transitive --format json --no-restore
     }
-    Assert-ReleaseGateNuGetAudit -Path $auditPath | Out-Null
+    Assert-ReleaseGateNuGetAudit -Path $auditPath -InventoryPath $inventoryPath | Out-Null
 
     Write-Host "`nRelease validation passed. Artifacts: $resultsRoot"
 }

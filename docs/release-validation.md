@@ -40,14 +40,19 @@ The script owns the command order and runs it sequentially:
 7. run `dotnet format --verify-no-changes`;
 8. run Git whitespace checks for the committed CI event range, the local index,
    and the working tree;
-9. scan direct and transitive NuGet packages for known vulnerabilities.
+9. inventory direct and transitive NuGet packages, then scan them for known
+   vulnerabilities.
 
 Every test run produces TRX, console output, test-host diagnostics, and Cobertura
 coverage below `artifacts/release-validation`. The TRX policy requires at least
 one selected test, every selected test to execute, zero failures, and zero
 skips. Consequently, removing a provider opt-in or losing either service fails
-the gate instead of yielding a successful skipped suite. The CI policy self-test
-also feeds controlled skipped-test, formatting-failure, and vulnerable-package
+the gate instead of yielding a successful skipped suite. The NuGet policy
+validates the JSON schema and invocation metadata, requires matching non-empty
+audited project sets, and uses the full package inventory to prove both direct
+and transitive packages were included; malformed, empty, or structurally
+incomplete output fails closed. The CI policy self-test also feeds controlled
+skipped-test, malformed-audit, formatting-failure, and vulnerable-package
 results to the same assertions and requires each to be rejected. After the real
 provider suites pass, CI also removes each provider opt-in in turn, selects that
 provider's tests, observes the resulting skips, and proves that the TRX policy

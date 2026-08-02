@@ -151,44 +151,176 @@ function Assert-ReleaseGateNuGetAudit {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        [string] $Path
+        [string] $Path,
+
+        [Parameter(Mandatory = $true)]
+        [string] $InventoryPath
     )
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         throw "NuGet audit did not produce its required JSON file: $Path"
     }
+    if (-not (Test-Path -LiteralPath $InventoryPath -PathType Leaf)) {
+        throw "NuGet package inventory did not produce its required JSON file: $InventoryPath"
+    }
 
     $audit = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json
+    $inventory = Get-Content -Raw -LiteralPath $InventoryPath | ConvertFrom-Json
+    foreach ($document in @(
+        @{ Name = 'NuGet audit'; Value = $audit; RequiredParameters = @('--vulnerable', '--include-transitive') },
+        @{ Name = 'NuGet package inventory'; Value = $inventory; RequiredParameters = @('--include-transitive') }
+    )) {
+        if ($null -eq $document.Value -or $document.Value -isnot [pscustomobject]) {
+            throw "$($document.Name) JSON root must be an object."
+        }
+        $versionProperty = $document.Value.PSObject.Properties['version']
+        if ($null -eq $versionProperty -or $versionProperty.Value -ne 1) {
+            throw "$($document.Name) JSON must declare supported schema version 1."
+        }
+        $parametersProperty = $document.Value.PSObject.Properties['parameters']
+        if ($null -eq $parametersProperty -or $parametersProperty.Value -isnot [string]) {
+            throw "$($document.Name) JSON must declare its invocation parameters."
+        }
+        $parameterTokens = @($parametersProperty.Value -split '\s+' | Where-Object { $_ })
+        foreach ($requiredParameter in $document.RequiredParameters) {
+            if ($parameterTokens -notcontains $requiredParameter) {
+                throw "$($document.Name) JSON does not prove that $requiredParameter was requested."
+            }
+        }
+        $projectsProperty = $document.Value.PSObject.Properties['projects']
+        if ($null -eq $projectsProperty -or @($projectsProperty.Value).Count -eq 0) {
+            throw "$($document.Name) JSON must contain at least one audited project."
+        }
+    }
+
+    $sourcesProperty = $audit.PSObject.Properties['sources']
+    $sources = @()
+    if ($null -ne $sourcesProperty) {
+        $sources = @($sourcesProperty.Value)
+    }
+    if ($sources.Count -eq 0 -or @($sources | Where-Object { $_ -isnot [string] -or [string]::IsNullOrWhiteSpace($_) }).Count -ne 0) {
+        throw 'NuGet audit JSON must identify at least one package source used by the vulnerability scan.'
+    }
+
+    $inventoryProjectPaths = @()
+    $topLevelPackageCount = 0
+    $transitivePackageCount = 0
+    foreach ($project in @($inventory.projects)) {
+        $pathProperty = $project.PSObject.Properties['path']
+        if ($null -eq $pathProperty -or $pathProperty.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($pathProperty.Value)) {
+            throw 'NuGet package inventory contains a project without a path.'
+        }
+        if ($inventoryProjectPaths -contains $pathProperty.Value) {
+            throw "NuGet package inventory contains duplicate project path: $($pathProperty.Value)"
+        }
+        $inventoryProjectPaths += $pathProperty.Value
+
+        $frameworksProperty = $project.PSObject.Properties['frameworks']
+        if ($null -eq $frameworksProperty -or @($frameworksProperty.Value).Count -eq 0) {
+            throw "NuGet package inventory contains no target frameworks for $($pathProperty.Value)."
+        }
+        foreach ($framework in @($frameworksProperty.Value)) {
+            $frameworkNameProperty = $framework.PSObject.Properties['framework']
+            if ($null -eq $frameworkNameProperty -or $frameworkNameProperty.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($frameworkNameProperty.Value)) {
+                throw "NuGet package inventory contains an unnamed target framework for $($pathProperty.Value)."
+            }
+            foreach ($packageGroupName in @('topLevelPackages', 'transitivePackages')) {
+                $packageGroupProperty = $framework.PSObject.Properties[$packageGroupName]
+                if ($null -eq $packageGroupProperty) {
+                    throw "NuGet package inventory is missing $packageGroupName for $($pathProperty.Value) $($frameworkNameProperty.Value)."
+                }
+                foreach ($package in @($packageGroupProperty.Value)) {
+                    $idProperty = $package.PSObject.Properties['id']
+                    $resolvedVersionProperty = $package.PSObject.Properties['resolvedVersion']
+                    if ($null -eq $idProperty -or $idProperty.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($idProperty.Value) -or
+                        $null -eq $resolvedVersionProperty -or $resolvedVersionProperty.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($resolvedVersionProperty.Value)) {
+                        throw "NuGet package inventory contains an incomplete $packageGroupName entry for $($pathProperty.Value) $($frameworkNameProperty.Value)."
+                    }
+                    if ($packageGroupName -eq 'topLevelPackages') {
+                        $topLevelPackageCount++
+                    }
+                    else {
+                        $transitivePackageCount++
+                    }
+                }
+            }
+        }
+    }
+    if ($topLevelPackageCount -eq 0 -or $transitivePackageCount -eq 0) {
+        throw "NuGet package inventory must contain both direct and transitive packages (direct=$topLevelPackageCount, transitive=$transitivePackageCount)."
+    }
+
+    $auditProjectPaths = @()
     $findings = @()
     foreach ($project in @($audit.projects)) {
+        $pathProperty = $project.PSObject.Properties['path']
+        if ($null -eq $pathProperty -or $pathProperty.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($pathProperty.Value)) {
+            throw 'NuGet audit contains a project without a path.'
+        }
+        if ($auditProjectPaths -contains $pathProperty.Value) {
+            throw "NuGet audit contains duplicate project path: $($pathProperty.Value)"
+        }
+        $auditProjectPaths += $pathProperty.Value
+
         $frameworksProperty = $project.PSObject.Properties['frameworks']
         if ($null -eq $frameworksProperty) {
             continue
         }
+        if (@($frameworksProperty.Value).Count -eq 0) {
+            throw "NuGet audit contains an empty frameworks collection for $($pathProperty.Value)."
+        }
         foreach ($framework in @($frameworksProperty.Value)) {
+            $frameworkNameProperty = $framework.PSObject.Properties['framework']
+            if ($null -eq $frameworkNameProperty -or $frameworkNameProperty.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($frameworkNameProperty.Value)) {
+                throw "NuGet audit contains an unnamed target framework for $($pathProperty.Value)."
+            }
+            $frameworkPackageGroupCount = 0
             foreach ($packageGroupName in @('topLevelPackages', 'transitivePackages')) {
                 $packageGroupProperty = $framework.PSObject.Properties[$packageGroupName]
                 if ($null -eq $packageGroupProperty) {
                     continue
                 }
+                $frameworkPackageGroupCount++
+                if (@($packageGroupProperty.Value).Count -eq 0) {
+                    throw "NuGet audit contains an empty $packageGroupName collection for $($pathProperty.Value) $($frameworkNameProperty.Value)."
+                }
                 foreach ($package in @($packageGroupProperty.Value)) {
+                    $idProperty = $package.PSObject.Properties['id']
+                    $resolvedVersionProperty = $package.PSObject.Properties['resolvedVersion']
                     $vulnerabilitiesProperty = $package.PSObject.Properties['vulnerabilities']
-                    if ($null -eq $vulnerabilitiesProperty) {
-                        continue
+                    if ($null -eq $idProperty -or $idProperty.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($idProperty.Value) -or
+                        $null -eq $resolvedVersionProperty -or $resolvedVersionProperty.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($resolvedVersionProperty.Value) -or
+                        $null -eq $vulnerabilitiesProperty -or @($vulnerabilitiesProperty.Value).Count -eq 0) {
+                        throw "NuGet audit contains an incomplete vulnerable package entry for $($pathProperty.Value) $($frameworkNameProperty.Value)."
                     }
                     foreach ($vulnerability in @($vulnerabilitiesProperty.Value)) {
+                        $severityProperty = $vulnerability.PSObject.Properties['severity']
+                        $advisoryProperty = $vulnerability.PSObject.Properties['advisoryurl']
+                        if ($null -eq $severityProperty -or $severityProperty.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($severityProperty.Value) -or
+                            $null -eq $advisoryProperty -or $advisoryProperty.Value -isnot [string] -or [string]::IsNullOrWhiteSpace($advisoryProperty.Value)) {
+                            throw "NuGet audit contains incomplete vulnerability details for $($idProperty.Value)."
+                        }
                         $findings += [pscustomobject] @{
-                            Project = $project.path
-                            Framework = $framework.framework
-                            Package = $package.id
-                            Version = $package.resolvedVersion
-                            Severity = $vulnerability.severity
-                            Advisory = $vulnerability.advisoryurl
+                            Project = $pathProperty.Value
+                            Framework = $frameworkNameProperty.Value
+                            Package = $idProperty.Value
+                            Version = $resolvedVersionProperty.Value
+                            Severity = $severityProperty.Value
+                            Advisory = $advisoryProperty.Value
                         }
                     }
                 }
             }
+            if ($frameworkPackageGroupCount -eq 0) {
+                throw "NuGet audit contains no vulnerable package collection for $($pathProperty.Value) $($frameworkNameProperty.Value)."
+            }
         }
+    }
+
+    $missingAuditProjects = @($inventoryProjectPaths | Where-Object { $auditProjectPaths -notcontains $_ })
+    $unexpectedAuditProjects = @($auditProjectPaths | Where-Object { $inventoryProjectPaths -notcontains $_ })
+    if ($missingAuditProjects.Count -ne 0 -or $unexpectedAuditProjects.Count -ne 0) {
+        throw "NuGet audit and package inventory project sets do not match (missing=$($missingAuditProjects -join ','), unexpected=$($unexpectedAuditProjects -join ','))."
     }
 
     if ($findings.Count -ne 0) {

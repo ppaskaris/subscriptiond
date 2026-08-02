@@ -83,20 +83,52 @@ try {
         throw 'The release gate accepted a controlled skipped provider suite.'
     }
 
-    $vulnerableJson = Join-Path $testRoot 'vulnerable.json'
-    Set-Content -LiteralPath $vulnerableJson -Encoding UTF8 -Value @'
-{"projects":[{"path":"controlled.csproj","frameworks":[{"framework":"net10.0","topLevelPackages":[],"transitivePackages":[{"id":"Controlled.Vulnerable","resolvedVersion":"1.0.0","vulnerabilities":[{"severity":"High","advisoryurl":"https://example.invalid/advisory"}]}]}]}]}
+    $inventoryJson = Join-Path $testRoot 'inventory.json'
+    Set-Content -LiteralPath $inventoryJson -Encoding UTF8 -Value @'
+{"version":1,"parameters":"--include-transitive","projects":[{"path":"controlled.csproj","frameworks":[{"framework":"net10.0","topLevelPackages":[{"id":"Controlled.Direct","requestedVersion":"2.0.0","resolvedVersion":"2.0.0"}],"transitivePackages":[{"id":"Controlled.Transitive","resolvedVersion":"1.0.0"}]}]}]}
 '@
 
-    $vulnerabilityRejected = $false
-    try {
-        Assert-ReleaseGateNuGetAudit -Path $vulnerableJson
+    $cleanAuditJson = Join-Path $testRoot 'clean-audit.json'
+    Set-Content -LiteralPath $cleanAuditJson -Encoding UTF8 -Value @'
+{"version":1,"parameters":"--vulnerable --include-transitive","sources":["https://example.invalid/v3/index.json"],"projects":[{"path":"controlled.csproj"}]}
+'@
+    Assert-ReleaseGateNuGetAudit -Path $cleanAuditJson -InventoryPath $inventoryJson | Out-Null
+
+    $vulnerableJson = Join-Path $testRoot 'vulnerable.json'
+    Set-Content -LiteralPath $vulnerableJson -Encoding UTF8 -Value @'
+{"version":1,"parameters":"--vulnerable --include-transitive","sources":["https://example.invalid/v3/index.json"],"projects":[{"path":"controlled.csproj","frameworks":[{"framework":"net10.0","transitivePackages":[{"id":"Controlled.Vulnerable","resolvedVersion":"1.0.0","vulnerabilities":[{"severity":"High","advisoryurl":"https://example.invalid/advisory"}]}]}]}]}
+'@
+    Assert-ControlledRejection -Name 'vulnerable transitive package' -Probe {
+        Assert-ReleaseGateNuGetAudit -Path $vulnerableJson -InventoryPath $inventoryJson
     }
-    catch {
-        $vulnerabilityRejected = $true
+
+    foreach ($invalidAudit in @(
+        @{ Name = 'malformed NuGet audit JSON'; Content = '{' },
+        @{ Name = 'empty NuGet audit JSON'; Content = '{}' },
+        @{ Name = 'NuGet audit with no projects'; Content = '{"version":1,"parameters":"--vulnerable --include-transitive","sources":["https://example.invalid/v3/index.json"],"projects":[]}' },
+        @{ Name = 'NuGet audit without transitive scanning metadata'; Content = '{"version":1,"parameters":"--vulnerable","sources":["https://example.invalid/v3/index.json"],"projects":[{"path":"controlled.csproj"}]}' }
+    )) {
+        $invalidAuditPath = Join-Path $testRoot (($invalidAudit.Name -replace '[^a-zA-Z0-9]+', '-') + '.json')
+        Set-Content -LiteralPath $invalidAuditPath -Encoding UTF8 -Value $invalidAudit.Content
+        Assert-ControlledRejection -Name $invalidAudit.Name -Probe {
+            Assert-ReleaseGateNuGetAudit -Path $invalidAuditPath -InventoryPath $inventoryJson
+        }
     }
-    if (-not $vulnerabilityRejected) {
-        throw 'The release gate accepted a controlled vulnerable transitive package.'
+
+    $incompleteInventoryJson = Join-Path $testRoot 'incomplete-inventory.json'
+    Set-Content -LiteralPath $incompleteInventoryJson -Encoding UTF8 -Value @'
+{"version":1,"parameters":"--include-transitive","projects":[{"path":"controlled.csproj","frameworks":[{"framework":"net10.0","topLevelPackages":[{"id":"Controlled.Direct","resolvedVersion":"2.0.0"}]}]}]}
+'@
+    Assert-ControlledRejection -Name 'NuGet inventory without a transitive package collection' -Probe {
+        Assert-ReleaseGateNuGetAudit -Path $cleanAuditJson -InventoryPath $incompleteInventoryJson
+    }
+
+    $emptyTransitiveInventoryJson = Join-Path $testRoot 'empty-transitive-inventory.json'
+    Set-Content -LiteralPath $emptyTransitiveInventoryJson -Encoding UTF8 -Value @'
+{"version":1,"parameters":"--include-transitive","projects":[{"path":"controlled.csproj","frameworks":[{"framework":"net10.0","topLevelPackages":[{"id":"Controlled.Direct","resolvedVersion":"2.0.0"}],"transitivePackages":[]}]}]}
+'@
+    Assert-ControlledRejection -Name 'NuGet inventory without any transitive packages' -Probe {
+        Assert-ReleaseGateNuGetAudit -Path $cleanAuditJson -InventoryPath $emptyTransitiveInventoryJson
     }
 
     $formatFailureRejected = $false
@@ -159,7 +191,7 @@ try {
         Pop-Location
     }
 
-    Write-Host 'Release-gate policy self-test passed: skipped suites, vulnerable packages, formatting failures, and actual Git range/index/worktree whitespace failures were rejected.'
+    Write-Host 'Release-gate policy self-test passed: skipped suites, malformed/incomplete audit data, vulnerable packages, formatting failures, and actual Git range/index/worktree whitespace failures were rejected.'
 }
 finally {
     Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction SilentlyContinue

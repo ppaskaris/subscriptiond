@@ -11,6 +11,12 @@ namespace youtubed.Persistence.Cosmos
             init;
         }
 
+        internal Func<string, string, Task> AfterMembershipSideEffectAsync
+        {
+            get;
+            init;
+        }
+
         internal Func<string, Task> BeforeMembershipWorkAsync { get; init; }
 
         internal Func<string, Task> BeforeProjectionWorkAsync { get; init; }
@@ -22,6 +28,12 @@ namespace youtubed.Persistence.Cosmos
         }
 
         internal Func<string, Task> AfterProjectionListWriteAsync { get; init; }
+
+        internal Func<string, string, Task> AfterProjectionSideEffectAsync
+        {
+            get;
+            init;
+        }
 
         internal Func<string, Task> BeforeCursorAdvanceAsync { get; init; }
 

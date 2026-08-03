@@ -55,7 +55,8 @@ namespace youtubed.Persistence.Cosmos
                 _lists,
                 recovery,
                 _clock,
-                recoveryOptions);
+                recoveryOptions,
+                interleavingHooks);
             _workerStateStore = workerStateStore;
             _wakeSignal = wakeSignal;
             _interleavingHooks = interleavingHooks;
@@ -67,13 +68,20 @@ namespace youtubed.Persistence.Cosmos
 
             if (_recoveryStore != null)
             {
-                await _recoveryStore.CreateLifecycleAsync(
+                var lifecycle = await _recoveryStore.CreateLifecycleWithResultAsync(
                     document.Id,
                     document.ExpiredAfter,
                     CancellationToken.None);
+                if (lifecycle.Created)
+                {
+                    await ReportMembershipSideEffectAsync(
+                        document.Id,
+                        "Create.LifecycleCreated");
+                }
             }
 
             await _lists.CreateItemAsync(document, new PartitionKey(document.Id));
+            await ReportMembershipSideEffectAsync(document.Id, "Create.ListCreated");
         }
 
         public async Task<SubscriptionList> GetAsync(Guid id)
@@ -270,6 +278,7 @@ namespace youtubed.Persistence.Cosmos
                 channelId,
                 owner,
                 CancellationToken.None);
+            await ReportMembershipSideEffectAsync(listIdText, "Add.EdgeActivated");
             if (!await _channelRepository.ReserveSubscriptionAsync(
                 channelId,
                 listId,
@@ -283,6 +292,7 @@ namespace youtubed.Persistence.Cosmos
             {
                 await _interleavingHooks.AfterMutationReservationAsync(edge);
             }
+            await ReportMembershipSideEffectAsync(listIdText, "Add.ChannelReserved");
 
             var committedVersion = await UpdateRecoverableMembershipAsync(
                 listId,
@@ -299,10 +309,15 @@ namespace youtubed.Persistence.Cosmos
                 },
                 edge,
                 owner);
-            await _channelRepository.RepairSubscriptionFromListTruthAsync(
+            await ReportMembershipSideEffectAsync(listIdText, "Add.ListCommitted");
+            var channelRepaired = await _channelRepository.RepairSubscriptionFromListTruthAsync(
                 channelId,
                 listId,
                 CancellationToken.None);
+            if (channelRepaired)
+            {
+                await ReportMembershipSideEffectAsync(listIdText, "Add.ChannelRepaired");
+            }
             var currentList = await ReadListAsync(listId);
             if (currentList?.Channels.Any(channel => string.Equals(
                 channel.Id,
@@ -313,6 +328,7 @@ namespace youtubed.Persistence.Cosmos
                     edge,
                     committedVersion,
                     CancellationToken.None);
+                await ReportMembershipSideEffectAsync(listIdText, "Add.EdgeTracked");
             }
             else
             {
@@ -325,7 +341,7 @@ namespace youtubed.Persistence.Cosmos
                     CancellationToken.None);
                 if (edge != null && lifecycle != null)
                 {
-                    await _recoveryStore.RetireEdgeAsync(
+                    var retirement = await _recoveryStore.RetireEdgeAsync(
                         edge,
                         lifecycle,
                         committedVersion,
@@ -338,10 +354,22 @@ namespace youtubed.Persistence.Cosmos
                                 channelId,
                                 committedVersion,
                                 cancellationToken));
+                    if (retirement.Retired)
+                    {
+                        await ReportMembershipSideEffectAsync(
+                            listIdText,
+                            "Add.EdgeRetired");
+                    }
                 }
             }
-            await ClearMembershipPendingAsync(listId, committedVersion);
-            await ForceRecoveryAsync();
+            if (await ClearMembershipPendingAsync(listId, committedVersion))
+            {
+                await ReportMembershipSideEffectAsync(listIdText, "Add.PendingCleared");
+            }
+            if (await ForceRecoveryAsync())
+            {
+                await ReportMembershipSideEffectAsync(listIdText, "Add.RecoveryForced");
+            }
         }
 
         public async Task RemoveChannelAsync(Guid listId, string channelId)
@@ -574,6 +602,7 @@ namespace youtubed.Persistence.Cosmos
                 channelId,
                 owner,
                 CancellationToken.None);
+            await ReportMembershipSideEffectAsync(listIdText, "Remove.EdgeActivated");
             var committedVersion = await UpdateRecoverableMembershipAsync(
                 listId,
                 document =>
@@ -594,10 +623,15 @@ namespace youtubed.Persistence.Cosmos
                 },
                 edge,
                 owner);
-            await _channelRepository.RepairSubscriptionFromListTruthAsync(
+            await ReportMembershipSideEffectAsync(listIdText, "Remove.ListCommitted");
+            var channelRepaired = await _channelRepository.RepairSubscriptionFromListTruthAsync(
                 channelId,
                 listId,
                 CancellationToken.None);
+            if (channelRepaired)
+            {
+                await ReportMembershipSideEffectAsync(listIdText, "Remove.ChannelRepaired");
+            }
             var lifecycle = await _recoveryStore.ReadLifecycleAsync(
                 listIdText,
                 CancellationToken.None);
@@ -607,7 +641,7 @@ namespace youtubed.Persistence.Cosmos
                 CancellationToken.None);
             if (edge != null && lifecycle != null)
             {
-                await _recoveryStore.RetireEdgeAsync(
+                var retirement = await _recoveryStore.RetireEdgeAsync(
                     edge,
                     lifecycle,
                     committedVersion,
@@ -620,10 +654,30 @@ namespace youtubed.Persistence.Cosmos
                             channelId,
                             committedVersion,
                             cancellationToken));
+                if (retirement.Retired)
+                {
+                    await ReportMembershipSideEffectAsync(
+                        listIdText,
+                        "Remove.EdgeRetired");
+                }
             }
 
-            await ClearMembershipPendingAsync(listId, committedVersion);
-            await ForceRecoveryAsync();
+            if (await ClearMembershipPendingAsync(listId, committedVersion))
+            {
+                await ReportMembershipSideEffectAsync(listIdText, "Remove.PendingCleared");
+            }
+            if (await ForceRecoveryAsync())
+            {
+                await ReportMembershipSideEffectAsync(listIdText, "Remove.RecoveryForced");
+            }
+        }
+
+        private Task ReportMembershipSideEffectAsync(string listId, string sideEffect)
+        {
+            return _interleavingHooks?.AfterMembershipSideEffectAsync?.Invoke(
+                    listId,
+                    sideEffect)
+                ?? Task.CompletedTask;
         }
 
         private async Task<long> UpdateRecoverableMembershipAsync(
@@ -732,10 +786,16 @@ namespace youtubed.Persistence.Cosmos
                 CancellationToken.None);
             if (lifecycle == null)
             {
-                await _recoveryStore.CreateLifecycleAsync(
+                var created = await _recoveryStore.CreateLifecycleWithResultAsync(
                     list.Id,
                     list.ExpiredAfter,
                     CancellationToken.None);
+                if (created.Created)
+                {
+                    await ReportMembershipSideEffectAsync(
+                        list.Id,
+                        "Bootstrap.LifecycleCreated");
+                }
             }
 
             // A prior bootstrap can have stopped after creating the lifecycle or
@@ -760,10 +820,16 @@ namespace youtubed.Persistence.Cosmos
                     channel.Id,
                     owner,
                     CancellationToken.None);
+                await ReportMembershipSideEffectAsync(
+                    list.Id,
+                    $"Bootstrap.EdgeActivated:{channel.Id}");
                 await _recoveryStore.MarkTrackedAsync(
                     edge,
                     list.MembershipVersion,
                     CancellationToken.None);
+                await ReportMembershipSideEffectAsync(
+                    list.Id,
+                    $"Bootstrap.EdgeTracked:{channel.Id}");
                 if (reportLifecycleSideEffects
                     && _interleavingHooks?.AfterLifecycleSideEffectAsync != null)
                 {
@@ -774,7 +840,9 @@ namespace youtubed.Persistence.Cosmos
             }
         }
 
-        private async Task ClearMembershipPendingAsync(Guid listId, long membershipVersion)
+        private async Task<bool> ClearMembershipPendingAsync(
+            Guid listId,
+            long membershipVersion)
         {
             for (var attempt = 0; attempt < MaxWriteAttempts; attempt++)
             {
@@ -783,7 +851,7 @@ namespace youtubed.Persistence.Cosmos
                     || document.MembershipVersion != membershipVersion
                     || !document.MembershipRecoveryPending)
                 {
-                    return;
+                    return false;
                 }
 
                 document.MembershipRecoveryPending = false;
@@ -795,29 +863,36 @@ namespace youtubed.Persistence.Cosmos
                 try
                 {
                     await ReplaceAsync(document);
-                    return;
+                    return true;
                 }
                 catch (CosmosException exception) when (
-                    exception.StatusCode == HttpStatusCode.PreconditionFailed
-                    && attempt + 1 < MaxWriteAttempts)
+                    exception.StatusCode == HttpStatusCode.PreconditionFailed)
                 {
+                    if (attempt + 1 >= MaxWriteAttempts)
+                    {
+                        throw new CosmosRecoveryConflictException(
+                            $"List '{listId:D}' membership pending clear conflicted twice.");
+                    }
                     CosmosRecoveryTelemetry.RecordConflict(
                         "ListRepository",
                         "ClearMembershipPending",
                         retry: true);
                 }
             }
+            throw new CosmosRecoveryConflictException(
+                $"List '{listId:D}' membership pending clear conflicted twice.");
         }
 
-        private async Task ForceRecoveryAsync()
+        private async Task<bool> ForceRecoveryAsync()
         {
             if (_workerStateStore == null)
             {
-                return;
+                return false;
             }
 
             await _workerStateStore.ForceConsistencyRecoveryAsync(CancellationToken.None);
             _wakeSignal?.Pulse();
+            return true;
         }
 
         private async Task UpdateListAsync(

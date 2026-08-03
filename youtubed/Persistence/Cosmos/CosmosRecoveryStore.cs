@@ -42,10 +42,22 @@ namespace youtubed.Persistence.Cosmos
             DateTimeOffset expiredAfter,
             CancellationToken cancellationToken)
         {
+            return (await CreateLifecycleWithResultAsync(
+                listId,
+                expiredAfter,
+                cancellationToken)).Document;
+        }
+
+        internal async Task<(CosmosRecoveryLifecycleDocument Document, bool Created)>
+            CreateLifecycleWithResultAsync(
+                string listId,
+                DateTimeOffset expiredAfter,
+                CancellationToken cancellationToken)
+        {
             var existing = await ReadLifecycleAsync(listId, cancellationToken);
             if (existing != null)
             {
-                return existing;
+                return (existing, false);
             }
 
             var document = new CosmosRecoveryLifecycleDocument
@@ -62,7 +74,7 @@ namespace youtubed.Persistence.Cosmos
                     document,
                     new PartitionKey(listId),
                     cancellationToken: cancellationToken);
-                return response.Resource;
+                return (response.Resource, true);
             }
             catch (CosmosException exception) when (exception.StatusCode == HttpStatusCode.Conflict)
             {
@@ -70,7 +82,9 @@ namespace youtubed.Persistence.Cosmos
                     "RecoveryStore",
                     "CreateLifecycle",
                     retry: false);
-                return await ReadLifecycleAsync(listId, cancellationToken);
+                return (
+                    await ReadLifecycleAsync(listId, cancellationToken),
+                    false);
             }
         }
 

@@ -213,7 +213,7 @@ namespace youtubed.Tests.Persistence.Cosmos
                 new Mock<Container>().Object,
                 new FakeAppClock());
 
-            await Assert.ThrowsAsync<CosmosException>(() =>
+            await Assert.ThrowsAsync<CosmosRecoveryConflictException>(() =>
                 repository.UpdateProjectedChannelsAsync(
                     new[] { CreateChannel("channel-1", "After", listId) },
                     CancellationToken.None));

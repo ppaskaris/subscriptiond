@@ -19,6 +19,7 @@ namespace youtubed.Persistence.Cosmos
         private readonly Container _lists;
         private readonly IAppClock _clock;
         private readonly TimeSpan _orphanRetention;
+        private readonly CosmosRecoveryInterleavingHooks _interleavingHooks;
 
         public CosmosChannelRepository(Container channels, Container lists, IAppClock clock)
             : this(channels, lists, null, clock, null)
@@ -30,13 +31,15 @@ namespace youtubed.Persistence.Cosmos
             Container lists,
             Container recovery,
             IAppClock clock,
-            CosmosRecoveryOptions recoveryOptions)
+            CosmosRecoveryOptions recoveryOptions,
+            CosmosRecoveryInterleavingHooks interleavingHooks = null)
         {
             _channels = channels ?? throw new ArgumentNullException(nameof(channels));
             _lists = lists ?? throw new ArgumentNullException(nameof(lists));
             _clock = clock ?? throw new ArgumentNullException(nameof(clock));
             _orphanRetention = recoveryOptions?.ChannelOrphanRetention
                 ?? Constants.ChannelOrphanRetention;
+            _interleavingHooks = interleavingHooks;
         }
 
         public async Task<Channel> GetByIdAsync(string id)
@@ -100,9 +103,13 @@ namespace youtubed.Persistence.Cosmos
                     return;
                 }
                 catch (CosmosException exception) when (
-                    exception.StatusCode == HttpStatusCode.PreconditionFailed
-                    && attempt + 1 < MaxWriteAttempts)
+                    exception.StatusCode == HttpStatusCode.PreconditionFailed)
                 {
+                    if (attempt + 1 >= MaxWriteAttempts)
+                    {
+                        throw new CosmosRecoveryConflictException(
+                            $"Channel '{channel.Id}' discovery update conflicted twice.");
+                    }
                     CosmosRecoveryTelemetry.RecordConflict(
                         "ChannelRepository",
                         "UpdateCanonical",
@@ -195,7 +202,7 @@ namespace youtubed.Persistence.Cosmos
         {
             foreach (var result in results)
             {
-                await UpdateChannelAsync(
+                var updated = await UpdateChannelAsync(
                     result.Channel.Id,
                     document =>
                     {
@@ -212,6 +219,13 @@ namespace youtubed.Persistence.Cosmos
                         document.ProjectionRecoveryAfterListId = null;
                     },
                     cancellationToken);
+                if (updated
+                    && _interleavingHooks?.AfterProjectionSideEffectAsync != null)
+                {
+                    await _interleavingHooks.AfterProjectionSideEffectAsync(
+                        result.Channel.Id,
+                        "CanonicalUpdated");
+                }
             }
         }
 
@@ -263,9 +277,13 @@ namespace youtubed.Persistence.Cosmos
                     return true;
                 }
                 catch (CosmosException exception) when (
-                    exception.StatusCode == HttpStatusCode.PreconditionFailed
-                    && attempt + 1 < MaxWriteAttempts)
+                    exception.StatusCode == HttpStatusCode.PreconditionFailed)
                 {
+                    if (attempt + 1 >= MaxWriteAttempts)
+                    {
+                        throw new CosmosRecoveryConflictException(
+                            $"Channel '{channelId}' reservation conflicted twice.");
+                    }
                     CosmosRecoveryTelemetry.RecordConflict(
                         "ChannelRepository",
                         "ReserveSubscription",
@@ -438,12 +456,12 @@ namespace youtubed.Persistence.Cosmos
             }
         }
 
-        private async Task UpdateChannelAsync(
+        private async Task<bool> UpdateChannelAsync(
             string id,
             Action<CosmosChannelDocument> update,
             CancellationToken cancellationToken)
         {
-            await UpdateChannelAsync(
+            return await UpdateChannelAsync(
                 id,
                 document =>
                 {
@@ -453,7 +471,7 @@ namespace youtubed.Persistence.Cosmos
                 cancellationToken);
         }
 
-        private async Task UpdateChannelAsync(
+        private async Task<bool> UpdateChannelAsync(
             string id,
             Func<CosmosChannelDocument, Task> update,
             CancellationToken cancellationToken)
@@ -463,25 +481,32 @@ namespace youtubed.Persistence.Cosmos
                 var document = await ReadChannelAsync(id, cancellationToken);
                 if (document == null)
                 {
-                    return;
+                    return false;
                 }
 
                 await update(document);
                 try
                 {
                     await ReplaceAsync(document, cancellationToken);
-                    return;
+                    return true;
                 }
                 catch (CosmosException exception) when (
-                    exception.StatusCode == HttpStatusCode.PreconditionFailed
-                    && attempt + 1 < MaxWriteAttempts)
+                    exception.StatusCode == HttpStatusCode.PreconditionFailed)
                 {
+                    if (attempt + 1 >= MaxWriteAttempts)
+                    {
+                        throw new CosmosRecoveryConflictException(
+                            $"Channel '{id}' update conflicted twice.");
+                    }
                     CosmosRecoveryTelemetry.RecordConflict(
                         "ChannelRepository",
                         "RemoveSubscription",
                         retry: true);
                 }
             }
+
+            throw new CosmosRecoveryConflictException(
+                $"Channel '{id}' update conflicted twice.");
         }
 
         private Task<ItemResponse<CosmosChannelDocument>> ReplaceAsync(

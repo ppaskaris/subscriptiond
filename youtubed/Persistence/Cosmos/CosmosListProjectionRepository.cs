@@ -167,26 +167,39 @@ namespace youtubed.Persistence.Cosmos
                     continue;
                 }
 
-                var present = await UpdateSingleListProjectionAsync(
+                var projectionWritten = await UpdateSingleListProjectionAsync(
                     listId,
                     projected,
                     cancellationToken);
-                if (_interleavingHooks?.AfterProjectionListWriteAsync != null)
+                if (projectionWritten)
+                {
+                    await ReportProjectionSideEffectAsync(channelId, "ListProjected");
+                }
+                if (projectionWritten
+                    && _interleavingHooks?.AfterProjectionListWriteAsync != null)
                 {
                     await _interleavingHooks.AfterProjectionListWriteAsync(listIdText);
                 }
-                if (!present)
+                if (!projectionWritten)
                 {
-                    await _recoveryStore.CreateLifecycleAsync(
+                    var lifecycle = await _recoveryStore.CreateLifecycleWithResultAsync(
                         listIdText,
                         _clock.UtcNow,
                         cancellationToken);
+                    if (lifecycle.Created)
+                    {
+                        await ReportProjectionSideEffectAsync(
+                            channelId,
+                            "DeadLifecycleCreated");
+                    }
                     var edge = await _recoveryStore.ActivateCandidateAsync(
                         listIdText,
                         channelId,
                         _owner,
                         cancellationToken);
+                    await ReportProjectionSideEffectAsync(channelId, "DeadEdgeActivated");
                     await _recoveryStore.MarkDueAsync(edge, cancellationToken);
+                    await ReportProjectionSideEffectAsync(channelId, "DeadEdgeDue");
                 }
 
                 succeeded++;
@@ -197,10 +210,11 @@ namespace youtubed.Persistence.Cosmos
                     listIdText,
                     clearPending: false,
                     cancellationToken);
-                if (!checkpointed)
+                if (checkpointed == ConditionalWriteResult.NotApplicable)
                 {
                     return (examined, succeeded, true);
                 }
+                await ReportProjectionSideEffectAsync(channelId, "CheckpointSaved");
             }
 
             var latest = await ReadChannelAsync(channelId, cancellationToken);
@@ -212,7 +226,13 @@ namespace youtubed.Persistence.Cosmos
             if (latest.ProjectionVersion != projectionVersion
                 || latest.SubscriptionGeneration != subscriptionGeneration)
             {
-                await ResetProjectionCheckpointAsync(latest, cancellationToken);
+                var reset = await ResetProjectionCheckpointAsync(
+                    latest,
+                    cancellationToken);
+                if (reset)
+                {
+                    await ReportProjectionSideEffectAsync(channelId, "CheckpointReset");
+                }
                 return (examined, succeeded, true);
             }
 
@@ -233,14 +253,30 @@ namespace youtubed.Persistence.Cosmos
                 return (examined, succeeded, true);
             }
 
-            await CheckpointProjectionAsync(
+            var cleared = await CheckpointProjectionAsync(
                 channelId,
                 projectionVersion,
                 subscriptionGeneration,
                 listIds.LastOrDefault(),
                 clearPending: true,
                 cancellationToken);
+            if (cleared == ConditionalWriteResult.Written)
+            {
+                await ReportProjectionSideEffectAsync(channelId, "PendingCleared");
+            }
+            else
+            {
+                return (examined, succeeded, true);
+            }
             return (examined, succeeded, false);
+        }
+
+        private Task ReportProjectionSideEffectAsync(string channelId, string sideEffect)
+        {
+            return _interleavingHooks?.AfterProjectionSideEffectAsync?.Invoke(
+                    channelId,
+                    sideEffect)
+                ?? Task.CompletedTask;
         }
 
         private async Task<bool> UpdateSingleListProjectionAsync(
@@ -292,9 +328,13 @@ namespace youtubed.Persistence.Cosmos
                     return false;
                 }
                 catch (CosmosException exception) when (
-                    exception.StatusCode == HttpStatusCode.PreconditionFailed
-                    && attempt + 1 < MaxWriteAttempts)
+                    exception.StatusCode == HttpStatusCode.PreconditionFailed)
                 {
+                    if (attempt + 1 >= MaxWriteAttempts)
+                    {
+                        throw new CosmosRecoveryConflictException(
+                            $"List '{listId:D}' projection write conflicted twice.");
+                    }
                     CosmosRecoveryTelemetry.RecordConflict(
                         "ProjectionRepository",
                         "UpdateListProjection",
@@ -302,10 +342,11 @@ namespace youtubed.Persistence.Cosmos
                 }
             }
 
-            return true;
+            throw new CosmosRecoveryConflictException(
+                $"List '{listId:D}' projection write conflicted twice.");
         }
 
-        private async Task<bool> CheckpointProjectionAsync(
+        private async Task<ConditionalWriteResult> CheckpointProjectionAsync(
             string channelId,
             long projectionVersion,
             long subscriptionGeneration,
@@ -320,7 +361,7 @@ namespace youtubed.Persistence.Cosmos
                     || channel.ProjectionVersion != projectionVersion
                     || channel.SubscriptionGeneration != subscriptionGeneration)
                 {
-                    return false;
+                    return ConditionalWriteResult.NotApplicable;
                 }
 
                 channel.ProjectionRecoveryProjectionVersion = projectionVersion;
@@ -344,12 +385,16 @@ namespace youtubed.Persistence.Cosmos
                         new PartitionKey(channel.Id),
                         new ItemRequestOptions { IfMatchEtag = channel.ETag },
                         cancellationToken);
-                    return true;
+                    return ConditionalWriteResult.Written;
                 }
                 catch (CosmosException exception) when (
-                    exception.StatusCode == HttpStatusCode.PreconditionFailed
-                    && attempt + 1 < MaxWriteAttempts)
+                    exception.StatusCode == HttpStatusCode.PreconditionFailed)
                 {
+                    if (attempt + 1 >= MaxWriteAttempts)
+                    {
+                        throw new CosmosRecoveryConflictException(
+                            $"Channel '{channelId}' projection checkpoint conflicted twice.");
+                    }
                     CosmosRecoveryTelemetry.RecordConflict(
                         "ProjectionRepository",
                         "SaveProjectionCheckpoint",
@@ -357,38 +402,63 @@ namespace youtubed.Persistence.Cosmos
                 }
             }
 
-            return false;
+            throw new CosmosRecoveryConflictException(
+                $"Channel '{channelId}' projection checkpoint conflicted twice.");
         }
 
-        private async Task ResetProjectionCheckpointAsync(
+        private async Task<bool> ResetProjectionCheckpointAsync(
             CosmosChannelDocument channel,
             CancellationToken cancellationToken)
         {
-            channel.ProjectionRecoveryProjectionVersion = null;
-            channel.ProjectionRecoverySubscriptionGeneration = null;
-            channel.ProjectionRecoveryAfterListId = null;
-            channel.ProjectionRecoveryDueAt = _clock.UtcNow;
-            try
+            for (var attempt = 0; attempt < MaxWriteAttempts; attempt++)
             {
-                await _channels.ReplaceItemAsync(
-                    channel,
-                    channel.Id,
-                    new PartitionKey(channel.Id),
-                    new ItemRequestOptions { IfMatchEtag = channel.ETag },
-                    cancellationToken);
-            }
-            catch (CosmosException exception) when (
-                exception.StatusCode is HttpStatusCode.PreconditionFailed
-                    or HttpStatusCode.NotFound)
-            {
-                if (exception.StatusCode == HttpStatusCode.PreconditionFailed)
+                channel.ProjectionRecoveryProjectionVersion = null;
+                channel.ProjectionRecoverySubscriptionGeneration = null;
+                channel.ProjectionRecoveryAfterListId = null;
+                channel.ProjectionRecoveryDueAt = _clock.UtcNow;
+                try
                 {
+                    await _channels.ReplaceItemAsync(
+                        channel,
+                        channel.Id,
+                        new PartitionKey(channel.Id),
+                        new ItemRequestOptions { IfMatchEtag = channel.ETag },
+                        cancellationToken);
+                    return true;
+                }
+                catch (CosmosException exception) when (
+                    exception.StatusCode == HttpStatusCode.NotFound)
+                {
+                    return false;
+                }
+                catch (CosmosException exception) when (
+                    exception.StatusCode == HttpStatusCode.PreconditionFailed)
+                {
+                    if (attempt + 1 >= MaxWriteAttempts)
+                    {
+                        throw new CosmosRecoveryConflictException(
+                            $"Channel '{channel.Id}' projection checkpoint reset conflicted twice.");
+                    }
                     CosmosRecoveryTelemetry.RecordConflict(
                         "ProjectionRepository",
                         "ResetProjectionCheckpoint",
-                        retry: false);
+                        retry: true);
+                    channel = await ReadChannelAsync(channel.Id, cancellationToken);
+                    if (channel == null)
+                    {
+                        return false;
+                    }
                 }
             }
+
+            throw new CosmosRecoveryConflictException(
+                $"Channel '{channel.Id}' projection checkpoint reset conflicted twice.");
+        }
+
+        private enum ConditionalWriteResult
+        {
+            NotApplicable,
+            Written
         }
 
         private async Task UpdateListAsync(
@@ -450,9 +520,13 @@ namespace youtubed.Persistence.Cosmos
                     return;
                 }
                 catch (CosmosException exception) when (
-                    exception.StatusCode == HttpStatusCode.PreconditionFailed
-                    && attempt + 1 < MaxWriteAttempts)
+                    exception.StatusCode == HttpStatusCode.PreconditionFailed)
                 {
+                    if (attempt + 1 >= MaxWriteAttempts)
+                    {
+                        throw new CosmosRecoveryConflictException(
+                            $"List '{listId:D}' projection write conflicted twice.");
+                    }
                     CosmosRecoveryTelemetry.RecordConflict(
                         "ProjectionRepository",
                         "RepairDeadReference",
@@ -519,15 +593,22 @@ namespace youtubed.Persistence.Cosmos
                     return;
                 }
                 catch (CosmosException exception) when (
-                    exception.StatusCode == HttpStatusCode.PreconditionFailed
-                    && attempt + 1 < MaxWriteAttempts)
+                    exception.StatusCode == HttpStatusCode.PreconditionFailed)
                 {
+                    if (attempt + 1 >= MaxWriteAttempts)
+                    {
+                        throw new CosmosRecoveryConflictException(
+                            $"Channel '{channelId}' projection reference repair conflicted twice.");
+                    }
                     CosmosRecoveryTelemetry.RecordConflict(
                         "ProjectionRepository",
                         "UpdateProjection",
                         retry: true);
                 }
             }
+
+            throw new CosmosRecoveryConflictException(
+                $"Channel '{channelId}' projection reference repair conflicted twice.");
         }
 
         private async Task<IReadOnlySet<Guid>> GetConfirmedDeadListIdsAsync(

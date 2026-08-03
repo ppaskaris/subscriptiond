@@ -1,6 +1,7 @@
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
@@ -171,6 +172,10 @@ namespace youtubed.Tests.Integration
             foreach (var sideEffectKind in new[]
             {
                 "Deleting",
+                "FirstBootstrapEdgeActivated",
+                "FirstBootstrapEdgeTracked",
+                "SecondBootstrapEdgeActivated",
+                "SecondBootstrapEdgeTracked",
                 "FirstEdgeSeeded",
                 "SecondEdgeSeeded",
                 "ListDeleted",
@@ -197,6 +202,14 @@ namespace youtubed.Tests.Integration
                 {
                     "FirstEdgeSeeded" => $"EdgeSeeded:{channelIds[0]}",
                     "SecondEdgeSeeded" => $"EdgeSeeded:{channelIds[1]}",
+                    "FirstBootstrapEdgeActivated" =>
+                        $"Bootstrap.EdgeActivated:{channelIds[0]}",
+                    "FirstBootstrapEdgeTracked" =>
+                        $"Bootstrap.EdgeTracked:{channelIds[0]}",
+                    "SecondBootstrapEdgeActivated" =>
+                        $"Bootstrap.EdgeActivated:{channelIds[1]}",
+                    "SecondBootstrapEdgeTracked" =>
+                        $"Bootstrap.EdgeTracked:{channelIds[1]}",
                     "FirstChannelRepaired" => $"ChannelRepaired:{channelIds[0]}",
                     "SecondChannelRepaired" => $"ChannelRepaired:{channelIds[1]}",
                     "FirstEdgeRetired" => $"EdgeRetired:{channelIds[0]}",
@@ -204,22 +217,40 @@ namespace youtubed.Tests.Integration
                     _ => sideEffectKind
                 };
                 var injected = 0;
+                Task InjectAsync(string sideEffect)
+                {
+                    if (string.Equals(sideEffect, target, StringComparison.Ordinal)
+                        && Interlocked.Exchange(ref injected, 1) == 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"injected after {sideEffect}");
+                    }
+                    return Task.CompletedTask;
+                }
                 var hooks = new CosmosRecoveryInterleavingHooks
                 {
                     AfterLifecycleSideEffectAsync = (_, sideEffect) =>
-                    {
-                        if (string.Equals(sideEffect, target, StringComparison.Ordinal)
-                            && Interlocked.Exchange(ref injected, 1) == 0)
-                        {
-                            throw new InvalidOperationException(
-                                $"injected after {sideEffect}");
-                        }
-                        return Task.CompletedTask;
-                    }
+                        InjectAsync(sideEffect),
+                    AfterMembershipSideEffectAsync = (_, sideEffect) =>
+                        InjectAsync(sideEffect)
                 };
 
-                _ = await CaptureAsync(
-                    () => CreateListRepository(clock, hooks).DeleteAsync(listId));
+                Exception deleteOutcome;
+                using (var interrupted = CreateApplicationProvider(clock, hooks))
+                {
+                    deleteOutcome = await CaptureAsync(() => interrupted
+                        .GetRequiredService<IListRepository>()
+                        .DeleteAsync(listId));
+                }
+                if (deleteOutcome != null)
+                {
+                    var injectedException = Assert.IsType<InvalidOperationException>(
+                        deleteOutcome);
+                    Assert.Equal($"injected after {target}", injectedException.Message);
+                }
+
+                clock.UtcNow = clock.UtcNow.Add(Constants.ConsistencyRecoveryLeaseDuration)
+                    .AddSeconds(1);
                 for (var pass = 0; pass < 8; pass++)
                 {
                     var lifecycle = await TryReadLifecycleAsync(listId);
@@ -232,13 +263,43 @@ namespace youtubed.Tests.Integration
                         clock.UtcNow = lifecycle.NextCheckAt;
                     }
                     await DeleteRecoverySystemCursorsAsync();
-                    _ = await CaptureAsync(
-                        () => CreateRecoveryService(clock, hooks).RecoverAsync(
+                    var injectedBeforePass = Volatile.Read(ref injected);
+                    using var restarted = CreateApplicationProvider(clock, hooks);
+                    var result = await restarted
+                        .GetRequiredService<IConsistencyRecoveryService>()
+                        .RecoverAsync(
                             ConsistencyRecoveryPassBudget.Default,
-                            CancellationToken.None));
+                            CancellationToken.None);
+                    if (Volatile.Read(ref injected) > injectedBeforePass)
+                    {
+                        var expectedFailed = sideEffectKind == "LifecycleCompleted"
+                            ? 0
+                            : 1;
+                        Assert.True(
+                            result.Failed == expectedFailed,
+                            $"{sideEffectKind} injected during recovery but reported "
+                            + $"Failed={result.Failed}; expected {expectedFailed}.");
+                        var failedLifecycle = await TryReadLifecycleAsync(listId);
+                        if (failedLifecycle != null)
+                        {
+                            Assert.Equal(
+                                nameof(InvalidOperationException),
+                                failedLifecycle.LastErrorClass);
+                        }
+                    }
+                    else
+                    {
+                        Assert.Equal(0, result.Failed);
+                    }
                 }
 
                 Assert.Equal(1, Volatile.Read(ref injected));
+                Assert.True(
+                    deleteOutcome != null || sideEffectKind is "MissingObserved"
+                        or "FirstEdgeRetired"
+                        or "SecondEdgeRetired"
+                        or "LifecycleCompleted",
+                    $"{sideEffectKind} did not surface at the expected workflow boundary.");
                 Assert.Null(await TryReadLifecycleAsync(listId));
                 foreach (var channelId in channelIds)
                 {
@@ -2373,6 +2434,700 @@ namespace youtubed.Tests.Integration
         }
 
         [CosmosFact]
+        public async Task ConcurrentShareLinkConsumersReturnExactlyOneTokenRepeatedly()
+        {
+            var clock = CreateClock();
+            for (var iteration = 0; iteration < 8; iteration++)
+            {
+                var listId = Guid.NewGuid();
+                var password = $"share-race-{iteration}-{Guid.NewGuid():N}";
+                using (var setup = CreateApplicationProvider(clock))
+                {
+                    await setup.GetRequiredService<IListRepository>()
+                        .CreateAsync(CreateList(listId, clock));
+                    Assert.True(await setup.GetRequiredService<IShareLinkRepository>()
+                        .TryCreateAsync(new ShareLink
+                        {
+                            Password = password,
+                            ListId = listId,
+                            CreatedAt = clock.UtcNow,
+                            ExpiresAfter = clock.UtcNow.AddHours(1)
+                        }));
+                }
+
+                using var firstInstance = CreateApplicationProvider(clock);
+                using var secondInstance = CreateApplicationProvider(clock);
+                var results = await Task.WhenAll(
+                    firstInstance.GetRequiredService<IShareLinkRepository>()
+                        .ConsumeAsync(password, clock.UtcNow),
+                    secondInstance.GetRequiredService<IShareLinkRepository>()
+                        .ConsumeAsync(password, clock.UtcNow));
+
+                var consumed = Assert.Single(results, result => result != null);
+                Assert.Equal(listId, consumed.ListId);
+                Assert.Equal(new byte[] { 1, 2, 3, 4 }, consumed.Token);
+                var persisted = (await ShareLinks.ReadItemAsync<CosmosShareLinkDocument>(
+                    password,
+                    new PartitionKey(password))).Resource;
+                Assert.Equal(clock.UtcNow, persisted.UsedAt);
+            }
+        }
+
+        [CosmosFact]
+        public async Task EveryMembershipAndProjectionSideEffectRecoversAfterProviderRestart()
+        {
+            var clock = CreateClock();
+            foreach (var stage in new[]
+            {
+                "Create.LifecycleCreated",
+                "Create.ListCreated"
+            })
+            {
+                var listId = Guid.NewGuid();
+                using (var interrupted = CreateApplicationProvider(
+                    clock,
+                    ThrowAfterMembershipSideEffect(stage)))
+                {
+                    var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                        interrupted.GetRequiredService<IListRepository>()
+                            .CreateAsync(CreateList(listId, clock)));
+                    Assert.Equal($"injected after {stage}", exception.Message);
+                }
+
+                if (stage == "Create.LifecycleCreated")
+                {
+                    await Assert.ThrowsAsync<CosmosException>(() => ReadListAsync(listId));
+                    var lifecycle = await ReadLifecycleAsync(listId);
+                    clock.UtcNow = lifecycle.NextCheckAt;
+                    await RecoverWithFreshProvidersAsync(clock, 8);
+                    Assert.Null(await TryReadLifecycleAsync(listId));
+                }
+                else
+                {
+                    using var restarted = CreateApplicationProvider(clock);
+                    Assert.NotNull(await restarted.GetRequiredService<IListRepository>()
+                        .GetAsync(listId));
+                    Assert.NotNull(await ReadLifecycleAsync(listId));
+                    await restarted.GetRequiredService<IConsistencyRecoveryService>()
+                        .RecoverAsync(
+                            ConsistencyRecoveryPassBudget.Default,
+                            CancellationToken.None);
+                }
+            }
+
+            var addStages = new[]
+            {
+                "Add.EdgeActivated",
+                "Add.ChannelReserved",
+                "Add.ListCommitted",
+                "Add.EdgeTracked",
+                "Add.EdgeRetired",
+                "Add.PendingCleared",
+                "Add.RecoveryForced"
+            };
+            foreach (var stage in addStages)
+            {
+                var listId = Guid.NewGuid();
+                var channelId = $"UC-add-boundary-{stage}-{Guid.NewGuid():N}";
+                await SeedChannelAsync(channelId, clock);
+                using (var setup = CreateApplicationProvider(clock))
+                {
+                    await setup.GetRequiredService<IListRepository>()
+                        .CreateAsync(CreateList(listId, clock));
+                }
+
+                var hooks = stage == "Add.EdgeRetired"
+                    ? new CosmosRecoveryInterleavingHooks
+                    {
+                        AfterMembershipSideEffectAsync = async (_, sideEffect) =>
+                        {
+                            if (sideEffect == "Add.ListCommitted")
+                            {
+                                var list = await ReadListAsync(listId);
+                                list.Channels = Array.Empty<CosmosProjectedChannelDocument>();
+                                await Lists.ReplaceItemAsync(
+                                    list,
+                                    list.Id,
+                                    new PartitionKey(list.Id),
+                                    new ItemRequestOptions { IfMatchEtag = list.ETag });
+                            }
+                            if (sideEffect == stage)
+                            {
+                                throw new InvalidOperationException(
+                                    $"injected after {sideEffect}");
+                            }
+                        }
+                    }
+                    : ThrowAfterMembershipSideEffect(stage);
+                using (var interrupted = CreateApplicationProvider(clock, hooks))
+                {
+                    var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                        interrupted.GetRequiredService<IListRepository>()
+                            .AddChannelAsync(listId, channelId));
+                    Assert.Equal($"injected after {stage}", exception.Message);
+                }
+
+                clock.UtcNow = clock.UtcNow.Add(Constants.ConsistencyRecoveryLeaseDuration)
+                    .AddSeconds(1);
+                await RecoverWithFreshProvidersAsync(clock, 12);
+
+                var shouldBeMember = Array.IndexOf(addStages, stage) >= 2
+                    && stage != "Add.EdgeRetired";
+                await AssertMembershipInvariantAsync(
+                    listId,
+                    channelId,
+                    shouldBeMember,
+                    $"add boundary {stage}");
+            }
+
+            var removeStages = new[]
+            {
+                "Remove.EdgeActivated",
+                "Remove.ListCommitted",
+                "Remove.ChannelRepaired",
+                "Remove.EdgeRetired",
+                "Remove.PendingCleared",
+                "Remove.RecoveryForced"
+            };
+            foreach (var stage in removeStages)
+            {
+                var listId = Guid.NewGuid();
+                var channelId = $"UC-remove-boundary-{stage}-{Guid.NewGuid():N}";
+                await SeedChannelAsync(channelId, clock);
+                using (var setup = CreateApplicationProvider(clock))
+                {
+                    var lists = setup.GetRequiredService<IListRepository>();
+                    await lists.CreateAsync(CreateList(listId, clock));
+                    await lists.AddChannelAsync(listId, channelId);
+                }
+
+                using (var interrupted = CreateApplicationProvider(
+                    clock,
+                    ThrowAfterMembershipSideEffect(stage)))
+                {
+                    var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                        interrupted.GetRequiredService<IListRepository>()
+                            .RemoveChannelAsync(listId, channelId));
+                    Assert.Equal($"injected after {stage}", exception.Message);
+                }
+
+                clock.UtcNow = clock.UtcNow.Add(Constants.ConsistencyRecoveryLeaseDuration)
+                    .AddSeconds(1);
+                await RecoverWithFreshProvidersAsync(clock, 12);
+
+                await AssertMembershipInvariantAsync(
+                    listId,
+                    channelId,
+                    shouldBeMember: stage == "Remove.EdgeActivated",
+                    $"remove boundary {stage}");
+            }
+
+            foreach (var stage in new[]
+            {
+                "CanonicalUpdated",
+                "ListProjected",
+                "CheckpointSaved",
+                "CheckpointReset",
+                "PendingCleared"
+            })
+            {
+                var listId = Guid.NewGuid();
+                var channelId = $"UC-projection-boundary-{stage}-{Guid.NewGuid():N}";
+                await SeedChannelAsync(channelId, clock);
+                using (var setup = CreateApplicationProvider(clock))
+                {
+                    var lists = setup.GetRequiredService<IListRepository>();
+                    await lists.CreateAsync(CreateList(listId, clock));
+                    await lists.AddChannelAsync(listId, channelId);
+                }
+
+                Channel refreshed;
+                using (var setup = CreateApplicationProvider(clock))
+                {
+                    refreshed = await setup.GetRequiredService<IChannelRepository>()
+                        .GetByIdAsync(channelId);
+                }
+                refreshed.Title = $"projected-after-{stage}";
+
+                if (stage == "CanonicalUpdated")
+                {
+                    var hooks = ThrowAfterProjectionSideEffect(stage);
+                    using var interrupted = CreateApplicationProvider(clock, hooks);
+                    var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                        interrupted.GetRequiredService<IChannelRepository>()
+                            .SaveRefreshResultsAsync(
+                                new[] { new ChannelRefreshResult { Channel = refreshed } },
+                                CancellationToken.None));
+                    Assert.Equal($"injected after {stage}", exception.Message);
+                }
+                else
+                {
+                    using (var canonicalWriter = CreateApplicationProvider(clock))
+                    {
+                        await canonicalWriter.GetRequiredService<IChannelRepository>()
+                            .SaveRefreshResultsAsync(
+                                new[] { new ChannelRefreshResult { Channel = refreshed } },
+                                CancellationToken.None);
+                    }
+                    var hooks = stage == "CheckpointReset"
+                        ? new CosmosRecoveryInterleavingHooks
+                        {
+                            AfterProjectionSideEffectAsync = async (_, sideEffect) =>
+                            {
+                                if (sideEffect == "CheckpointSaved")
+                                {
+                                    var current = await ReadChannelAsync(channelId);
+                                    current.SubscriptionGeneration++;
+                                    await Channels.ReplaceItemAsync(
+                                        current,
+                                        current.Id,
+                                        new PartitionKey(current.Id),
+                                        new ItemRequestOptions
+                                        {
+                                            IfMatchEtag = current.ETag
+                                        });
+                                }
+                                else if (sideEffect == "CheckpointReset")
+                                {
+                                    throw new InvalidOperationException(
+                                        $"injected after {sideEffect}");
+                                }
+                            }
+                        }
+                        : ThrowAfterProjectionSideEffect(stage);
+                    using var interrupted = CreateApplicationProvider(clock, hooks);
+                    var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                        interrupted.GetRequiredService<IListProjectionRepository>()
+                            .UpdateProjectedChannelsAsync(
+                                new[] { refreshed },
+                                CancellationToken.None));
+                    Assert.Equal($"injected after {stage}", exception.Message);
+                }
+
+                await RecoverWithFreshProvidersAsync(clock, 12);
+                var list = await ReadListAsync(listId);
+                var channel = await ReadChannelAsync(channelId);
+                Assert.Equal(
+                    $"projected-after-{stage}",
+                    Assert.Single(list.Channels, value => value.Id == channelId).Title);
+                Assert.False(channel.ProjectionRecoveryPending);
+                Assert.Null(channel.ProjectionRecoveryDueAt);
+            }
+
+            foreach (var stage in new[]
+            {
+                "DeadLifecycleCreated",
+                "DeadEdgeActivated",
+                "DeadEdgeDue"
+            })
+            {
+                var missingListId = Guid.NewGuid();
+                var channelId = $"UC-dead-projection-{stage}-{Guid.NewGuid():N}";
+                var canonical = CreateChannelDocument(channelId, clock);
+                canonical.SubscribedListIds = new[] { missingListId.ToString("D") };
+                canonical.SubscriptionCount = 1;
+                canonical.SubscriptionGeneration = 1;
+                canonical.ProjectionVersion = 1;
+                canonical.ProjectionRecoveryPending = true;
+                canonical.ProjectionRecoveryDueAt = clock.UtcNow;
+                canonical.ProjectionRecoveryStartedAt = clock.UtcNow;
+                canonical.OrphanedAfter = null;
+                canonical.Ttl = -1;
+                await Channels.CreateItemAsync(canonical, new PartitionKey(channelId));
+
+                using (var interrupted = CreateApplicationProvider(
+                    clock,
+                    ThrowAfterProjectionSideEffect(stage)))
+                {
+                    var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                        interrupted.GetRequiredService<IListProjectionRepository>()
+                            .UpdateProjectedChannelsAsync(
+                                new[] { CosmosDocumentMapper.ToChannel(canonical) },
+                                CancellationToken.None));
+                    Assert.Equal($"injected after {stage}", exception.Message);
+                }
+
+                clock.UtcNow = clock.UtcNow.Add(Constants.ConsistencyRecoveryLeaseDuration)
+                    .AddSeconds(1);
+                await RecoverWithFreshProvidersAsync(clock, 16);
+                var repaired = await ReadChannelAsync(channelId);
+                Assert.False(repaired.ProjectionRecoveryPending);
+                Assert.Empty(repaired.SubscribedListIds);
+                Assert.Equal(0, repaired.SubscriptionCount);
+                Assert.Null(await TryReadEdgeAsync(missingListId, channelId));
+            }
+        }
+
+        [CosmosFact]
+        public async Task ConcurrentDiscoveryCreatesOneCanonicalChannelRepeatedly()
+        {
+            var clock = CreateClock();
+            for (var iteration = 0; iteration < 8; iteration++)
+            {
+                var channelId = $"UC-discovery-race-{iteration}-{Guid.NewGuid():N}";
+                var firstStaleAfter = clock.UtcNow.AddHours(1);
+                var secondStaleAfter = clock.UtcNow.AddHours(2);
+                var firstChannel = CosmosDocumentMapper.ToChannel(
+                    CreateChannelDocument(channelId, clock));
+                var secondChannel = CosmosDocumentMapper.ToChannel(
+                    CreateChannelDocument(channelId, clock));
+                firstChannel.Title = "first discovery";
+                secondChannel.Title = "second discovery";
+
+                using var firstInstance = CreateApplicationProvider(clock);
+                using var secondInstance = CreateApplicationProvider(clock);
+                await Task.WhenAll(
+                    firstInstance.GetRequiredService<IChannelRepository>()
+                        .SaveDiscoveredChannelAsync(firstChannel, firstStaleAfter),
+                    secondInstance.GetRequiredService<IChannelRepository>()
+                        .SaveDiscoveredChannelAsync(secondChannel, secondStaleAfter));
+
+                var persisted = await ReadChannelAsync(channelId);
+                Assert.Contains(
+                    persisted.StaleAfter,
+                    new[] { firstStaleAfter, secondStaleAfter });
+                Assert.Equal(ChannelStatus.Active.ToString(), persisted.Status);
+                Assert.Equal(0, persisted.SubscriptionCount);
+                Assert.Empty(persisted.SubscribedListIds);
+                Assert.NotNull(await firstInstance.GetRequiredService<IChannelRepository>()
+                    .GetByIdAsync(channelId));
+            }
+        }
+
+        [CosmosFact]
+        public async Task MembershipMutationAndProjectionRefreshConvergeWithoutStaleOverwrite()
+        {
+            var clock = CreateClock();
+            for (var iteration = 0; iteration < 8; iteration++)
+            {
+                var listId = Guid.NewGuid();
+                var channelId = $"UC-membership-projection-{iteration}-{Guid.NewGuid():N}";
+                await SeedChannelAsync(channelId, clock);
+                using (var setup = CreateApplicationProvider(clock))
+                {
+                    var lists = setup.GetRequiredService<IListRepository>();
+                    await lists.CreateAsync(CreateList(listId, clock));
+                    await lists.AddChannelAsync(listId, channelId);
+                    var channels = setup.GetRequiredService<IChannelRepository>();
+                    var refreshed = await channels.GetByIdAsync(channelId);
+                    refreshed.Title = $"fresh-title-{iteration}";
+                    refreshed.StaleAfter = clock.UtcNow.AddDays(1);
+                    await channels.SaveRefreshResultsAsync(
+                        new[]
+                        {
+                            new ChannelRefreshResult
+                            {
+                                Channel = refreshed,
+                                VideosRefreshed = true
+                            }
+                        },
+                        CancellationToken.None);
+                }
+
+                var participantsReady = new TaskCompletionSource(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                var releaseParticipants = new TaskCompletionSource(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                var participantCount = 0;
+                async Task<Exception> RunParticipantAsync(Func<Task> operation)
+                {
+                    if (Interlocked.Increment(ref participantCount) == 3)
+                    {
+                        participantsReady.TrySetResult();
+                    }
+                    await releaseParticipants.Task;
+                    return await CaptureAsync(operation);
+                }
+
+                using var addInstance = CreateApplicationProvider(clock);
+                using var removeInstance = CreateApplicationProvider(clock);
+                using var projectionInstance = CreateApplicationProvider(clock);
+                var canonical = await addInstance.GetRequiredService<IChannelRepository>()
+                    .GetByIdAsync(channelId);
+                var participants = new[]
+                {
+                    RunParticipantAsync(() => addInstance.GetRequiredService<IListRepository>()
+                        .AddChannelAsync(listId, channelId)),
+                    RunParticipantAsync(() => removeInstance.GetRequiredService<IListRepository>()
+                        .RemoveChannelAsync(listId, channelId)),
+                    RunParticipantAsync(() => projectionInstance
+                        .GetRequiredService<IListProjectionRepository>()
+                        .UpdateProjectedChannelsAsync(
+                            new[] { canonical },
+                            CancellationToken.None))
+                };
+                await participantsReady.Task.WaitAsync(TimeSpan.FromSeconds(20));
+                Assert.Equal(3, Volatile.Read(ref participantCount));
+                releaseParticipants.TrySetResult();
+                var outcomes = await Task.WhenAll(participants);
+                AssertExpectedMembershipRaceOutcome(outcomes[0], iteration, "add");
+                AssertExpectedMembershipRaceOutcome(outcomes[1], iteration, "remove");
+                Assert.Null(outcomes[2]);
+
+                clock.UtcNow = clock.UtcNow.Add(Constants.ConsistencyRecoveryLeaseDuration)
+                    .AddSeconds(1);
+                await RecoverWithFreshProvidersAsync(clock, 12);
+
+                var list = await ReadListAsync(listId);
+                var channel = await ReadChannelAsync(channelId);
+                var listContains = list.Channels.Any(value => value.Id == channelId);
+                Assert.Equal(
+                    listContains,
+                    channel.SubscribedListIds.Contains(
+                        listId.ToString("D"),
+                        StringComparer.OrdinalIgnoreCase));
+                Assert.Equal(
+                    channel.SubscribedListIds.Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+                    channel.SubscriptionCount);
+                Assert.False(channel.ProjectionRecoveryPending);
+                if (listContains)
+                {
+                    Assert.Equal(
+                        $"fresh-title-{iteration}",
+                        Assert.Single(list.Channels, value => value.Id == channelId).Title);
+                }
+            }
+        }
+
+        [CosmosFact]
+        public async Task ExplicitDeletionRacingWithMutationConvergesAllReferences()
+        {
+            var clock = CreateClock();
+            for (var iteration = 0; iteration < 6; iteration++)
+            {
+                var listId = Guid.NewGuid();
+                var firstChannelId = $"UC-delete-race-a-{iteration}-{Guid.NewGuid():N}";
+                var secondChannelId = $"UC-delete-race-b-{iteration}-{Guid.NewGuid():N}";
+                await SeedChannelAsync(firstChannelId, clock);
+                await SeedChannelAsync(secondChannelId, clock);
+                using (var setup = CreateApplicationProvider(clock))
+                {
+                    var lists = setup.GetRequiredService<IListRepository>();
+                    await lists.CreateAsync(CreateList(listId, clock));
+                    await lists.AddChannelAsync(listId, firstChannelId);
+                }
+
+                var deletingPersisted = new TaskCompletionSource(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                var releaseDelete = new TaskCompletionSource(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                var hooks = new CosmosRecoveryInterleavingHooks
+                {
+                    AfterLifecycleSideEffectAsync = async (_, sideEffect) =>
+                    {
+                        if (sideEffect == "Deleting")
+                        {
+                            deletingPersisted.TrySetResult();
+                            await releaseDelete.Task;
+                        }
+                    }
+                };
+                using var deletingInstance = CreateApplicationProvider(clock, hooks);
+                var delete = CaptureAsync(() => deletingInstance
+                    .GetRequiredService<IListRepository>()
+                    .DeleteAsync(listId));
+                await deletingPersisted.Task;
+
+                Exception[] mutationOutcomes;
+                using (var mutationInstance = CreateApplicationProvider(clock))
+                {
+                    var lists = mutationInstance.GetRequiredService<IListRepository>();
+                    mutationOutcomes = await Task.WhenAll(
+                        CaptureAsync(() => lists.AddChannelAsync(listId, secondChannelId)),
+                        CaptureAsync(() => lists.UpdateAsync(
+                            listId,
+                            $"mutated-during-delete-{iteration}",
+                            1.25m)));
+                }
+                releaseDelete.TrySetResult();
+                var deleteOutcome = await delete;
+                Assert.Null(deleteOutcome);
+                AssertExpectedMembershipRaceOutcome(
+                    mutationOutcomes[0],
+                    iteration,
+                    "add during delete");
+                Assert.Null(mutationOutcomes[1]);
+
+                clock.UtcNow = clock.UtcNow.Add(Constants.ConsistencyRecoveryLeaseDuration)
+                    .AddSeconds(1);
+                await RecoverWithFreshProvidersAsync(clock, 12);
+
+                await Assert.ThrowsAsync<CosmosException>(() => ReadListAsync(listId));
+                Assert.Null(await TryReadLifecycleAsync(listId));
+                foreach (var channelId in new[] { firstChannelId, secondChannelId })
+                {
+                    var channel = await ReadChannelAsync(channelId);
+                    Assert.DoesNotContain(
+                        listId.ToString("D"),
+                        channel.SubscribedListIds,
+                        StringComparer.OrdinalIgnoreCase);
+                    Assert.Equal(0, channel.SubscriptionCount);
+                    Assert.Null(await TryReadEdgeAsync(listId, channelId));
+                }
+            }
+        }
+
+        [CosmosFact]
+        public async Task WorkerForceAndCompletionRacesNeverEraseForceGeneration()
+        {
+            var clock = CreateClock();
+            using (var setup = CreateApplicationProvider(clock))
+            {
+                await setup.GetRequiredService<IWorkerStateStore>()
+                    .GetOrCreateAsync(CancellationToken.None);
+            }
+
+            for (var iteration = 0; iteration < 12; iteration++)
+            {
+                using var firstInstance = CreateApplicationProvider(clock);
+                using var secondInstance = CreateApplicationProvider(clock);
+                var first = firstInstance.GetRequiredService<IWorkerStateStore>();
+                var second = secondInstance.GetRequiredService<IWorkerStateStore>();
+                var observed = await first.GetOrCreateAsync(CancellationToken.None);
+                await Task.WhenAll(
+                    first.ForceChannelRefreshAsync(CancellationToken.None),
+                    second.CompleteChannelRefreshPassAsync(
+                        observed.NextChannelRefreshAt,
+                        observed.ChannelRefreshForceCount,
+                        clock.UtcNow.AddHours(1),
+                        CancellationToken.None));
+
+                var afterChannelRace = await first.GetOrCreateAsync(CancellationToken.None);
+                Assert.Equal(DateTimeOffset.MinValue, afterChannelRace.NextChannelRefreshAt);
+                Assert.Equal(
+                    observed.ChannelRefreshForceCount + 1,
+                    afterChannelRace.ChannelRefreshForceCount);
+
+                await Task.WhenAll(
+                    first.ForceConsistencyRecoveryAsync(CancellationToken.None),
+                    second.CompleteConsistencyRecoveryPassAsync(
+                        afterChannelRace.NextConsistencyRecoveryAt,
+                        afterChannelRace.ConsistencyRecoveryForceCount,
+                        clock.UtcNow.AddHours(1),
+                        CancellationToken.None));
+
+                var afterRecoveryRace = await second.GetOrCreateAsync(CancellationToken.None);
+                Assert.Equal(
+                    DateTimeOffset.MinValue,
+                    afterRecoveryRace.NextConsistencyRecoveryAt);
+                Assert.Equal(
+                    afterChannelRace.ConsistencyRecoveryForceCount + 1,
+                    afterRecoveryRace.ConsistencyRecoveryForceCount);
+            }
+        }
+
+        [CosmosFact]
+        public async Task ConcurrentFreshApplicationInstancesMakeOverlappingRecoveryProgress()
+        {
+            var clock = CreateClock();
+            for (var iteration = 0; iteration < 6; iteration++)
+            {
+                await DeleteRecoverySystemCursorsAsync();
+                var membershipListId = Guid.NewGuid();
+                var membershipChannelId =
+                    $"UC-multi-membership-{iteration}-{Guid.NewGuid():N}";
+                await SeedChannelAsync(membershipChannelId, clock);
+                using (var setup = CreateApplicationProvider(clock))
+                {
+                    await setup.GetRequiredService<IListRepository>()
+                        .CreateAsync(CreateList(membershipListId, clock));
+                }
+                using (var interrupted = CreateApplicationProvider(
+                    clock,
+                    ThrowAfterMembershipSideEffect("Add.ListCommitted")))
+                {
+                    var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                        interrupted.GetRequiredService<IListRepository>()
+                            .AddChannelAsync(membershipListId, membershipChannelId));
+                    Assert.Equal("injected after Add.ListCommitted", exception.Message);
+                }
+
+                var projectionListId = Guid.NewGuid();
+                var projectionChannelId =
+                    $"UC-multi-projection-{iteration}-{Guid.NewGuid():N}";
+                await SeedChannelAsync(projectionChannelId, clock);
+                using (var setup = CreateApplicationProvider(clock))
+                {
+                    var lists = setup.GetRequiredService<IListRepository>();
+                    await lists.CreateAsync(CreateList(projectionListId, clock));
+                    await lists.AddChannelAsync(projectionListId, projectionChannelId);
+                    var channels = setup.GetRequiredService<IChannelRepository>();
+                    var refreshed = await channels.GetByIdAsync(projectionChannelId);
+                    refreshed.Title = $"multi-instance-title-{iteration}";
+                    await channels.SaveRefreshResultsAsync(
+                        new[] { new ChannelRefreshResult { Channel = refreshed } },
+                        CancellationToken.None);
+                }
+
+                clock.UtcNow = clock.UtcNow.Add(Constants.ConsistencyRecoveryLeaseDuration)
+                    .AddSeconds(1);
+                await ForceNextTicketAsync(Recovery, "Membership", clock);
+                var membershipEntered = new TaskCompletionSource(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                var projectionEntered = new TaskCompletionSource(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                var release = new TaskCompletionSource(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                var overlapHooks = new CosmosRecoveryInterleavingHooks
+                {
+                    BeforeMembershipWorkAsync = async listId =>
+                    {
+                        if (listId == membershipListId.ToString("D"))
+                        {
+                            membershipEntered.TrySetResult();
+                            await release.Task;
+                        }
+                    },
+                    BeforeProjectionWorkAsync = async channelId =>
+                    {
+                        if (channelId == projectionChannelId)
+                        {
+                            projectionEntered.TrySetResult();
+                            await release.Task;
+                        }
+                    }
+                };
+                using var firstInstance = CreateApplicationProvider(clock, overlapHooks);
+                using var secondInstance = CreateApplicationProvider(clock, overlapHooks);
+                var budget = new ConsistencyRecoveryPassBudget(2, 2, 2_000);
+                var first = firstInstance.GetRequiredService<IConsistencyRecoveryService>()
+                    .RecoverAsync(budget, CancellationToken.None);
+                var second = secondInstance.GetRequiredService<IConsistencyRecoveryService>()
+                    .RecoverAsync(budget, CancellationToken.None);
+                await Task.WhenAll(
+                    membershipEntered.Task.WaitAsync(TimeSpan.FromSeconds(20)),
+                    projectionEntered.Task.WaitAsync(TimeSpan.FromSeconds(20)));
+
+                var partialList = await ReadListAsync(membershipListId);
+                var partialProjection = await ReadChannelAsync(projectionChannelId);
+                Assert.True(partialList.MembershipRecoveryPending);
+                Assert.True(partialProjection.ProjectionRecoveryPending);
+                Assert.Equal(
+                    "Candidate",
+                    (await ReadEdgeAsync(membershipListId, membershipChannelId)).State);
+
+                release.TrySetResult();
+                var results = await Task.WhenAll(first, second);
+
+                Assert.All(results, result => Assert.Equal(0, result.Failed));
+                Assert.All(results, result => Assert.True(result.Claimed >= 1));
+                await AssertMembershipInvariantAsync(
+                    membershipListId,
+                    membershipChannelId,
+                    shouldBeMember: true,
+                    $"multi-instance membership iteration {iteration}");
+                var projectedList = await ReadListAsync(projectionListId);
+                var projectedChannel = await ReadChannelAsync(projectionChannelId);
+                Assert.Equal(
+                    $"multi-instance-title-{iteration}",
+                    Assert.Single(
+                        projectedList.Channels,
+                        value => value.Id == projectionChannelId).Title);
+                Assert.False(projectedChannel.ProjectionRecoveryPending);
+            }
+        }
+
+        [CosmosFact]
         public async Task ExactDueQueriesReturnIndexMetricsAndMeasuredRu()
         {
             var clock = CreateClock();
@@ -2504,6 +3259,101 @@ namespace youtubed.Tests.Integration
                     return;
                 }
             }
+        }
+
+        private async Task RecoverWithFreshProvidersAsync(
+            FakeAppClock clock,
+            int passCount)
+        {
+            for (var pass = 0; pass < passCount; pass++)
+            {
+                using var provider = CreateApplicationProvider(clock);
+                await provider.GetRequiredService<IConsistencyRecoveryService>()
+                    .RecoverAsync(
+                        ConsistencyRecoveryPassBudget.Default,
+                        CancellationToken.None);
+            }
+        }
+
+        private static CosmosRecoveryInterleavingHooks ThrowAfterMembershipSideEffect(
+            string target)
+        {
+            return new CosmosRecoveryInterleavingHooks
+            {
+                AfterMembershipSideEffectAsync = (_, sideEffect) =>
+                {
+                    if (sideEffect == target)
+                    {
+                        throw new InvalidOperationException($"injected after {sideEffect}");
+                    }
+                    return Task.CompletedTask;
+                }
+            };
+        }
+
+        private static CosmosRecoveryInterleavingHooks ThrowAfterProjectionSideEffect(
+            string target)
+        {
+            return new CosmosRecoveryInterleavingHooks
+            {
+                AfterProjectionSideEffectAsync = (_, sideEffect) =>
+                {
+                    if (sideEffect == target)
+                    {
+                        throw new InvalidOperationException($"injected after {sideEffect}");
+                    }
+                    return Task.CompletedTask;
+                }
+            };
+        }
+
+        private async Task AssertMembershipInvariantAsync(
+            Guid listId,
+            string channelId,
+            bool shouldBeMember,
+            string diagnostic)
+        {
+            var list = await ReadListAsync(listId);
+            var channel = await ReadChannelAsync(channelId);
+            Assert.Equal(
+                shouldBeMember,
+                list.Channels.Any(value => value.Id == channelId));
+            Assert.Equal(
+                shouldBeMember,
+                channel.SubscribedListIds.Contains(
+                    listId.ToString("D"),
+                    StringComparer.OrdinalIgnoreCase));
+            Assert.Equal(
+                channel.SubscribedListIds.Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+                channel.SubscriptionCount);
+            Assert.False(list.MembershipRecoveryPending);
+            var edge = await TryReadEdgeAsync(listId, channelId);
+            Assert.True(
+                shouldBeMember ? edge?.State == "Tracked" : edge == null,
+                $"{diagnostic}: persisted edge did not match authoritative membership.");
+        }
+
+        private static void AssertExpectedMembershipRaceOutcome(
+            Exception exception,
+            int iteration,
+            string participant)
+        {
+            if (exception == null)
+            {
+                return;
+            }
+
+            var isExpected = exception is RecoveryLeaseUnavailableException
+                or CosmosRecoveryConflictException
+                || exception is InvalidOperationException invalidOperation
+                    && invalidOperation.Message == "Membership write conflicted twice."
+                || exception is CosmosException cosmos
+                    && cosmos.StatusCode is HttpStatusCode.Conflict
+                        or HttpStatusCode.PreconditionFailed;
+            Assert.True(
+                isExpected,
+                $"iteration {iteration} {participant} failed unexpectedly with "
+                + $"{exception.GetType().Name}: {exception.Message}");
         }
 
         private async Task ReplenishMembershipAsync(
@@ -2735,6 +3585,53 @@ namespace youtubed.Tests.Integration
                 hooks);
         }
 
+        private ServiceProvider CreateApplicationProvider(
+            FakeAppClock clock,
+            CosmosRecoveryInterleavingHooks hooks = null)
+        {
+            var services = new ServiceCollection();
+            services.AddSingleton<IListRepository>(_ =>
+                new CosmosListRepository(
+                    Lists,
+                    Channels,
+                    Recovery,
+                    clock,
+                    new CosmosRecoveryOptions(),
+                    new CosmosWorkerStateStore(System, clock),
+                    new InProcessWorkerWakeSignal(),
+                    hooks));
+            services.AddSingleton<IChannelRepository>(_ =>
+                new CosmosChannelRepository(
+                    Channels,
+                    Lists,
+                    Recovery,
+                    clock,
+                    new CosmosRecoveryOptions(),
+                    hooks));
+            services.AddSingleton<IListProjectionRepository>(_ =>
+                new CosmosListProjectionRepository(
+                    Lists,
+                    Channels,
+                    Recovery,
+                    clock,
+                    new CosmosRecoveryOptions(),
+                    hooks));
+            services.AddSingleton<IShareLinkRepository>(_ =>
+                new CosmosShareLinkRepository(ShareLinks, Lists, clock));
+            services.AddSingleton<IWorkerStateStore>(_ =>
+                new CosmosWorkerStateStore(System, clock));
+            services.AddSingleton<IConsistencyRecoveryService>(_ =>
+                new CosmosConsistencyRecoveryService(
+                    Lists,
+                    Channels,
+                    Recovery,
+                    clock,
+                    new CosmosRecoveryOptions(),
+                    NullLogger<CosmosConsistencyRecoveryService>.Instance,
+                    hooks));
+            return services.BuildServiceProvider();
+        }
+
         private async Task<CosmosListDocument> ReadListAsync(Guid listId)
         {
             return (await Lists.ReadItemAsync<CosmosListDocument>(
@@ -2844,6 +3741,8 @@ namespace youtubed.Tests.Integration
             _fixture.GetContainer(CosmosTestFixture.ChannelsContainerName);
         private Container Recovery =>
             _fixture.GetContainer(CosmosTestFixture.RecoveryContainerName);
+        private Container ShareLinks =>
+            _fixture.GetContainer(CosmosTestFixture.ShareLinksContainerName);
         private Container System =>
             _fixture.GetContainer(CosmosTestFixture.SystemContainerName);
 

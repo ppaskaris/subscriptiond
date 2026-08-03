@@ -45,7 +45,7 @@ Ensure explicit deletion and TTL expiration converge all channel reverse referen
 ## Validation
 
 - Emulator tests prove explicit list deletion converges references after injected partial failures and restart.
-- Emulator or Azure staging tests use short-lived test documents, wait with a bounded poll, and prove list TTL deletion leads to reverse-reference repair and eventual orphan-channel deletion.
+- Local emulator tests use short-lived test documents, wait with a bounded poll, and prove list TTL deletion leads to reverse-reference repair and eventual orphan-channel deletion.
 - Coverage includes unavailable channels and races where membership is re-added during repair.
 - Tests prove work is bounded and resumes correctly from keyset/checkpoint state.
 - Tests inject failure after lifecycle deletion state, every edge-seeding write,

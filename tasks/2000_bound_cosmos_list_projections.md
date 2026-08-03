@@ -23,7 +23,7 @@ Guarantee that every Cosmos list document remains predictably bounded, RU-effici
 ## Out Of Scope
 
 - Changing SQL normalization.
-- Production infrastructure provisioning.
+- Cloud infrastructure provisioning or deployment automation.
 - SQL-to-Cosmos migration.
 
 ## Validation

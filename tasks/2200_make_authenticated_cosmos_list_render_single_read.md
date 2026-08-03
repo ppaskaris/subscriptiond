@@ -21,7 +21,7 @@ Render the normal authenticated Cosmos list page from one list-document point re
 
 - Changing the anonymous secret-link URL model.
 - Projection sizing, completed by Task 2000.
-- Production migration.
+- SQL-to-Cosmos migration.
 
 ## Validation
 

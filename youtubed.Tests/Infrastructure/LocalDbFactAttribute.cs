@@ -1,11 +1,9 @@
 using System;
 using Xunit;
-using Xunit.Sdk;
 
 namespace youtubed.Tests.Infrastructure
 {
-    [TraitDiscoverer("youtubed.Tests.Infrastructure.LocalDbTraitDiscoverer", "youtubed.Tests")]
-    public sealed class LocalDbFactAttribute : FactAttribute, ITraitAttribute
+    public sealed class LocalDbFactAttribute : FactAttribute
     {
         public const string EnvironmentVariableName = "YOUTUBED_RUN_LOCALDB_TESTS";
 

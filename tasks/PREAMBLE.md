@@ -18,17 +18,18 @@ The Cosmos target optimizes for free-tier quota usage. The common list page shou
 
 Preserve the anonymous secret-link model. Do not introduce accounts or authentication unless explicitly requested.
 
-## Production Readiness Phase
+## Test-Server Readiness Phase
 
-Tasks at ordinal 2000 and later close the gaps found by the overall Cosmos project review. Their completion bar is not feature-complete development or emulator-only confidence: when the final release-gate task is completed, the project must be demonstrably shippable to production.
+Tasks at ordinal 2000 and later close reliability gaps found by the overall Cosmos project review so the application can be deployed safely to the owner's test server. This is a hobby project: validation runs locally on the owner's computer and deployment is performed manually with [`scripts/deploy.ps1`](../scripts/deploy.ps1).
 
 For these tasks:
 
 - Treat every `Validation` item as required evidence, together with the repository-wide validation rules in [`AGENTS.md`](../AGENTS.md).
-- Do not mark a task `Completed` when a required LocalDB, Cosmos emulator, Azure staging, migration rehearsal, or release check was skipped or unavailable.
-- Prefer objective automated assertions and recorded staging evidence over implementation summaries that only state a manual check was performed.
+- Do not mark a task `Completed` when a required LocalDB, Cosmos emulator, migration rehearsal, or local release check was skipped or unavailable.
+- Prefer objective local automated assertions over implementation summaries that only state a manual check was performed.
 - If validation exposes a design gap, update the relevant design document and dependent task files before continuing.
-- Production deployment and cutover remain separate user-authorized actions; a task may prepare or rehearse them without authorizing changes to production.
+- Do not add hosted CI, GitHub Actions, automatic deployment, cloud release gates, branch-protection requirements, Azure staging environments, or production infrastructure-as-code unless the user explicitly changes the deployment model.
+- Deploying to the test server remains a separate user-authorized action; a task may prepare or rehearse deployment without performing it.
 
 ## Design Docs Index
 

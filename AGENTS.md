@@ -24,16 +24,16 @@
 - Changes to Cosmos behavior, documents, indexes, TTL, configuration, dependency injection, or hosting must pass the opted-in Cosmos suite with `YOUTUBED_RUN_COSMOS_TESTS=true`; a default run in which Cosmos tests are skipped is not evidence for the changed Cosmos behavior.
 - Changes to cross-container or cross-document workflows must test failure after each durable side effect, retry/restart recovery, and genuine concurrent execution against the Cosmos emulator where supported. Mocked ETag failures alone are insufficient.
 - Changes affecting denormalized documents or projections must test supported cardinality limits, serialized UTF-8 item size below the documented safety ceiling, and representative RU charges. Keep a hard safety margin below the Cosmos DB for NoSQL item limit.
-- Changes to TTL-backed lifecycles must verify eventual physical deletion in the emulator or Azure staging and verify repair of related references after deletion. Checking only the `ttl` property or the no-op Cosmos purger is insufficient.
+- Changes to TTL-backed lifecycles must verify eventual physical deletion in the local Cosmos emulator and verify repair of related references after deletion. Checking only the `ttl` property or the no-op Cosmos purger is insufficient.
 - Data migration changes must validate dry-run behavior, idempotent restart/resume, source-to-target reconciliation, and rollback without exposing tokens, connection strings, or other secrets.
-- Production infrastructure or authentication changes must be validated in Azure staging using the same infrastructure definition and identity model intended for production.
-- Before describing a change as production-ready or recommending a release, run `dotnet format --verify-no-changes`, `git diff --check`, a direct-plus-transitive NuGet vulnerability scan, and all applicable provider suites in addition to the build.
+- Before deploying with [`scripts/deploy.ps1`](scripts/deploy.ps1), run `dotnet format --verify-no-changes`, `git diff --check`, a direct-plus-transitive NuGet vulnerability scan, and all applicable provider suites in addition to the build.
 
 ## Environment Notes
 
 - `rg` is not available here. Use PowerShell-native search commands, and scope repo searches with `git ls-files --cached --others --exclude-standard` so ignored files stay excluded.
 - Run `dotnet`, LocalDB access, `gh`, and Git commands that write to the repository with elevated permissions in this environment.
 - Run validation sequentially after the build; do not overlap build and test execution because this repo can hit flaky testhost/file-copy races.
+- Validation and deployment are local, manual operations. Do not add hosted CI, GitHub Actions, automatic deployment, branch protection requirements, or cloud release gates unless the user explicitly asks for them.
 
 ## Commit Rules
 

@@ -52,7 +52,7 @@ Make list add/remove membership operations recover automatically after partial w
   checkpoints, which are Task 2120. Generic global queue cursors remain in this
   task.
 - Projection sizing.
-- Production migration tooling.
+- SQL-to-Cosmos migration tooling.
 
 ## Validation
 

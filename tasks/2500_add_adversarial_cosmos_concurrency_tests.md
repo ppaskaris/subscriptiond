@@ -2,7 +2,7 @@
 
 Status: Not Started
 
-Depends On: 2120_implement_cosmos_lifecycle_reconciliation, 2200_make_authenticated_cosmos_list_render_single_read, 2400_add_mandatory_provider_ci_release_gate
+Depends On: 2120_implement_cosmos_lifecycle_reconciliation, 2200_make_authenticated_cosmos_list_render_single_read
 
 ## Goal
 
@@ -25,7 +25,7 @@ Prove required concurrency and partial-failure guarantees against real Cosmos be
 ## Out Of Scope
 
 - General load testing.
-- Production migration rehearsal.
+- SQL-to-Cosmos migration rehearsal.
 - Weakening the one-retry document conflict policy.
 
 ## Validation
@@ -33,7 +33,7 @@ Prove required concurrency and partial-failure guarantees against real Cosmos be
 - Each race runs repeatedly without producing multiple share-link consumers, lost membership, stale projection overwrite, or erased worker force signals.
 - Partial-state tests converge after retry/restart with no manual user retry.
 - Tests assert final persisted documents and domain-visible behavior, not only successful return values.
-- All new tests run without skips in the mandatory CI provider gate.
+- All new tests run without skips in the opted-in local Cosmos suite.
 - Full sequential LocalDB and Cosmos provider contract suites remain green.
 
 ## Implementation Summary

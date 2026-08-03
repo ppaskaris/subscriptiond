@@ -2,11 +2,11 @@
 
 Status: Not Started
 
-Depends On: 2300_complete_storage_agnostic_repository_boundaries, 2600_add_production_cosmos_infrastructure, 2700_make_worker_safe_for_multi_instance_hosting
+Depends On: 2300_complete_storage_agnostic_repository_boundaries, 2520_establish_cosmos_size_ru_and_resilience_budgets
 
 ## Goal
 
-Define a safe, restartable, verifiable migration and rollback procedure for moving the existing SQL-backed production data to Cosmos without losing anonymous secret links or worker state.
+Define a safe, restartable, verifiable migration and rollback procedure for moving the existing SQL-backed test-server data to Cosmos without losing anonymous secret links or worker state.
 
 ## Scope
 
@@ -23,7 +23,7 @@ Define a safe, restartable, verifiable migration and rollback procedure for movi
 ## Out Of Scope
 
 - Implementing the migration command.
-- Executing production migration.
+- Executing the test-server migration.
 - Deleting the SQL database.
 
 ## Validation
@@ -31,7 +31,7 @@ Define a safe, restartable, verifiable migration and rollback procedure for movi
 - The mapping accounts for every persisted SQL field and every required Cosmos field.
 - The design proves rerunning from any checkpoint cannot duplicate membership, revive expired data, extend TTL incorrectly, or consume share links.
 - Reconciliation and rollback have objective pass/fail thresholds.
-- Expected dataset size, RU, runtime, and allowed downtime are estimated from production-like data.
+- Expected dataset size, RU, runtime, and allowed downtime are estimated from a representative local copy of the test-server data.
 - The design is reviewed against the anonymous secret-link and recovery invariants from earlier tasks.
 
 ## Implementation Summary

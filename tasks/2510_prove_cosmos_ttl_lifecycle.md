@@ -2,7 +2,7 @@
 
 Status: Not Started
 
-Depends On: 2120_implement_cosmos_lifecycle_reconciliation, 2400_add_mandatory_provider_ci_release_gate
+Depends On: 2120_implement_cosmos_lifecycle_reconciliation
 
 ## Goal
 
@@ -10,7 +10,7 @@ Prove that TTL is an actual end-to-end cleanup mechanism for every Cosmos lifecy
 
 ## Scope
 
-- Add isolated short-TTL emulator or Azure staging tests for expired lists, expired and used share links, and orphan channels with embedded videos.
+- Add isolated short-TTL emulator tests for expired lists, expired and used share links, and orphan channels with embedded videos.
 - Poll with bounded deadlines and useful diagnostics rather than using fixed long sleeps.
 - Verify physical deletion, not merely the `ttl` property or no-op purger return value.
 - After list TTL deletion, verify reverse references, `subscriptionCount`, orphan markers, and orphan TTL converge for active and unavailable channels.
@@ -24,10 +24,10 @@ Prove that TTL is an actual end-to-end cleanup mechanism for every Cosmos lifecy
 
 ## Validation
 
-- Required TTL lifecycle tests pass against the emulator where supported and against Azure staging before task completion.
+- Required TTL lifecycle tests pass against the local emulator before task completion.
 - Failure output identifies the retained document, TTL value, timestamps, and pending reconciliation state.
 - No test passes merely because `IExpirationPurger` returns zero.
-- Mandatory CI runs the supported emulator subset without skips; staging evidence is recorded in the implementation summary.
+- The opted-in local Cosmos suite runs the supported emulator tests without skips.
 
 ## Implementation Summary
 

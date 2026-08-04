@@ -10,6 +10,7 @@ using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Text;
+using System.Text.Json.Serialization;
 using Xunit;
 using youtubed.Domain;
 using youtubed.Persistence;
@@ -405,6 +406,8 @@ namespace youtubed.Tests.Integration
         [CosmosFact]
         public async Task PhysicalListTtlDeletionRepairsReverseReferenceAndChannelAlsoExpires()
         {
+            await using var isolated = await IsolatedTtlContainers.CreateAsync(
+                _fixture.Database);
             using var metrics = new RecordingMeterListener("youtubed.cosmos.recovery");
             var clock = CreateClock();
             var options = new CosmosRecoveryOptions
@@ -412,30 +415,80 @@ namespace youtubed.Tests.Integration
                 ChannelOrphanRetention = TimeSpan.FromSeconds(2)
             };
             var listId = Guid.NewGuid();
-            var channelId = $"UC-{Guid.NewGuid():N}";
-            await SeedChannelAsync(channelId, clock);
-            var repository = CreateListRepository(clock, options: options);
+            var channelIds = new[]
+            {
+                $"UC-active-{Guid.NewGuid():N}",
+                $"UC-unavailable-{Guid.NewGuid():N}"
+            };
+            foreach (var channelId in channelIds)
+            {
+                var channel = CreateChannelDocument(channelId, clock);
+                channel.Videos = new[]
+                {
+                    new CosmosVideoDocument
+                    {
+                        Id = $"video-{channelId}",
+                        Title = $"embedded video for {channelId}",
+                        DurationTicks = TimeSpan.FromMinutes(3).Ticks,
+                        PublishedAt = clock.UtcNow.AddMinutes(-5),
+                        Thumbnail = "https://example.test/video.jpg"
+                    }
+                };
+                if (channelId == channelIds[1])
+                {
+                    channel.Status = ChannelStatus.Unavailable.ToString();
+                    channel.StatusReason = ChannelStatusReason.NotFound.ToString();
+                    channel.StatusUpdatedAt = clock.UtcNow;
+                }
+                await isolated.Channels.CreateItemAsync(
+                    channel,
+                    new PartitionKey(channelId));
+            }
+            var repository = new CosmosListRepository(
+                isolated.Lists,
+                isolated.Channels,
+                isolated.Recovery,
+                clock,
+                options,
+                new CosmosWorkerStateStore(isolated.System, clock),
+                new InProcessWorkerWakeSignal());
             var expiring = CreateList(listId, clock);
             expiring.ExpiredAfter = clock.UtcNow.AddSeconds(2);
             await repository.CreateAsync(expiring);
-            await repository.AddChannelAsync(listId, channelId);
+            foreach (var channelId in channelIds)
+            {
+                await repository.AddChannelAsync(listId, channelId);
+            }
 
-            await WaitForNotFoundAsync(
-                Lists,
+            await WaitForPhysicalDeletionAsync(
+                isolated.Lists,
                 listId.ToString("D"),
-                TimeSpan.FromSeconds(90));
+                TimeSpan.FromSeconds(90),
+                () => ReadLifecycleDiagnosticAsync(isolated.Recovery, listId));
             clock.UtcNow = expiring.ExpiredAfter.AddSeconds(1);
-            await DeleteRecoverySystemCursorsAsync();
-            await CreateRecoveryService(clock, options: options).RecoverAsync(
+            await DeleteRecoverySystemCursorsAsync(isolated.Recovery);
+            await new CosmosConsistencyRecoveryService(
+                isolated.Lists,
+                isolated.Channels,
+                isolated.Recovery,
+                clock,
+                options,
+                NullLogger<CosmosConsistencyRecoveryService>.Instance).RecoverAsync(
                 ConsistencyRecoveryPassBudget.Default,
                 CancellationToken.None);
 
-            var orphan = await ReadChannelAsync(channelId);
-            Assert.Empty(orphan.SubscribedListIds);
-            Assert.Equal(0, orphan.SubscriptionCount);
-            Assert.NotNull(orphan.OrphanedAfter);
-            Assert.InRange(orphan.Ttl.Value, 1, 2);
-            Assert.Null(await TryReadLifecycleAsync(listId));
+            foreach (var channelId in channelIds)
+            {
+                var orphan = (await isolated.Channels.ReadItemAsync<CosmosChannelDocument>(
+                    channelId,
+                    new PartitionKey(channelId))).Resource;
+                Assert.Empty(orphan.SubscribedListIds);
+                Assert.Equal(0, orphan.SubscriptionCount);
+                Assert.NotNull(orphan.OrphanedAfter);
+                Assert.InRange(orphan.Ttl.Value, 1, 2);
+                Assert.Single(orphan.Videos);
+            }
+            Assert.Null(await TryReadLifecycleAsync(isolated.Recovery, listId));
             Assert.Contains(
                 metrics.Measurements,
                 measurement => measurement.Name == "recovery.list_not_found"
@@ -452,10 +505,164 @@ namespace youtubed.Tests.Integration
                 metrics.Measurements,
                 measurement => measurement.Name == "recovery.request_charge"
                     && measurement.Value > 0);
-            await WaitForNotFoundAsync(
-                Channels,
-                channelId,
-                TimeSpan.FromSeconds(90));
+            foreach (var channelId in channelIds)
+            {
+                await WaitForPhysicalDeletionAsync(
+                    isolated.Channels,
+                    channelId,
+                    TimeSpan.FromSeconds(90),
+                    () => ReadLifecycleDiagnosticAsync(isolated.Recovery, listId));
+            }
+        }
+
+        [CosmosFact]
+        public async Task ExpiredUnusedAndUsedShareLinksArePhysicallyDeletedByTtl()
+        {
+            await using var isolated = await IsolatedTtlContainers.CreateAsync(
+                _fixture.Database);
+            var clock = CreateClock();
+            var listId = Guid.NewGuid();
+            var cleanupAt = clock.UtcNow.AddSeconds(5);
+            var expiresAfter = cleanupAt - Constants.ShareLinkRetentionAfterExpiration;
+            var links = new[]
+            {
+                new ShareLink
+                {
+                    Password = $"expired-unused-{Guid.NewGuid():N}",
+                    ListId = listId,
+                    CreatedAt = expiresAfter.AddMinutes(-5),
+                    ExpiresAfter = expiresAfter
+                },
+                new ShareLink
+                {
+                    Password = $"expired-used-{Guid.NewGuid():N}",
+                    ListId = listId,
+                    CreatedAt = expiresAfter.AddMinutes(-5),
+                    ExpiresAfter = expiresAfter,
+                    UsedAt = expiresAfter.AddMinutes(-1)
+                }
+            };
+            var repository = new CosmosShareLinkRepository(
+                isolated.ShareLinks,
+                isolated.Lists,
+                clock);
+
+            foreach (var link in links)
+            {
+                Assert.True(await repository.TryCreateAsync(link));
+                var persisted = (await isolated.ShareLinks
+                    .ReadItemAsync<CosmosShareLinkDocument>(
+                        link.Password,
+                        new PartitionKey(link.Password))).Resource;
+                Assert.Equal(listId.ToString("D"), persisted.ListId);
+                Assert.Equal(link.CreatedAt, persisted.CreatedAt);
+                Assert.Equal(link.ExpiresAfter, persisted.ExpiresAfter);
+                Assert.Equal(link.UsedAt, persisted.UsedAt);
+                Assert.Equal(5, persisted.Ttl);
+            }
+
+            foreach (var link in links)
+            {
+                await WaitForPhysicalDeletionAsync(
+                    isolated.ShareLinks,
+                    link.Password,
+                    TimeSpan.FromSeconds(90),
+                    () => Task.FromResult(
+                        "none; share-link cleanup is TTL-only and has no reconciliation record"));
+            }
+        }
+
+        [CosmosFact]
+        public async Task RenewalAndResubscriptionUpdateOnlyTheirOwnedTtlLifetimes()
+        {
+            await using var isolated = await IsolatedTtlContainers.CreateAsync(
+                _fixture.Database);
+            var clock = CreateClock();
+            var listId = Guid.NewGuid();
+            var targetChannelId = $"UC-resubscribe-{Guid.NewGuid():N}";
+            var unrelatedChannelId = $"UC-unrelated-{Guid.NewGuid():N}";
+            var repository = new CosmosListRepository(
+                isolated.Lists,
+                isolated.Channels,
+                isolated.Recovery,
+                clock,
+                new CosmosRecoveryOptions(),
+                new CosmosWorkerStateStore(isolated.System, clock),
+                new InProcessWorkerWakeSignal());
+            var list = CreateList(listId, clock);
+            list.ExpiredAfter = clock.UtcNow.AddHours(1);
+            list.ExpirationRenewedOn = clock.UtcToday.AddDays(-1);
+            await repository.CreateAsync(list);
+
+            foreach (var channelId in new[] { targetChannelId, unrelatedChannelId })
+            {
+                var orphan = CreateChannelDocument(channelId, clock);
+                orphan.Ttl = 120;
+                orphan.Videos = new[]
+                {
+                    new CosmosVideoDocument
+                    {
+                        Id = $"video-{channelId}",
+                        PublishedAt = clock.UtcNow,
+                        DurationTicks = TimeSpan.FromMinutes(1).Ticks
+                    }
+                };
+                await isolated.Channels.CreateItemAsync(
+                    orphan,
+                    new PartitionKey(channelId));
+            }
+
+            var unrelatedBefore = (await isolated.Channels
+                .ReadItemAsync<CosmosChannelDocument>(
+                    unrelatedChannelId,
+                    new PartitionKey(unrelatedChannelId))).Resource;
+            clock.UtcNow = clock.UtcNow.AddMinutes(10);
+            var renewedExpiry = clock.UtcNow.AddDays(45);
+            await repository.RenewExpirationAsync(
+                listId,
+                renewedExpiry,
+                clock.UtcToday);
+
+            var renewed = (await isolated.Lists.ReadItemAsync<CosmosListDocument>(
+                listId.ToString("D"),
+                new PartitionKey(listId.ToString("D")))).Resource;
+            var unrelatedAfterRenewal = (await isolated.Channels
+                .ReadItemAsync<CosmosChannelDocument>(
+                    unrelatedChannelId,
+                    new PartitionKey(unrelatedChannelId))).Resource;
+            Assert.Equal(renewedExpiry, renewed.ExpiredAfter);
+            Assert.Equal(
+                CosmosDocumentMapper.GetTtlSeconds(renewedExpiry, clock.UtcNow),
+                renewed.Ttl);
+            Assert.Equal(unrelatedBefore.ETag, unrelatedAfterRenewal.ETag);
+            Assert.Equal(unrelatedBefore.Ttl, unrelatedAfterRenewal.Ttl);
+
+            clock.UtcNow = clock.UtcNow.AddMinutes(10);
+            await repository.AddChannelAsync(listId, targetChannelId);
+
+            var resubscribed = (await isolated.Channels
+                .ReadItemAsync<CosmosChannelDocument>(
+                    targetChannelId,
+                    new PartitionKey(targetChannelId))).Resource;
+            var afterResubscription = (await isolated.Lists
+                .ReadItemAsync<CosmosListDocument>(
+                    listId.ToString("D"),
+                    new PartitionKey(listId.ToString("D")))).Resource;
+            var unrelatedAfterResubscription = (await isolated.Channels
+                .ReadItemAsync<CosmosChannelDocument>(
+                    unrelatedChannelId,
+                    new PartitionKey(unrelatedChannelId))).Resource;
+            Assert.Equal(1, resubscribed.SubscriptionCount);
+            Assert.Equal(new[] { listId.ToString("D") }, resubscribed.SubscribedListIds);
+            Assert.Null(resubscribed.OrphanedAfter);
+            Assert.Equal(-1, resubscribed.Ttl);
+            Assert.Single(resubscribed.Videos);
+            Assert.Equal(renewedExpiry, afterResubscription.ExpiredAfter);
+            Assert.Equal(
+                CosmosDocumentMapper.GetTtlSeconds(renewedExpiry, clock.UtcNow),
+                afterResubscription.Ttl);
+            Assert.Equal(unrelatedBefore.ETag, unrelatedAfterResubscription.ETag);
+            Assert.Equal(unrelatedBefore.Ttl, unrelatedAfterResubscription.Ttl);
         }
 
         [CosmosFact]
@@ -3019,6 +3226,7 @@ namespace youtubed.Tests.Integration
         [CosmosFact]
         public async Task ConcurrentFreshApplicationInstancesMakeOverlappingRecoveryProgress()
         {
+            await ResetRecoveryIntegrationStateAsync();
             var clock = CreateClock();
             for (var iteration = 0; iteration < 6; iteration++)
             {
@@ -3087,16 +3295,26 @@ namespace youtubed.Tests.Integration
                         }
                     }
                 };
-                using var firstInstance = CreateApplicationProvider(clock, overlapHooks);
-                using var secondInstance = CreateApplicationProvider(clock, overlapHooks);
-                var budget = new ConsistencyRecoveryPassBudget(2, 2, 2_000);
+                var membershipLogger =
+                    new RecordingLogger<CosmosConsistencyRecoveryService>();
+                var projectionLogger =
+                    new RecordingLogger<CosmosConsistencyRecoveryService>();
+                using var firstInstance = CreateApplicationProvider(
+                    clock,
+                    overlapHooks,
+                    membershipLogger);
+                using var secondInstance = CreateApplicationProvider(
+                    clock,
+                    overlapHooks,
+                    projectionLogger);
+                var membershipBudget = new ConsistencyRecoveryPassBudget(2, 2, 2_000);
+                var projectionBudget = new ConsistencyRecoveryPassBudget(1, 1, 2_000);
                 var first = firstInstance.GetRequiredService<IConsistencyRecoveryService>()
-                    .RecoverAsync(budget, CancellationToken.None);
+                    .RecoverAsync(membershipBudget, CancellationToken.None);
+                await membershipEntered.Task.WaitAsync(TimeSpan.FromSeconds(20));
                 var second = secondInstance.GetRequiredService<IConsistencyRecoveryService>()
-                    .RecoverAsync(budget, CancellationToken.None);
-                await Task.WhenAll(
-                    membershipEntered.Task.WaitAsync(TimeSpan.FromSeconds(20)),
-                    projectionEntered.Task.WaitAsync(TimeSpan.FromSeconds(20)));
+                    .RecoverAsync(projectionBudget, CancellationToken.None);
+                await projectionEntered.Task.WaitAsync(TimeSpan.FromSeconds(20));
 
                 var partialList = await ReadListAsync(membershipListId);
                 var partialProjection = await ReadChannelAsync(projectionChannelId);
@@ -3108,8 +3326,16 @@ namespace youtubed.Tests.Integration
 
                 release.TrySetResult();
                 var results = await Task.WhenAll(first, second);
+                var failureDetails = membershipLogger.FailureDetails
+                    .Concat(projectionLogger.FailureDetails)
+                    .ToArray();
 
-                Assert.All(results, result => Assert.Equal(0, result.Failed));
+                Assert.All(
+                    results,
+                    result => Assert.True(
+                        result.Failed == 0,
+                        $"iteration {iteration}; result={result}; logs="
+                            + string.Join(" | ", failureDetails)));
                 Assert.All(results, result => Assert.True(result.Claimed >= 1));
                 await AssertMembershipInvariantAsync(
                     membershipListId,
@@ -3373,7 +3599,50 @@ namespace youtubed.Tests.Integration
 
         private async Task DeleteRecoverySystemCursorsAsync()
         {
-            using var iterator = Recovery.GetItemQueryIterator<string>(
+            await DeleteRecoverySystemCursorsAsync(Recovery);
+        }
+
+        private async Task ResetRecoveryIntegrationStateAsync()
+        {
+            await DeleteAllItemsAsync(Lists, address => address.Id);
+            await DeleteAllItemsAsync(Channels, address => address.Id);
+            await DeleteAllItemsAsync(Recovery, address => address.ListId);
+        }
+
+        private static async Task DeleteAllItemsAsync(
+            Container container,
+            Func<CosmosTestItemAddress, string> getPartitionKey)
+        {
+            while (true)
+            {
+                using var iterator = container.GetItemQueryIterator<CosmosTestItemAddress>(
+                    "SELECT TOP 100 c.id, c.listId FROM c",
+                    requestOptions: new QueryRequestOptions { MaxItemCount = 100 });
+                var addresses = (await iterator.ReadNextAsync()).ToArray();
+                if (addresses.Length == 0)
+                {
+                    return;
+                }
+
+                foreach (var address in addresses)
+                {
+                    try
+                    {
+                        await container.DeleteItemAsync<object>(
+                            address.Id,
+                            new PartitionKey(getPartitionKey(address)));
+                    }
+                    catch (CosmosException exception) when (
+                        exception.StatusCode == HttpStatusCode.NotFound)
+                    {
+                    }
+                }
+            }
+        }
+
+        private static async Task DeleteRecoverySystemCursorsAsync(Container recovery)
+        {
+            using var iterator = recovery.GetItemQueryIterator<string>(
                 "SELECT VALUE c.id FROM c",
                 requestOptions: new QueryRequestOptions
                 {
@@ -3383,7 +3652,7 @@ namespace youtubed.Tests.Integration
             {
                 foreach (var id in await iterator.ReadNextAsync())
                 {
-                    await Recovery.DeleteItemAsync<object>(
+                    await recovery.DeleteItemAsync<object>(
                         id,
                         new PartitionKey("__system"));
                 }
@@ -3587,7 +3856,8 @@ namespace youtubed.Tests.Integration
 
         private ServiceProvider CreateApplicationProvider(
             FakeAppClock clock,
-            CosmosRecoveryInterleavingHooks hooks = null)
+            CosmosRecoveryInterleavingHooks hooks = null,
+            ILogger<CosmosConsistencyRecoveryService> recoveryLogger = null)
         {
             var services = new ServiceCollection();
             services.AddSingleton<IListRepository>(_ =>
@@ -3627,7 +3897,8 @@ namespace youtubed.Tests.Integration
                     Recovery,
                     clock,
                     new CosmosRecoveryOptions(),
-                    NullLogger<CosmosConsistencyRecoveryService>.Instance,
+                    recoveryLogger
+                        ?? NullLogger<CosmosConsistencyRecoveryService>.Instance,
                     hooks));
             return services.BuildServiceProvider();
         }
@@ -3690,17 +3961,53 @@ namespace youtubed.Tests.Integration
             }
         }
 
-        private static async Task WaitForNotFoundAsync(
+        private static async Task<string> ReadLifecycleDiagnosticAsync(
+            Container recovery,
+            Guid listId)
+        {
+            var lifecycle = await TryReadLifecycleAsync(recovery, listId);
+            return lifecycle == null
+                ? "none"
+                : $"state={lifecycle.State}, activeEdgeCount={lifecycle.ActiveEdgeCount}, "
+                    + $"edgeGeneration={lifecycle.EdgeGeneration}, "
+                    + $"missingObservedAt={lifecycle.MissingObservedAt:O}, "
+                    + $"nextCheckAt={lifecycle.NextCheckAt:O}, "
+                    + $"attempt={lifecycle.Attempt}, owner={lifecycle.Owner ?? "<none>"}, "
+                    + $"leaseUntil={lifecycle.LeaseUntil:O}";
+        }
+
+        private static async Task<CosmosRecoveryLifecycleDocument> TryReadLifecycleAsync(
+            Container recovery,
+            Guid listId)
+        {
+            try
+            {
+                return (await recovery.ReadItemAsync<CosmosRecoveryLifecycleDocument>(
+                    CosmosRecoveryLifecycleDocument.DocumentId,
+                    new PartitionKey(listId.ToString("D")))).Resource;
+            }
+            catch (CosmosException exception) when (
+                exception.StatusCode == HttpStatusCode.NotFound)
+            {
+                return null;
+            }
+        }
+
+        private static async Task WaitForPhysicalDeletionAsync(
             Container container,
             string id,
-            TimeSpan timeout)
+            TimeSpan timeout,
+            Func<Task<string>> readPendingReconciliationState)
         {
             var deadline = DateTimeOffset.UtcNow.Add(timeout);
+            CosmosTtlDiagnosticDocument retained = null;
             while (DateTimeOffset.UtcNow < deadline)
             {
                 try
                 {
-                    await container.ReadItemAsync<object>(id, new PartitionKey(id));
+                    retained = (await container.ReadItemAsync<CosmosTtlDiagnosticDocument>(
+                        id,
+                        new PartitionKey(id))).Resource;
                 }
                 catch (CosmosException exception) when (
                     exception.StatusCode == HttpStatusCode.NotFound)
@@ -3710,8 +4017,18 @@ namespace youtubed.Tests.Integration
                 await Task.Delay(TimeSpan.FromMilliseconds(250));
             }
 
+            var pendingState = await readPendingReconciliationState();
             throw new TimeoutException(
-                $"Cosmos item '{id}' was not physically deleted within {timeout}.");
+                $"Cosmos item '{id}' in container '{container.Id}' was not physically "
+                + $"deleted within {timeout}. Retained document: ttl={retained?.Ttl}, "
+                + $"serverTimestamp={retained?.ServerTimestamp}, "
+                + $"expiredAfter={retained?.ExpiredAfter:O}, "
+                + $"expiresAfter={retained?.ExpiresAfter:O}, usedAt={retained?.UsedAt:O}, "
+                + $"orphanedAfter={retained?.OrphanedAfter:O}, "
+                + $"subscriptionCount={retained?.SubscriptionCount}, "
+                + $"subscribedListIds=[{string.Join(",", retained?.SubscribedListIds ?? Array.Empty<string>())}], "
+                + $"membershipRecoveryPending={retained?.MembershipRecoveryPending}; "
+                + $"pending reconciliation: {pendingState}.");
         }
 
         private static async Task<Exception> CaptureAsync(Func<Task> operation)
@@ -3746,10 +4063,88 @@ namespace youtubed.Tests.Integration
         private Container System =>
             _fixture.GetContainer(CosmosTestFixture.SystemContainerName);
 
+        private sealed class IsolatedTtlContainers : IAsyncDisposable
+        {
+            private readonly IReadOnlyList<Container> _containers;
+
+            private IsolatedTtlContainers(
+                Container lists,
+                Container channels,
+                Container shareLinks,
+                Container system,
+                Container recovery)
+            {
+                Lists = lists;
+                Channels = channels;
+                ShareLinks = shareLinks;
+                System = system;
+                Recovery = recovery;
+                _containers = new[] { lists, channels, shareLinks, system, recovery };
+            }
+
+            internal Container Lists { get; }
+            internal Container Channels { get; }
+            internal Container ShareLinks { get; }
+            internal Container System { get; }
+            internal Container Recovery { get; }
+
+            internal static async Task<IsolatedTtlContainers> CreateAsync(
+                Database database)
+            {
+                var suffix = Guid.NewGuid().ToString("N");
+                var options = new CosmosOptions
+                {
+                    ListsContainer = $"ttl-lists-{suffix}",
+                    ChannelsContainer = $"ttl-channels-{suffix}",
+                    ShareLinksContainer = $"ttl-share-links-{suffix}",
+                    SystemContainer = $"ttl-system-{suffix}",
+                    RecoveryContainer = $"ttl-recovery-{suffix}"
+                };
+                await new CosmosContainerInitializer().InitializeAsync(
+                    database,
+                    options);
+                return new IsolatedTtlContainers(
+                    database.GetContainer(options.ListsContainer),
+                    database.GetContainer(options.ChannelsContainer),
+                    database.GetContainer(options.ShareLinksContainer),
+                    database.GetContainer(options.SystemContainer),
+                    database.GetContainer(options.RecoveryContainer));
+            }
+
+            public async ValueTask DisposeAsync()
+            {
+                foreach (var container in _containers)
+                {
+                    await container.DeleteContainerAsync();
+                }
+            }
+        }
+
+        private sealed class CosmosTtlDiagnosticDocument
+        {
+            public int? Ttl { get; set; }
+            [JsonPropertyName("_ts")]
+            public long? ServerTimestamp { get; set; }
+            public DateTimeOffset? ExpiredAfter { get; set; }
+            public DateTimeOffset? ExpiresAfter { get; set; }
+            public DateTimeOffset? UsedAt { get; set; }
+            public DateTimeOffset? OrphanedAfter { get; set; }
+            public int? SubscriptionCount { get; set; }
+            public IReadOnlyList<string> SubscribedListIds { get; set; }
+            public bool? MembershipRecoveryPending { get; set; }
+        }
+
+        private sealed class CosmosTestItemAddress
+        {
+            public string Id { get; set; }
+            public string ListId { get; set; }
+        }
+
         private sealed class RecordingLogger<T> : ILogger<T>
         {
             internal List<string> Messages { get; } = new();
             internal List<(LogLevel Level, string Message)> Entries { get; } = new();
+            internal List<string> FailureDetails { get; } = new();
 
             public IDisposable BeginScope<TState>(TState state) => NullScope.Instance;
 
@@ -3765,6 +4160,12 @@ namespace youtubed.Tests.Integration
                 var message = formatter(state, exception);
                 Messages.Add(message);
                 Entries.Add((logLevel, message));
+                if (exception != null)
+                {
+                    FailureDetails.Add(
+                        $"{message} Exception={exception.GetType().Name}: "
+                            + exception.Message);
+                }
             }
 
             private sealed class NullScope : IDisposable

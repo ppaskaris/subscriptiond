@@ -269,6 +269,14 @@ Consume flow:
 6. redirect with list token
 
 TTL deletes share links after `ExpiresAfter + ShareLinkRetentionAfterExpiration`.
+The application calculates the integer TTL from its `IAppClock` immediately
+before persistence; Cosmos then counts that value from the successful write's
+server `_ts`. Upward rounding, application/server clock skew, and write latency
+can shift eligibility around the intended absolute deadline, and physical
+deletion remains asynchronous. Expected emulator bounds, production latency
+guidance, mutation rules, and reconciliation alerts are defined under
+**TTL operation and alert timing** in
+[`cosmos-implementation-sketch.md`](cosmos-implementation-sketch.md).
 
 Querying share links by list id is indexed but cross-partition. This is acceptable initially because share management is low volume.
 

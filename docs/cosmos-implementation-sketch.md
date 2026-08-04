@@ -355,6 +355,47 @@ Production retention remains unchanged at seven days for orphan channels. The
 emulator fixture can inject a shorter internal retention only to prove eventual
 physical TTL deletion with a bounded poll.
 
+### TTL operation and alert timing
+
+Per-item TTL is an eligibility deadline, not a scheduled delete time. List TTL
+targets `expiredAfter`, orphan-channel TTL targets
+`orphanedAfter + ChannelOrphanRetention` (seven days), and share-link TTL targets
+`expiresAfter + ShareLinkRetentionAfterExpiration` (one day). The persisted TTL
+integer is calculated in the application as
+`max(1, ceil(deadline - IAppClock.UtcNow))` immediately before persistence.
+Cosmos does not count from that sampled application time: it counts the persisted
+seconds from the successful write's server `_ts`. Eligibility can therefore
+differ from the intended absolute deadline by the upward rounding (less than one
+second), application/server clock skew, and time between sampling the app clock
+and the Cosmos commit. Do not claim that the item is eligible exactly at, or
+never before, the application deadline. Every write to an item with an absolute
+deadline recomputes this application-relative remaining TTL because the write
+receives a new server `_ts`. List renewal moves only the list deadline. Membership
+and projection writes preserve the absolute list expiry and recompute its
+remaining TTL; re-subscription clears the channel's orphan marker and sets
+`ttl = -1`. None of these operations writes unrelated channels or share links
+merely to refresh their lifetime.
+
+Cosmos performs physical deletion asynchronously after eligibility and does not
+provide a maximum completion SLA. The local emulator release test polls every
+250 ms with a 90-second deadline; this is a deterministic test bound rather than
+a production guarantee. Its timeout reports the retained id/container, TTL,
+server and lifecycle timestamps, reverse-reference state, and pending lifecycle
+state. Operationally, expect physical deletion within seconds to a few minutes
+under ordinary load, but treat that range as observational rather than contractual.
+
+List-reference convergence begins only after a lifecycle check observes the
+list's 404. With no backlog or throttling, the one-minute recovery poll should
+admit that work within one minute and a bounded list partition should normally
+converge in the same pass. Alert when lifecycle or other recovery work is more
+than 15 minutes overdue, and when cleanup remains incomplete 15 minutes after
+`missingObservedAt`. A list that remains physically present after expiry is
+authoritatively rechecked every ten minutes; the application must not infer a
+404 or delete references from the TTL deadline alone. Share links and final
+orphan-channel deletion have no reconciliation record, so their physical-delay
+monitoring must use retained-item age rather than `IExpirationPurger`, which is
+intentionally a no-op for Cosmos.
+
 Repeated 404 observations within one missing episode preserve the lifecycle
 attempt count and first-observed timestamp. Failures therefore use the standard
 one-minute-to-one-hour backoff, reach poison on attempt ten, and retry daily;

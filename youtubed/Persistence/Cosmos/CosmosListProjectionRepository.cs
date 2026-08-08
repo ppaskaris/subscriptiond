@@ -53,6 +53,8 @@ namespace youtubed.Persistence.Cosmos
             IReadOnlyCollection<Channel> refreshedChannels,
             CancellationToken cancellationToken)
         {
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.ProjectionFanOut);
             ArgumentNullException.ThrowIfNull(refreshedChannels);
             if (_recoveryStore != null)
             {

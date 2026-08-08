@@ -45,7 +45,12 @@ namespace youtubed.Tests.Infrastructure
             var clientOptions = new CosmosClientOptions
             {
                 ConnectionMode = ConnectionMode.Gateway,
-                Serializer = CosmosSystemTextJsonSerializer.Instance
+                Serializer = CosmosSystemTextJsonSerializer.Instance,
+                MaxRetryAttemptsOnRateLimitedRequests =
+                    CosmosReleaseBudgets.MaxRetryAttemptsOnRateLimitedRequests,
+                MaxRetryWaitTimeOnRateLimitedRequests =
+                    CosmosReleaseBudgets.MaxRetryWaitTimeOnRateLimitedRequests,
+                RequestTimeout = CosmosReleaseBudgets.RequestTimeout
             };
             clientOptions.CustomHandlers.Add(new CosmosRequestChargeLoggingHandler(
                 NullLogger<CosmosRequestChargeLoggingHandler>.Instance));

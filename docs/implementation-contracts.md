@@ -264,6 +264,133 @@ CosmosRecoveryMaxActiveEdgesPerList = 125
 CosmosChannelSerializedSizeSafetyCeiling = 1,900,000 UTF-8 bytes
 ```
 
+## Cosmos Release Budgets And Resilience Policy
+
+Release measurements use three fixed representative shapes. `small` is one
+channel with five canonical/projected videos, `normal` is 20 channels with 20
+canonical videos each, and `supported-maximum` is 100 channels with 100
+canonical videos each but no more than 500 videos embedded in a list. List and
+channel items remain strictly below 1,900,000 serialized UTF-8 bytes; recovery
+items remain below 16,384 bytes. These are product support limits, not load-test
+targets.
+
+| Dataset | Channels | Canonical videos/channel | Embedded videos | Size ceiling | Point-read RU | Replace RU |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Small | 1 | 5 | 5 | 64,000 bytes | 10 | 50 |
+| Normal | 20 | 20 | 400 | 1,000,000 bytes | 200 | 1,500 |
+| Supported maximum | 100 | 100 | 500 | <1,900,000 bytes | 350 | 3,000 |
+
+The August 2026 emulator observations for the concrete small and normal fixtures
+are respectively 1,622/74,738 bytes, 1.05/2.19 point-read RU, and 13.71/32.86
+replace RU. The deliberately padded supported-maximum fixture is 1,773,836 bytes,
+291.80 point-read RU, and 2,500.77 replace RU. Tests construct all three list
+graphs and canonical channel video counts; emulator tests persist/read/replace
+small and normal items and exercise the padded maximum through the membership and
+projection paths.
+
+The following local-emulator regression budgets apply to one logical operation.
+They include an explicit 20% measurement tolerance. Request-count limits are
+request-shape invariants; RU values are emulator observations and release guards,
+not predictions of the bill or guarantees for an Azure account.
+
+| Operation | Base request budget | Base emulator RU budget | Shape/qualification |
+| --- | ---: | ---: | --- |
+| Same-day list page | 1 | 10 | One list point read; no renewal write |
+| Renewal list page | 2 | 25 | One point read and one conditional replace |
+| Membership write | 22 | 1,200 | One bounded add/remove, including durable recovery evidence; one ETag retry may add its in-flight work |
+| Channel refresh | 15 | 1,500 | One canonical channel and its bounded references; YouTube calls are excluded |
+| Projection fan-out | 8 per list | 3,000 per list | Keyset fan-out remains bounded by the channel's 100 references |
+| Share operation | 3 | 30 | Create/list/delete or read/conditional consume |
+| Reconciliation pass | 100 | 2,000 | Stops scheduling at 100 items or 2,000 RU; one item may overshoot |
+| Scheduler operation | 3 | 30 | Point read/create/conditional replace of singleton state |
+
+The small end-to-end emulator fixture observes: membership add 22 requests/
+109.81 RU; membership remove 19/93.00; canonical refresh plus its fan-out 14/
+60.63; a distinct pending one-list fan-out 8/38.29; share create 1/7.05,
+consume 3/13.24, list 1/2.82, and delete 2/8.24; scheduler force 2/11.29;
+and restart reconciliation of a committed membership 46/259.36. The distinct
+fan-out assertion first persists a newer canonical projection-pending version;
+a no-op canonical point read is not accepted as fan-out evidence.
+
+The pre-existing 350-RU near-ceiling point-read and 3,000-RU near-ceiling
+projection-replacement guards remain stricter evidence for maximum list items.
+Every release-budget change requires an emulator result captured in the task or
+commit rationale, confirmation that request shape did not accidentally broaden,
+comparison with a representative test-server trace, and explicit review of the
+new capacity threshold. Do not raise a threshold solely to make a failing test
+green. A deliberate request-count, serialized-size, or RU overage must fail an
+automated test.
+
+Production and emulator clients make at most nine SDK retries for 429 responses,
+wait at most 30 seconds cumulatively for rate-limit retries, and use a ten-second
+request timeout. The repository's separate optimistic-concurrency rule remains
+one reread/retry. Exhausted 429, 408/504 timeout, 503 unavailability, and caller
+cancellation are observable terminal outcomes; recovery-backed cross-document
+work remains durable and restartable. The worker finalizes already completed
+YouTube results with a non-cancelable persistence token and does not start a new
+external call after cancellation.
+
+Every SDK request emits histograms for request charge, latency, and retry count,
+tagged with an allowlisted logical operation, HTTP SDK operation, resource
+category, outcome, status, and substatus. Repository entry points establish
+logical scopes such as `membership_add`, `membership_remove`,
+`projection_fan_out`, `share_consume`, and `reconciliation`; arbitrary values are
+rejected to prevent user data and metric-cardinality growth. Logs carry the same
+values. SDK v3.62 does not add `x-ms-throttle-retry-count` to an exhausted 429,
+so the handler first uses that header when available and otherwise sums 429
+attempts across substatuses and across both `GatewayCalls` and `DirectCalls` in
+the SDK diagnostics summary. A successful terminal
+response counts every preceding 429; a terminal 429 subtracts the final un-retried
+response. It never logs
+or exports raw diagnostics, whose request statistics contain resource URIs. They
+never include a request URI, list token, share
+password/id, connection string, endpoint key, document body, or diagnostics text
+that could contain those values.
+
+The hobby deployment assumes one provisioned-throughput Azure Cosmos DB free-tier
+account shared by all five containers: 1,000 RU/s and 25 GB are free-tier limits
+as documented by Microsoft as of August 2026. The deployment reserves 30% of
+throughput for retries, recovery, and TTL/system work. Stop onboarding and reject
+cardinality-increasing writes at the existing hard 100-channel-per-list,
+100-list-reference-per-channel, 500-projected-video, 1.9-MB-item, and 125-active-
+edge limits. Operationally stop accepting growth before normal traffic sustains
+700 RU/s for five minutes or storage reaches 20 GB. After that point, retain
+reads, deletes, membership removals, and recovery, but do not raise document
+bounds or retry indefinitely; upgrade paid capacity or reduce the workload first.
+An exhausted 429 fails visibly and leaves recovery-backed workflows repairable.
+The nine-attempt/30-second bound is required by the repeated genuine-concurrency
+emulator matrix: a three-attempt/10-second candidate exhausted during membership
+mutation and durable ticket admission and is recorded as failed design evidence,
+not a passing validation run.
+
+The emulator recovery matrix also injects exhausted 429, 408 timeout, 503
+unavailability, and caller cancellation immediately after a durable list
+membership commit, disposes the interrupted provider, starts fresh providers,
+and proves convergence without corrupting list/channel/edge state. Scripted
+request-handler tests independently prove terminal response/exception telemetry,
+retry/status propagation, cancellation preservation, and sanitized visible logs.
+In addition, an emulator-backed gateway `CosmosClient` test injects 429/3200 at
+the HTTP transport for one seeded point read. The real SDK retry handler makes
+exactly ten transport attempts (initial plus configured nine retries), returns a
+terminal 429, and produces retry-count 9 in the application metric/log from its
+actual diagnostics summary. This is the release evidence for SDK retry exhaustion;
+the scripted handler case covers formatting/fallback only.
+The companion recovery test injects three 429 responses and forwards the fourth
+transport attempt to the emulator. It requires a successful point read plus retry
+count 3 in the `list_page` metric/log, proving successful retries are observable
+as well as exhaustion.
+
+The emulator is development evidence rather than a cloud-capacity replica. Its
+RU observations can vary from the test server because the emulator does not
+reproduce every cloud-service feature/configuration and because indexing,
+consistency, regions, data distribution, and SDK/service versions affect request
+cost. Re-run the matrix on the test server before release and investigate any
+request-shape change or more than 20% RU delta.
+
+References: [Azure Cosmos DB lifetime free tier](https://learn.microsoft.com/azure/cosmos-db/free-tier),
+[Azure Cosmos DB emulator differences](https://learn.microsoft.com/azure/cosmos-db/emulator),
+and [understanding RU consumption](https://learn.microsoft.com/azure/cosmos-db/understand-request-unit-consumption).
+
 The Cosmos list projection sizing knobs form one invariant rather than independent
 best-effort settings. Both membership seeding and worker refreshes retain every
 available video in the five-day recent window, then retain older videos until each

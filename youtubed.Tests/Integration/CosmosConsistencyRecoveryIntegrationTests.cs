@@ -1250,9 +1250,21 @@ namespace youtubed.Tests.Integration
                 .AddSeconds(1);
 
             var freshProcess = CreateRecoveryService(clock);
-            var first = await freshProcess.RecoverAsync(
-                ConsistencyRecoveryPassBudget.Default,
-                CancellationToken.None);
+            ConsistencyRecoveryPassResult first;
+            using (var scope = CosmosRequestChargeScope.Begin())
+            {
+                first = await freshProcess.RecoverAsync(
+                    ConsistencyRecoveryPassBudget.Default,
+                    CancellationToken.None);
+                CosmosReleaseBudgets.AssertWithin(
+                    CosmosReleaseBudgets.Operations["reconciliation_pass"],
+                    scope.RequestCount,
+                    scope.RequestCharge);
+                Assert.Equal(scope.RequestCharge, first.RequestCharge, precision: 2);
+                Console.WriteLine(
+                    $"Restart reconciliation used {scope.RequestCount} requests and " +
+                    $"{scope.RequestCharge:F2} emulator RU.");
+            }
             var second = await CreateRecoveryService(clock).RecoverAsync(
                 ConsistencyRecoveryPassBudget.Default,
                 CancellationToken.None);
@@ -2677,6 +2689,74 @@ namespace youtubed.Tests.Integration
                     password,
                     new PartitionKey(password))).Resource;
                 Assert.Equal(clock.UtcNow, persisted.UsedAt);
+            }
+        }
+
+        [CosmosFact]
+        public async Task TransientFailureAfterDurableMembershipCommitRecoversAfterRestart()
+        {
+            var clock = CreateClock();
+            var failures = new (string Name, string Outcome, Func<Exception> Create)[]
+            {
+                ("429-exhausted", "throttled", () => new CosmosException(
+                    "injected exhausted throttle",
+                    HttpStatusCode.TooManyRequests,
+                    3200,
+                    null,
+                    1)),
+                ("408-timeout", "timeout", () => new CosmosException(
+                    "injected request timeout",
+                    HttpStatusCode.RequestTimeout,
+                    0,
+                    null,
+                    1)),
+                ("503-unavailable", "service_unavailable", () => new CosmosException(
+                    "injected service unavailable",
+                    HttpStatusCode.ServiceUnavailable,
+                    0,
+                    null,
+                    1)),
+                ("canceled", "canceled", () => new OperationCanceledException("injected cancellation"))
+            };
+
+            foreach (var failure in failures)
+            {
+                var listId = Guid.NewGuid();
+                var channelId = $"UC-transient-{failure.Name}-{Guid.NewGuid():N}";
+                await SeedChannelAsync(channelId, clock);
+                using (var setup = CreateApplicationProvider(clock))
+                {
+                    await setup.GetRequiredService<IListRepository>()
+                        .CreateAsync(CreateList(listId, clock));
+                }
+
+                var hooks = new CosmosRecoveryInterleavingHooks
+                {
+                    AfterMembershipSideEffectAsync = (_, sideEffect) =>
+                        sideEffect == "Add.ListCommitted"
+                            ? Task.FromException(failure.Create())
+                            : Task.CompletedTask
+                };
+                using (var interrupted = CreateApplicationProvider(clock, hooks))
+                {
+                    var exception = await Assert.ThrowsAnyAsync<Exception>(() =>
+                        interrupted.GetRequiredService<IListRepository>()
+                            .AddChannelAsync(listId, channelId));
+                    Assert.Equal(
+                        failure.Outcome,
+                        CosmosTransientFailurePolicy.Classify(
+                            exception,
+                            callerCanceled: failure.Name == "canceled"));
+                }
+
+                clock.UtcNow = clock.UtcNow.Add(Constants.ConsistencyRecoveryLeaseDuration)
+                    .AddSeconds(1);
+                await RecoverWithFreshProvidersAsync(clock, 12);
+                await AssertMembershipInvariantAsync(
+                    listId,
+                    channelId,
+                    shouldBeMember: true,
+                    $"transient restart {failure.Name}");
             }
         }
 

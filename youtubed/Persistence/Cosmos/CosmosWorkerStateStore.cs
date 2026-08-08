@@ -23,13 +23,17 @@ namespace youtubed.Persistence.Cosmos
 
         public async Task<WorkerState> GetOrCreateAsync(CancellationToken cancellationToken)
         {
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.SchedulerRead);
             var document = await GetOrCreateDocumentAsync(cancellationToken);
             return CosmosDocumentMapper.ToWorkerState(document);
         }
 
-        public Task ForceChannelRefreshAsync(CancellationToken cancellationToken)
+        public async Task ForceChannelRefreshAsync(CancellationToken cancellationToken)
         {
-            return UpdateAsync(
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.SchedulerWrite);
+            await UpdateAsync(
                 document =>
                 {
                     document.NextChannelRefreshAt = DateTimeOffset.MinValue;
@@ -39,9 +43,11 @@ namespace youtubed.Persistence.Cosmos
                 cancellationToken);
         }
 
-        public Task ForceConsistencyRecoveryAsync(CancellationToken cancellationToken)
+        public async Task ForceConsistencyRecoveryAsync(CancellationToken cancellationToken)
         {
-            return UpdateAsync(
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.SchedulerWrite);
+            await UpdateAsync(
                 document =>
                 {
                     document.NextConsistencyRecoveryAt = DateTimeOffset.MinValue;
@@ -51,13 +57,15 @@ namespace youtubed.Persistence.Cosmos
                 cancellationToken);
         }
 
-        public Task CompleteChannelRefreshPassAsync(
+        public async Task CompleteChannelRefreshPassAsync(
             DateTimeOffset? observedNextChannelRefreshAt,
             long observedChannelRefreshForceCount,
             DateTimeOffset? nextChannelRefreshAt,
             CancellationToken cancellationToken)
         {
-            return UpdateAsync(
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.SchedulerWrite);
+            await UpdateAsync(
                 document =>
                 {
                     if (document.NextChannelRefreshAt != observedNextChannelRefreshAt
@@ -72,11 +80,13 @@ namespace youtubed.Persistence.Cosmos
                 cancellationToken);
         }
 
-        public Task CompletePurgeAsync(
+        public async Task CompletePurgeAsync(
             DateTimeOffset nextPurgeAt,
             CancellationToken cancellationToken)
         {
-            return UpdateAsync(
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.SchedulerWrite);
+            await UpdateAsync(
                 document =>
                 {
                     document.NextPurgeAt = nextPurgeAt;
@@ -85,13 +95,15 @@ namespace youtubed.Persistence.Cosmos
                 cancellationToken);
         }
 
-        public Task CompleteConsistencyRecoveryPassAsync(
+        public async Task CompleteConsistencyRecoveryPassAsync(
             DateTimeOffset observedNextConsistencyRecoveryAt,
             long observedConsistencyRecoveryForceCount,
             DateTimeOffset nextConsistencyRecoveryAt,
             CancellationToken cancellationToken)
         {
-            return UpdateAsync(
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.SchedulerWrite);
+            await UpdateAsync(
                 document =>
                 {
                     if (document.NextConsistencyRecoveryAt != observedNextConsistencyRecoveryAt

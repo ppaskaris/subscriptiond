@@ -27,6 +27,59 @@ namespace youtubed.Tests.Integration
         }
 
         [CosmosFact]
+        public async Task SmallAndNormalDocumentsMeetMeasuredSizeReadAndWriteBudgets()
+        {
+            var now = new DateTimeOffset(2026, 8, 7, 12, 0, 0, TimeSpan.Zero);
+            var lists = _fixture.GetContainer(CosmosTestFixture.ListsContainerName);
+            foreach (var name in new[] { "small", "normal" })
+            {
+                var budget = CosmosReleaseBudgets.Datasets[name];
+                var document = CreateRepresentativeDocument(budget, now);
+                var size = CosmosListProjectionPolicy.GetSerializedSizeBytes(document);
+                Assert.InRange(size, 1, budget.MaximumSerializedBytes - 1);
+                await lists.CreateItemAsync(document, new PartitionKey(document.Id));
+
+                ItemResponse<CosmosListDocument> read;
+                int readRequests;
+                double readScopeRu;
+                using (var scope = CosmosRequestChargeScope.Begin())
+                {
+                    read = await lists.ReadItemAsync<CosmosListDocument>(
+                        document.Id,
+                        new PartitionKey(document.Id));
+                    readRequests = scope.RequestCount;
+                    readScopeRu = scope.RequestCharge;
+                }
+                Assert.Equal(1, readRequests);
+                Assert.Equal(read.RequestCharge, readScopeRu, precision: 2);
+                Assert.InRange(read.RequestCharge, double.Epsilon, budget.PointReadEmulatorRu);
+
+                read.Resource.Title += " replaced";
+                ItemResponse<CosmosListDocument> write;
+                int writeRequests;
+                double writeScopeRu;
+                using (var scope = CosmosRequestChargeScope.Begin())
+                {
+                    write = await lists.ReplaceItemAsync(
+                        read.Resource,
+                        read.Resource.Id,
+                        new PartitionKey(read.Resource.Id),
+                        new ItemRequestOptions { IfMatchEtag = read.ETag });
+                    writeRequests = scope.RequestCount;
+                    writeScopeRu = scope.RequestCharge;
+                }
+                Assert.Equal(1, writeRequests);
+                Assert.Equal(write.RequestCharge, writeScopeRu, precision: 2);
+                Assert.InRange(write.RequestCharge, double.Epsilon, budget.ReplaceEmulatorRu);
+                _output.WriteLine(
+                    $"{name} dataset: {budget.ChannelCount} channels, " +
+                    $"{document.Channels.Sum(channel => channel.Videos.Count)} projected videos, " +
+                    $"{size} bytes, {read.RequestCharge:F2} read RU, " +
+                    $"{write.RequestCharge:F2} replace RU.");
+            }
+        }
+
+        [CosmosFact]
         public async Task AddAndProjectionReplacementAtMaximumCardinalityStayWithinSizeAndRuBudgets()
         {
             var now = new DateTimeOffset(2026, 7, 25, 12, 0, 0, TimeSpan.Zero);
@@ -147,6 +200,46 @@ namespace youtubed.Tests.Integration
                         DurationTicks = TimeSpan.FromMinutes(5).Ticks,
                         PublishedAt = now.AddDays(-10).AddMinutes(-index),
                         Thumbnail = PadToLength("https://i.ytimg.com/", 2000, 't')
+                    })
+                    .ToArray()
+            };
+        }
+
+        private static CosmosListDocument CreateRepresentativeDocument(
+            CosmosDatasetBudget budget,
+            DateTimeOffset now)
+        {
+            var videosPerChannel = Math.Min(
+                budget.CanonicalVideosPerChannel,
+                (int)Math.Ceiling(budget.MaximumProjectedVideos / (decimal)budget.ChannelCount));
+            return new CosmosListDocument
+            {
+                Id = Guid.NewGuid().ToString("D"),
+                Token = Enumerable.Range(0, 40).Select(value => (byte)value).ToArray(),
+                Title = $"{budget.Name} measured dataset",
+                PlaybackRate = 1,
+                ExpiredAfter = now.AddDays(45),
+                Ttl = (int)TimeSpan.FromDays(45).TotalSeconds,
+                Channels = Enumerable.Range(0, budget.ChannelCount)
+                    .Select(channel => new CosmosProjectedChannelDocument
+                    {
+                        Id = $"UC-{budget.Name}-{channel:D3}",
+                        Url = $"https://www.youtube.com/channel/{budget.Name}-{channel:D3}",
+                        Title = $"Representative channel {channel:D3}",
+                        Thumbnail = "https://i.ytimg.com/channel.png",
+                        StaleAfter = now.AddHours(1),
+                        Status = ChannelStatus.Active.ToString(),
+                        StatusReason = ChannelStatusReason.None.ToString(),
+                        Videos = Enumerable.Range(0, videosPerChannel)
+                            .Select(video => new CosmosVideoDocument
+                            {
+                                Id = $"{budget.Name}-{channel:D3}-{video:D3}",
+                                Title = $"Representative video {video:D3}",
+                                DurationTicks = TimeSpan.FromMinutes(5).Ticks,
+                                PublishedAt = now.AddMinutes(-video),
+                                Thumbnail = "https://i.ytimg.com/video.png"
+                            })
+                            .ToArray()
                     })
                     .ToArray()
             };

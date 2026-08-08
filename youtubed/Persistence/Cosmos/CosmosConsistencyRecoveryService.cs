@@ -120,6 +120,8 @@ namespace youtubed.Persistence.Cosmos
             ConsistencyRecoveryPassBudget budget,
             CancellationToken cancellationToken)
         {
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.Reconciliation);
             budget.Validate();
             using var requestChargeScope = CosmosRequestChargeScope.Begin();
             var claimed = 0;

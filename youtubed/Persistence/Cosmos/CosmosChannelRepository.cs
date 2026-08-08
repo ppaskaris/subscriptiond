@@ -44,6 +44,8 @@ namespace youtubed.Persistence.Cosmos
 
         public async Task<Channel> GetByIdAsync(string id)
         {
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.ChannelRead);
             var document = await ReadChannelAsync(id, CancellationToken.None);
             if (document == null)
             {
@@ -55,6 +57,8 @@ namespace youtubed.Persistence.Cosmos
 
         public async Task SaveDiscoveredChannelAsync(Channel channel, DateTimeOffset staleAfter)
         {
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.ChannelDiscovery);
             for (var attempt = 0; attempt < MaxWriteAttempts; attempt++)
             {
                 var document = await ReadChannelAsync(channel.Id, CancellationToken.None);
@@ -123,6 +127,8 @@ namespace youtubed.Persistence.Cosmos
             int take,
             CancellationToken cancellationToken)
         {
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.ChannelRefreshRead);
             if (take <= 0)
             {
                 return Array.Empty<StaleChannelReference>();
@@ -150,6 +156,8 @@ namespace youtubed.Persistence.Cosmos
         public async Task<DateTimeOffset?> GetNextActiveSubscribedRefreshAtAsync(
             CancellationToken cancellationToken)
         {
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.ChannelRefreshRead);
             var query = new QueryDefinition(
                     "SELECT TOP 1 VALUE c.staleAfter FROM c " +
                     "WHERE c.subscriptionCount > 0 AND c.status = @status " +
@@ -171,6 +179,8 @@ namespace youtubed.Persistence.Cosmos
             IReadOnlyCollection<string> channelIds,
             CancellationToken cancellationToken)
         {
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.ChannelRefreshRead);
             var channels = new List<Channel>();
             foreach (var channelId in channelIds.Distinct(StringComparer.Ordinal))
             {
@@ -200,6 +210,8 @@ namespace youtubed.Persistence.Cosmos
             IReadOnlyCollection<ChannelRefreshResult> results,
             CancellationToken cancellationToken)
         {
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.ChannelRefreshWrite);
             foreach (var result in results)
             {
                 var updated = await UpdateChannelAsync(

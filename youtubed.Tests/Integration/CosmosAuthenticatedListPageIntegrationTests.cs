@@ -14,9 +14,6 @@ namespace youtubed.Tests.Integration
     [Trait("Category", "Cosmos")]
     public sealed class CosmosAuthenticatedListPageIntegrationTests
     {
-        private const double SameDayListPageRuBudget = 10;
-        private const double RenewalListPageRuBudget = 25;
-
         private readonly CosmosTestFixture _fixture;
         private readonly ITestOutputHelper _output;
 
@@ -108,10 +105,14 @@ namespace youtubed.Tests.Integration
             _output.WriteLine(
                 $"Renewal page: {renewalRequests} requests, {renewalCharge:F2} RU; " +
                 $"same-day page: {sameDayRequests} request, {sameDayCharge:F2} RU.");
-            Assert.Equal(2, renewalRequests);
-            Assert.InRange(renewalCharge, double.Epsilon, RenewalListPageRuBudget);
-            Assert.Equal(1, sameDayRequests);
-            Assert.InRange(sameDayCharge, double.Epsilon, SameDayListPageRuBudget);
+            CosmosReleaseBudgets.AssertWithin(
+                CosmosReleaseBudgets.Operations["list_page_renewal"],
+                renewalRequests,
+                renewalCharge);
+            CosmosReleaseBudgets.AssertWithin(
+                CosmosReleaseBudgets.Operations["list_page"],
+                sameDayRequests,
+                sameDayCharge);
         }
     }
 }

@@ -29,6 +29,8 @@ namespace youtubed.Persistence.Cosmos
 
         public async Task<bool> TryCreateAsync(ShareLink shareLink)
         {
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.ShareCreate);
             var document = CosmosDocumentMapper.ToDocument(shareLink, _clock.UtcNow);
 
             try
@@ -44,6 +46,8 @@ namespace youtubed.Persistence.Cosmos
 
         public async Task<IReadOnlyList<ShareLink>> GetByListAsync(Guid listId)
         {
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.ShareList);
             var query = new QueryDefinition(
                     "SELECT * FROM c WHERE c.listId = @listId")
                 .WithParameter("@listId", listId.ToString("D"));
@@ -66,6 +70,8 @@ namespace youtubed.Persistence.Cosmos
 
         public async Task DeleteAsync(Guid listId, string password)
         {
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.ShareDelete);
             for (var attempt = 0; attempt < MaxWriteAttempts; attempt++)
             {
                 var document = await ReadShareLinkAsync(password);
@@ -97,6 +103,8 @@ namespace youtubed.Persistence.Cosmos
 
         public async Task DeleteByListAsync(Guid listId)
         {
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.ShareDelete);
             var links = await GetByListAsync(listId);
             foreach (var link in links)
             {
@@ -108,6 +116,8 @@ namespace youtubed.Persistence.Cosmos
             string password,
             DateTimeOffset now)
         {
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.ShareConsume);
             for (var attempt = 0; attempt < MaxWriteAttempts; attempt++)
             {
                 var shareLink = await ReadShareLinkAsync(password);

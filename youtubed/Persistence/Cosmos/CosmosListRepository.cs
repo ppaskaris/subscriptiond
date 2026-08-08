@@ -64,6 +64,8 @@ namespace youtubed.Persistence.Cosmos
 
         public async Task CreateAsync(SubscriptionList list)
         {
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.ListCreate);
             var document = CosmosDocumentMapper.ToDocument(list, _clock.UtcNow);
 
             if (_recoveryStore != null)
@@ -86,6 +88,8 @@ namespace youtubed.Persistence.Cosmos
 
         public async Task<SubscriptionList> GetAsync(Guid id)
         {
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.ListPage);
             var document = await ReadListAsync(id);
             if (document == null)
             {
@@ -102,6 +106,8 @@ namespace youtubed.Persistence.Cosmos
             DateOnly renewedOn,
             int videoLimit)
         {
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.ListPage);
             using var requestScope = CosmosRequestChargeScope.Begin();
             var outcome = "error";
             try
@@ -239,6 +245,8 @@ namespace youtubed.Persistence.Cosmos
 
         public async Task AddChannelAsync(Guid listId, string channelId)
         {
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.MembershipAdd);
             var channelResponse = await _channels.ReadItemAsync<CosmosChannelDocument>(
                 channelId,
                 new PartitionKey(channelId));
@@ -374,6 +382,8 @@ namespace youtubed.Persistence.Cosmos
 
         public async Task RemoveChannelAsync(Guid listId, string channelId)
         {
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.MembershipRemove);
             if (_recoveryStore != null)
             {
                 await RemoveChannelRecoverablyAsync(listId, channelId);
@@ -443,6 +453,8 @@ namespace youtubed.Persistence.Cosmos
 
         public async Task DeleteAsync(Guid id)
         {
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.ListDelete);
             var documentId = id.ToString("D");
             if (_recoveryStore == null)
             {

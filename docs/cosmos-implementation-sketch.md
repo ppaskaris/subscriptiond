@@ -40,6 +40,29 @@ to `Cosmos:Endpoint` plus `Cosmos:Key`, which is useful for emulator and secret-
 configuration. On application startup it creates the configured database and
 containers when absent. Cosmos SDK request charges are logged at debug level.
 
+All production and emulator SDK clients use the bounded release policy in
+[`implementation-contracts.md`](implementation-contracts.md): nine 429 retries,
+at most 30 seconds of rate-limit wait, and a ten-second request timeout. The
+request pipeline records charge, latency, a fixed allowlisted logical operation,
+HTTP SDK operation, resource category, status/substatus, retry count, and outcome
+for successes, returned failures, exceptions, and caller cancellation. Repository
+entry points create the logical scope and reject arbitrary tag values. Request URIs are deliberately excluded
+because document identifiers include list and share secrets. Emulator RU values
+are regression observations only; representative cloud traces must be compared
+before release.
+
+The v3.62 SDK does not synthesize a throttle-retry-count response header after
+exhaustion. The logging handler therefore falls back to the matching terminal
+429 status aggregates across substatuses and both gateway/direct categories in
+`CosmosDiagnostics` and exports only
+the derived count. A successful terminal response counts every preceding 429; a
+terminal 429 excludes its final un-retried response. Raw
+diagnostics are never logged because their request statistics include resource
+URIs. An emulator-backed gateway-client test injects transport-level 429/3200
+responses and requires ten observed attempts for the configured nine retries.
+A second real-client case injects three 429 responses, succeeds through the
+emulator on attempt four, and requires retry count three in success telemetry.
+
 ## Document DTOs
 
 Cosmos DTOs should stay in `Persistence/Cosmos` and map to domain objects.

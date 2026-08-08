@@ -11,6 +11,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
 using Xunit.Abstractions;
+using youtubed.Domain;
+using youtubed.Models;
 using youtubed.Persistence;
 using youtubed.Persistence.Cosmos;
 using youtubed.Services;
@@ -100,20 +102,128 @@ namespace youtubed.Tests.Integration
 
             var list = await listService.CreateListAsync("Cosmos end to end");
             var channel = await channelService.GetOrCreateChannelAsync(channelUrl);
-            await listService.AddChannelAsync(list.Id, channel.Id);
+            using (var scope = CosmosRequestChargeScope.Begin())
+            {
+                await listService.AddChannelAsync(list.Id, channel.Id);
+                _output.WriteLine(
+                    $"Membership add used {scope.RequestCount} requests and " +
+                    $"{scope.RequestCharge:F2} emulator RU.");
+                CosmosReleaseBudgets.AssertWithin(
+                    CosmosReleaseBudgets.Operations["membership_write"],
+                    scope.RequestCount,
+                    scope.RequestCharge);
+            }
 
-            var refresh = await pipeline.RefreshStaleChannelsAsync(CancellationToken.None);
+            ChannelRefreshPipelineResult refresh;
+            using (var scope = CosmosRequestChargeScope.Begin())
+            {
+                refresh = await pipeline.RefreshStaleChannelsAsync(CancellationToken.None);
+                _output.WriteLine(
+                    $"One-channel refresh and projection fan-out used {scope.RequestCount} " +
+                    $"requests and {scope.RequestCharge:F2} emulator RU.");
+                CosmosReleaseBudgets.AssertWithin(
+                    CosmosReleaseBudgets.Operations["channel_refresh"],
+                    scope.RequestCount,
+                    scope.RequestCharge);
+            }
             var view = await listService.GetListViewAsync(list.Id);
 
             Assert.Equal(1, refresh.RefreshedChannelCount);
             Assert.Equal("End To End Video", Assert.Single(view.Videos).VideoTitle);
 
-            var shareLink = await shareLinkService.CreateShareLinkAsync(list.Id);
-            var consumed = await shareLinkService.ConsumeShareLinkAsync(shareLink.Password);
+            var refreshedChannel = await provider.GetRequiredService<IChannelRepository>()
+                .GetByIdAsync(channel.Id);
+            refreshedChannel.Title = "Distinct fan-out update";
+            await provider.GetRequiredService<IChannelRepository>()
+                .SaveRefreshResultsAsync(
+                    new[]
+                    {
+                        new ChannelRefreshResult
+                        {
+                            Channel = refreshedChannel,
+                            VideosRefreshed = true,
+                            EarliestPublishedAt = now.Subtract(Constants.VideoMaxAge)
+                        }
+                    },
+                    CancellationToken.None);
+            using (var scope = CosmosRequestChargeScope.Begin())
+            {
+                await provider.GetRequiredService<IListProjectionRepository>()
+                    .UpdateProjectedChannelsAsync(
+                        new[] { refreshedChannel },
+                        CancellationToken.None);
+                _output.WriteLine(
+                    $"Distinct one-list projection fan-out used {scope.RequestCount} requests " +
+                    $"and {scope.RequestCharge:F2} emulator RU.");
+                CosmosReleaseBudgets.AssertWithin(
+                    CosmosReleaseBudgets.Operations["projection_fan_out_per_list"],
+                    scope.RequestCount,
+                    scope.RequestCharge);
+            }
+
+            ShareLinkModel shareLink;
+            using (var scope = CosmosRequestChargeScope.Begin())
+            {
+                shareLink = await shareLinkService.CreateShareLinkAsync(list.Id);
+                _output.WriteLine(
+                    $"Share create used {scope.RequestCount} requests and " +
+                    $"{scope.RequestCharge:F2} emulator RU.");
+                CosmosReleaseBudgets.AssertWithin(
+                    CosmosReleaseBudgets.Operations["share_operation"],
+                    scope.RequestCount,
+                    scope.RequestCharge);
+            }
+            ConsumedShareLinkModel consumed;
+            using (var scope = CosmosRequestChargeScope.Begin())
+            {
+                consumed = await shareLinkService.ConsumeShareLinkAsync(shareLink.Password);
+                _output.WriteLine(
+                    $"Share consume used {scope.RequestCount} requests and " +
+                    $"{scope.RequestCharge:F2} emulator RU.");
+                CosmosReleaseBudgets.AssertWithin(
+                    CosmosReleaseBudgets.Operations["share_operation"],
+                    scope.RequestCount,
+                    scope.RequestCharge);
+            }
             Assert.Equal(list.Id, consumed.ListId);
             Assert.Equal(list.Token, consumed.Token);
 
-            await shareLinkService.DeleteShareLinkInListAsync(list.Id, shareLink.Password);
+            using (var scope = CosmosRequestChargeScope.Begin())
+            {
+                Assert.Single(await shareLinkService.GetShareLinksAsync(list.Id));
+                _output.WriteLine(
+                    $"Share list used {scope.RequestCount} requests and " +
+                    $"{scope.RequestCharge:F2} emulator RU.");
+                CosmosReleaseBudgets.AssertWithin(
+                    CosmosReleaseBudgets.Operations["share_operation"],
+                    scope.RequestCount,
+                    scope.RequestCharge);
+            }
+
+            using (var scope = CosmosRequestChargeScope.Begin())
+            {
+                await provider.GetRequiredService<IWorkerStateStore>()
+                    .ForceChannelRefreshAsync(CancellationToken.None);
+                _output.WriteLine(
+                    $"Scheduler force used {scope.RequestCount} requests and " +
+                    $"{scope.RequestCharge:F2} emulator RU.");
+                CosmosReleaseBudgets.AssertWithin(
+                    CosmosReleaseBudgets.Operations["scheduler_operation"],
+                    scope.RequestCount,
+                    scope.RequestCharge);
+            }
+
+            using (var scope = CosmosRequestChargeScope.Begin())
+            {
+                await shareLinkService.DeleteShareLinkInListAsync(list.Id, shareLink.Password);
+                _output.WriteLine(
+                    $"Share delete used {scope.RequestCount} requests and " +
+                    $"{scope.RequestCharge:F2} emulator RU.");
+                CosmosReleaseBudgets.AssertWithin(
+                    CosmosReleaseBudgets.Operations["share_operation"],
+                    scope.RequestCount,
+                    scope.RequestCharge);
+            }
             Assert.Empty(await shareLinkService.GetShareLinksAsync(list.Id));
 
             var listRead = await _fixture
@@ -123,6 +233,18 @@ namespace youtubed.Tests.Integration
                     new PartitionKey(list.Id.ToString("D")));
             _output.WriteLine($"List point read consumed {listRead.RequestCharge:F2} RU.");
             Assert.True(listRead.RequestCharge > 0);
+
+            using (var scope = CosmosRequestChargeScope.Begin())
+            {
+                await listService.RemoveChannelAsync(list.Id, channel.Id);
+                _output.WriteLine(
+                    $"Membership remove used {scope.RequestCount} requests and " +
+                    $"{scope.RequestCharge:F2} emulator RU.");
+                CosmosReleaseBudgets.AssertWithin(
+                    CosmosReleaseBudgets.Operations["membership_write"],
+                    scope.RequestCount,
+                    scope.RequestCharge);
+            }
 
             await listService.DeleteListAsync(list.Id);
             Assert.Null(await listService.GetListAsync(list.Id));

@@ -13,6 +13,8 @@ namespace youtubed.Persistence.Cosmos
 
         public async Task InitializeAsync(Database database, CosmosOptions options, CancellationToken cancellationToken = default)
         {
+            using var operationScope = CosmosLogicalOperationScope.Begin(
+                CosmosLogicalOperationScope.ContainerInitialization);
             foreach (var properties in GetContainerProperties(options))
             {
                 var response = await database.CreateContainerIfNotExistsAsync(

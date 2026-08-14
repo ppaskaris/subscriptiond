@@ -32,14 +32,20 @@ namespace youtubed.Tests.Persistence
         }
 
         [Fact]
-        public void CosmosProviderImplementation_IsTemporarilyAbsent()
+        public void CosmosFoundation_DoesNotImplementRepositoriesEarly()
         {
             var assembly = typeof(IListRepository).Assembly;
             var cosmosTypes = assembly.GetTypes()
                 .Where(type => type.Namespace == "youtubed.Persistence.Cosmos")
                 .ToArray();
 
-            Assert.Empty(cosmosTypes);
+            Assert.NotEmpty(cosmosTypes);
+            Assert.DoesNotContain(
+                cosmosTypes,
+                type => type.GetInterfaces().Any(interfaceType =>
+                    interfaceType == typeof(IListRepository)
+                    || interfaceType == typeof(IChannelRepository)
+                    || interfaceType == typeof(IShareLinkRepository)));
         }
 
         [Fact]

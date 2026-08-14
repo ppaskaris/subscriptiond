@@ -1,6 +1,6 @@
 # Task 0300: Add The Three-Container Cosmos Foundation
 
-Status: Not Started
+Status: Completed
 
 Depends On: 0200_simplify_refresh_and_maintenance
 
@@ -45,4 +45,31 @@ yet enabling Cosmos as an application persistence provider.
 
 ## Implementation Summary
 
-Not implemented.
+- Added Microsoft.Azure.Cosmos 3.62.0, one singleton-client foundation registration, a shared
+  System.Text.Json Cosmos serializer, and a persistence context exposing only the `lists`,
+  `channels`, and `shareLinks` handles. `Persistence:Provider=Cosmos` remains deliberately disabled.
+- Added internal list, channel/video, and share-link documents matching the simplified data model.
+  Mapping sorts and de-duplicates list membership, rejects more than 100 channel IDs, sorts and
+  de-duplicates videos to the newest 100, preserves storage-agnostic domain objects, computes
+  minimum-positive TTL values from absolute deadlines, and never puts a list token in a share-link
+  document or configuration error.
+- Added the exact three `/id` container definitions with TTL enabled only for lists and share
+  links, list token and channel video exclusions, the four narrow share-link query paths, and no
+  composite indexes. Development/emulator initialization creates an isolated 1,000 RU/s shared-
+  throughput database and the three containers. Production initialization performs reads only and
+  rejects a missing database/container, non-manual or non-1,000 database throughput, dedicated
+  container throughput, and partition-key, TTL, or indexing drift. Exact indexing validation also
+  rejects composite, spatial, vector, and full-text indexes plus vector-embedding and full-text
+  container policies that are outside this narrow model.
+- Restored a minimal opt-in emulator fixture. Unit and emulator coverage proves mapping round trips,
+  deterministic cardinality bounds and ordering, TTL calculations, secret-safe shapes/errors,
+  shared serialization, representative maximum item sizes and RU charges, exact container count,
+  live policy validation, drift detection, production no-create behavior, shared-throughput
+  enforcement, and physical TTL deletion without reverse-reference repair. Incremented
+  `AssemblyVersion` from `2.24.0.0` to `2.25.0.0` for the backward-compatible foundation feature.
+- Validation: `dotnet build youtubed.sln` passed with zero warnings and errors; tests excluding
+  LocalDB and Cosmos passed 141/141 with no skips; opted-in LocalDB tests passed 50/50 with no
+  skips; opted-in Cosmos emulator tests passed 6/6 with no skips; `git diff --check` and the
+  equivalent whitespace scan across new files passed. Spatial-index drift is exercised against the
+  emulator; vector and full-text drift use focused unit coverage because this local emulator suite
+  does not provision the newer feature policies those indexes require.

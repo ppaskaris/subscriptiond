@@ -32,17 +32,14 @@ namespace youtubed.Tests.Persistence
         }
 
         [Fact]
-        public void CosmosDocumentDtosAndMapper_AreProviderInternal()
+        public void CosmosProviderImplementation_IsTemporarilyAbsent()
         {
             var assembly = typeof(IListRepository).Assembly;
             var cosmosTypes = assembly.GetTypes()
                 .Where(type => type.Namespace == "youtubed.Persistence.Cosmos")
-                .Where(type => type.Name.EndsWith("Document", StringComparison.Ordinal)
-                    || type.Name == "CosmosDocumentMapper")
                 .ToArray();
 
-            Assert.NotEmpty(cosmosTypes);
-            Assert.All(cosmosTypes, type => Assert.False(type.IsVisible, type.FullName));
+            Assert.Empty(cosmosTypes);
         }
 
         [Fact]

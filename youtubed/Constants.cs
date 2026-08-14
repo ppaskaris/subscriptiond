@@ -23,7 +23,6 @@ namespace youtubed
         public static readonly TimeSpan ChannelUpdateFrequencyMin = TimeSpan.FromSeconds(25);
         public static readonly TimeSpan ChannelUpdateFrequencyMax = TimeSpan.FromSeconds(35);
         public static readonly TimeSpan ChannelUnavailableStaleDelay = TimeSpan.FromDays(36500);
-        public static readonly TimeSpan ChannelOrphanRetention = TimeSpan.FromDays(7);
         public const int ChannelRefreshBatchSize = 10;
         public const int ChannelRefreshLookaheadMultiplier = 10;
         public const int ChannelRefreshLookaheadCount = ChannelRefreshBatchSize * ChannelRefreshLookaheadMultiplier;
@@ -37,19 +36,9 @@ namespace youtubed
         public static readonly TimeSpan MaintenanceFrequencyMax = TimeSpan.FromMinutes(12);
         public static readonly TimeSpan PurgeInterval = TimeSpan.FromMinutes(10);
         public static readonly TimeSpan ConsistencyRecoveryPollInterval = TimeSpan.FromMinutes(1);
-        public static readonly TimeSpan ConsistencyRecoveryLifecycleRecheckInterval = TimeSpan.FromMinutes(10);
-        public static readonly TimeSpan ConsistencyRecoveryLifecycleCleanupSlo = TimeSpan.FromMinutes(15);
-        public static readonly TimeSpan ConsistencyRecoveryLeaseDuration = TimeSpan.FromMinutes(2);
-        public static readonly TimeSpan ConsistencyRecoveryMinBackoff = TimeSpan.FromMinutes(1);
-        public static readonly TimeSpan ConsistencyRecoveryMaxBackoff = TimeSpan.FromHours(1);
-        public static readonly TimeSpan ConsistencyRecoveryPoisonBackoff = TimeSpan.FromDays(1);
         public const int ConsistencyRecoveryBatchSize = 25;
         public const int ConsistencyRecoveryMaxItemsPerPass = 100;
         public const double ConsistencyRecoveryRuBudgetPerPass = 2_000;
-        public const int ConsistencyRecoveryPoisonAttemptCount = 10;
-        public const int RecoveryDocumentSizeCeilingBytes = 16_384;
-        public const int RecoveryMaxActiveEdgesPerList = 125;
-        public const int CosmosChannelSerializedSizeSafetyCeilingBytes = 1_900_000;
         public static readonly TimeSpan ShareLinkMaxAgeMin = TimeSpan.FromMinutes(65);
         public static readonly TimeSpan ShareLinkMaxAgeMax = TimeSpan.FromMinutes(75);
         public static readonly TimeSpan ShareLinkRetentionAfterExpiration = TimeSpan.FromDays(1);

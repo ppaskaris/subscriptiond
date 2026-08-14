@@ -2,14 +2,10 @@ using System;
 using System.Collections.Generic;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Xunit;
 using youtubed.Data;
 using youtubed.Persistence;
-using youtubed.Persistence.Cosmos;
-using youtubed.Services;
-using youtubed.Tests.Infrastructure;
 
 namespace youtubed.Tests.Persistence
 {
@@ -42,33 +38,7 @@ namespace youtubed.Tests.Persistence
         }
 
         [Fact]
-        public void AddPersistence_UsesConfiguredCosmosProvider()
-        {
-            var services = new ServiceCollection();
-            services.AddLogging();
-            services.AddSingleton<IAppClock, FakeAppClock>();
-            var configuration = CreateConfiguration(
-                PersistenceProvider.Cosmos.ToString(),
-                includeCosmosConnection: true);
-
-            services.AddPersistence(configuration);
-
-            using var provider = services.BuildServiceProvider();
-            Assert.IsType<CosmosListRepository>(provider.GetRequiredService<IListRepository>());
-            Assert.IsType<CosmosShareLinkRepository>(provider.GetRequiredService<IShareLinkRepository>());
-            Assert.IsType<CosmosChannelRepository>(provider.GetRequiredService<IChannelRepository>());
-            Assert.IsType<CosmosListProjectionRepository>(provider.GetRequiredService<IListProjectionRepository>());
-            Assert.IsType<CosmosWorkerStateStore>(provider.GetRequiredService<IWorkerStateStore>());
-            Assert.IsType<CosmosExpirationPurger>(provider.GetRequiredService<IExpirationPurger>());
-            Assert.IsType<CosmosConsistencyRecoveryService>(
-                provider.GetRequiredService<IConsistencyRecoveryService>());
-            Assert.Contains(
-                provider.GetServices<IHostedService>(),
-                service => service is CosmosPersistenceInitializerHostedService);
-        }
-
-        [Fact]
-        public void AddPersistence_CosmosWithoutCredentialsFailsWithActionableMessage()
+        public void AddPersistence_CosmosFailsEarlyWithTemporaryRebuildMessage()
         {
             var services = new ServiceCollection();
             var configuration = CreateConfiguration(PersistenceProvider.Cosmos.ToString());
@@ -76,14 +46,16 @@ namespace youtubed.Tests.Persistence
             var exception = Assert.Throws<InvalidOperationException>(
                 () => services.AddPersistence(configuration));
 
-            Assert.Contains("Cosmos:ConnectionString", exception.Message);
-            Assert.Contains("Cosmos:Endpoint", exception.Message);
-            Assert.Contains("Cosmos:Key", exception.Message);
+            Assert.Equal(
+                "Cosmos persistence is temporarily unavailable while the simplified " +
+                "provider is being rebuilt. Select 'SqlServer' with Persistence:Provider.",
+                exception.Message);
+            Assert.DoesNotContain(
+                services,
+                service => service.ServiceType == typeof(IListRepository));
         }
 
-        private static IConfiguration CreateConfiguration(
-            string provider = null,
-            bool includeCosmosConnection = false)
+        private static IConfiguration CreateConfiguration(string provider = null)
         {
             var values = new Dictionary<string, string>
             {
@@ -93,12 +65,6 @@ namespace youtubed.Tests.Persistence
             if (provider != null)
             {
                 values["Persistence:Provider"] = provider;
-            }
-
-            if (includeCosmosConnection)
-            {
-                values["Cosmos:ConnectionString"] = CosmosEmulatorOptions.DefaultConnectionString;
-                values["Cosmos:DatabaseName"] = "registration-tests";
             }
 
             return new ConfigurationBuilder()

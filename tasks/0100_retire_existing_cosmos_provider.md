@@ -1,6 +1,6 @@
 # Task 0100: Retire The Existing Cosmos Provider
 
-Status: Not Started
+Status: Completed
 
 Depends On: None
 
@@ -46,4 +46,17 @@ projection behavior becomes an accidental compatibility requirement for the repl
 
 ## Implementation Summary
 
-Not implemented.
+- Removed the retired production `Persistence/Cosmos` provider, its document/recovery/projection
+  machinery, Cosmos-only constants and exceptions, emulator infrastructure, and all tests tied to
+  those obsolete shapes.
+- Kept provider selection explicit: choosing `Cosmos` now fails during `AddPersistence` with a
+  temporary rebuild message that directs operators to select `SqlServer`.
+- Removed checked-in Cosmos settings and the Cosmos SDK references from both production and test
+  projects. SQL repositories, provider-neutral ports, SQL provider contracts, MVC routes, and the
+  anonymous secret-link behavior remain in place.
+- Updated persistence registration and architecture tests for the temporary SQL-only baseline, and
+  incremented `AssemblyVersion` from `2.23.0.0` to `2.23.1.0` for the internal provider cleanup.
+- Validation: `dotnet build youtubed.sln` passed with zero warnings and errors; tests excluding
+  LocalDB and Cosmos passed 134/134 with no skips; opted-in LocalDB tests passed 71/71 with no
+  skips; the tracked-file audit found no retired production Cosmos implementation or SDK reference;
+  and `git diff --check` passed.

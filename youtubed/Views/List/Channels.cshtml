@@ -34,10 +34,20 @@
         @foreach (var channel in Model.Channels)
         {
             <li class="channel-item">
-                <a class="channel-link" href="@channel.Url" rel="noopener noreferrer" referrerpolicy="no-referrer">
-                    <img src="@channel.Thumbnail" referrerpolicy="no-referrer" width="135" height="135" loading="lazy" />
-                    <span class="channel-title">@channel.Title</span>
-                </a>
+                @if (channel.IsMissing)
+                {
+                    <div class="channel-link">
+                        <span class="channel-title">@channel.Title</span>
+                        <small>@channel.Id</small>
+                    </div>
+                }
+                else
+                {
+                    <a class="channel-link" href="@channel.Url" rel="noopener noreferrer" referrerpolicy="no-referrer">
+                        <img src="@channel.Thumbnail" referrerpolicy="no-referrer" width="135" height="135" loading="lazy" />
+                        <span class="channel-title">@channel.Title</span>
+                    </a>
+                }
                 <form asp-action="RemoveChannel" asp-route-token="@listToken" asp-route-id="@listId">
                     <input type="hidden" name="ChannelId" value="@channel.Id" />
                     <input type="submit" value="Remove Channel" class="btn btn-danger btn-sm btn-block" />

@@ -249,6 +249,7 @@ namespace youtubed.Services
             foreach (var channelId in channelIds)
             {
                 if (!channelsById.TryGetValue(channelId, out var channel)
+                    || channel.IsMissing
                     || (channel.Status == ChannelStatus.Active && channel.StaleAfter <= now))
                 {
                     _refreshQueue.TryEnqueue(channelId);
@@ -307,7 +308,8 @@ namespace youtubed.Services
                 StaleAfter = channel.StaleAfter,
                 Status = channel.Status,
                 StatusReason = channel.StatusReason,
-                StatusUpdatedAt = channel.StatusUpdatedAt
+                StatusUpdatedAt = channel.StatusUpdatedAt,
+                IsMissing = channel.IsMissing
             }).ToList();
         }
 

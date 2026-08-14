@@ -32,7 +32,7 @@ namespace youtubed.Tests.Persistence
         }
 
         [Fact]
-        public void CosmosFoundation_DoesNotImplementRepositoriesEarly()
+        public void CosmosProvider_ImplementsOnlyTheRepositoriesEnabledByCurrentTask()
         {
             var assembly = typeof(IListRepository).Assembly;
             var cosmosTypes = assembly.GetTypes()
@@ -40,12 +40,10 @@ namespace youtubed.Tests.Persistence
                 .ToArray();
 
             Assert.NotEmpty(cosmosTypes);
-            Assert.DoesNotContain(
-                cosmosTypes,
-                type => type.GetInterfaces().Any(interfaceType =>
-                    interfaceType == typeof(IListRepository)
-                    || interfaceType == typeof(IChannelRepository)
-                    || interfaceType == typeof(IShareLinkRepository)));
+            Assert.Contains(cosmosTypes, type => typeof(IListRepository).IsAssignableFrom(type));
+            Assert.Contains(cosmosTypes, type => typeof(IChannelRepository).IsAssignableFrom(type));
+            Assert.DoesNotContain(cosmosTypes, type =>
+                typeof(IShareLinkRepository).IsAssignableFrom(type));
         }
 
         [Fact]

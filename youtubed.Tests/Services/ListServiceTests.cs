@@ -397,6 +397,13 @@ namespace youtubed.Tests.Services
                     ChannelIds = new[] { "missing", "stale", "fresh", "unavailable" },
                     Channels = new[]
                     {
+                        new ListChannelProjection.Channel
+                        {
+                            Id = "missing",
+                            Title = "Temporarily unavailable",
+                            Status = ChannelStatus.Unavailable,
+                            IsMissing = true
+                        },
                         new ListChannelProjection.Channel { Id = "stale", StaleAfter = now.AddMinutes(-1) },
                         new ListChannelProjection.Channel { Id = "fresh", StaleAfter = now.AddMinutes(1) },
                         new ListChannelProjection.Channel
@@ -412,10 +419,13 @@ namespace youtubed.Tests.Services
             queue.Setup(value => value.TryEnqueue("stale")).Returns(true);
             var service = new ListService(repository.Object, new FakeAppClock { UtcNow = now }, queue.Object);
 
-            await service.GetListChannelViewAsync(list);
+            var view = await service.GetListChannelViewAsync(list);
 
             queue.Verify(value => value.TryEnqueue("missing"), Times.Once);
             queue.Verify(value => value.TryEnqueue("stale"), Times.Once);
+            var missing = view.Channels.Single(channel => channel.Id == "missing");
+            Assert.True(missing.IsMissing);
+            Assert.Equal("Temporarily unavailable", missing.Title);
         }
 
         [Fact]

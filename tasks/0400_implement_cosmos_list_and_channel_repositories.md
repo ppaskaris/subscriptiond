@@ -1,6 +1,6 @@
 # Task 0400: Implement Cosmos List And Channel Repositories
 
-Status: Not Started
+Status: Completed
 
 Depends On: 0300_add_three_container_cosmos_foundation
 
@@ -50,4 +50,29 @@ channel refresh without denormalized projections or reverse references.
 
 ## Implementation Summary
 
-Not implemented.
+- Added Cosmos list and channel repositories behind the existing storage-agnostic ports. Lists use
+  point reads, sorted distinct membership capped at 100 IDs, one bounded channel `ReadMany`,
+  constant-time authentication, once-daily TTL renewal, settings/membership mutation, and explicit
+  deletion. Channel management maps each missing cache document to an explicitly marked,
+  storage-agnostic "Temporarily unavailable" entry so it stays visible and removable while the
+  existing service safely queues rediscovery; video reads keep using authoritative `ChannelIds`
+  alongside the available cache-backed channels.
+- Added ETag-protected list and channel writes with one reread/reapply attempt and visible failure
+  on a second conflict. Discovery leaves an already cached channel's metadata/videos intact while
+  making it active and eligible again. Completed refreshes independently replace channel cache
+  documents, preserve videos for metadata-only outcomes, and deterministically de-duplicate/order
+  and cap refreshed videos at 100.
+- Added bounded, secret-safe Cosmos request telemetry for operation, container, request count, RU,
+  latency, HTTP status, and application retry count. Telemetry does not include item IDs, tokens,
+  resource URIs, document bodies, exceptions, or raw SDK diagnostics. Added a Cosmos expiration
+  purger that deliberately performs no application deletes because Cosmos TTL owns list/share-link
+  cleanup and channel retention is unmanaged.
+- Added focused unit tests, shared Cosmos list/channel provider contracts, and emulator tests for
+  the exact common-page point-read/`ReadMany` request shape. The concurrency tests synchronize two
+  genuine emulator writers after their stale ETag reads, prove a real 412 response and successful
+  single retry for both membership and refresh, and verify the resulting documents. Incremented
+  `AssemblyVersion` from `2.25.0.0` to `2.26.0.0` for this backward-compatible provider feature.
+- Validation: `dotnet build youtubed.sln` passed with zero warnings and errors; tests excluding
+  LocalDB and Cosmos passed 148/148 with no skips; opted-in LocalDB tests passed 50/50 with no
+  skips; opted-in Cosmos emulator tests passed 14/14 with no skips; `git diff --check` and the
+  equivalent trailing-whitespace scan across new files passed.

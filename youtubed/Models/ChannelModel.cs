@@ -14,5 +14,6 @@ namespace youtubed.Models
         public ChannelStatus Status { get; set; } = ChannelStatus.Active;
         public ChannelStatusReason StatusReason { get; set; } = ChannelStatusReason.None;
         public DateTimeOffset? StatusUpdatedAt { get; set; }
+        public bool IsMissing { get; set; }
     }
 }

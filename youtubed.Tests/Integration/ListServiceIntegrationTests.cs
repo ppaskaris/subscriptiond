@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
 using youtubed.Domain;
@@ -21,7 +22,10 @@ namespace youtubed.Tests.Integration
             : base(fixture)
         {
             _clock = new FakeAppClock();
-            _service = new ListService(new ListRepository(fixture.ConnectionFactory), _clock);
+            _service = new ListService(
+                new ListRepository(fixture.ConnectionFactory),
+                _clock,
+                new ChannelRefreshQueue());
         }
 
         [LocalDbFact]
@@ -297,16 +301,16 @@ namespace youtubed.Tests.Integration
         }
 
         [LocalDbFact]
-        public async Task AddChannelAsync_ForcesSqlWorkerChannelRefresh()
+        public async Task AddChannelAsync_QueuesNewChannel()
         {
             var listId = Guid.NewGuid();
             var now = new DateTimeOffset(2026, 6, 15, 12, 0, 0, TimeSpan.Zero);
             _clock.UtcNow = now;
+            var queue = new ChannelRefreshQueue();
             var service = new ListService(
                 new ListRepository(Fixture.ConnectionFactory),
                 _clock,
-                new WorkerStateRepository(Fixture.ConnectionFactory, _clock),
-                new InProcessWorkerWakeSignal());
+                queue);
 
             await ExecuteAsync(
                 @"
@@ -326,10 +330,8 @@ namespace youtubed.Tests.Integration
 
             await service.AddChannelAsync(listId, "channel-1");
 
-            var nextChannelRefreshAt = await ScalarAsync<DateTimeOffset>(
-                "SELECT NextChannelRefreshAt FROM WorkerState WHERE Id = 1;");
-
-            Assert.Equal(DateTimeOffset.MinValue, nextChannelRefreshAt);
+            Assert.Equal("channel-1", Assert.Single(
+                await queue.DequeueBatchAsync(10, CancellationToken.None)));
         }
 
         [LocalDbFact]

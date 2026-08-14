@@ -60,7 +60,7 @@
 {
     <div class="alert alert-info" role="alert">
         @("channel".ToQuantity(Model.StaleCount)) in this list @("is".ToQuantity(Model.StaleCount, ShowQuantityAs.None))
-        waiting to be updated. <a class="alert-link" asp-action="Index" asp-route-token="@listToken" asp-route-id="@listId">Refresh</a>
+        waiting to be updated. <a class="alert-link" asp-action="Refresh" asp-route-token="@listToken" asp-route-id="@listId">Refresh</a>
     </div>
 }
 @{

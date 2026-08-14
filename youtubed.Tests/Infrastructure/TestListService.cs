@@ -121,6 +121,8 @@ namespace youtubed.Tests.Infrastructure
 
         public Task AddChannelAsync(Guid listId, string channelId) => Task.CompletedTask;
 
+        public Task ForceRefreshAsync(ListModel list) => Task.CompletedTask;
+
         public Task RemoveChannelAsync(Guid listId, string channelId) => Task.CompletedTask;
 
         public Task UpdateListAsync(Guid id, string title, decimal playbackRate) => Task.CompletedTask;

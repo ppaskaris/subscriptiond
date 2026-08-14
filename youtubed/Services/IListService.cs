@@ -16,6 +16,7 @@ namespace youtubed.Services
         Task<ListViewModel> GetListViewAsync(ListModel list);
         Task<ListViewModel> GetListChannelViewAsync(Guid id);
         Task<ListViewModel> GetListChannelViewAsync(ListModel list);
+        Task ForceRefreshAsync(ListModel list);
 
         Task AddChannelAsync(Guid listId, string channelId);
         Task RemoveChannelAsync(Guid listId, string channelId);

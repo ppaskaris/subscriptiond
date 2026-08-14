@@ -44,8 +44,6 @@ namespace youtubed.Tests.ProviderContracts
                 var subscribedChannel = Assert.Single(await Provider.Channels.GetBatchAsync(
                     new[] { channel.Id },
                     CancellationToken.None));
-                Assert.Equal(expired.Id, Assert.Single(subscribedChannel.SubscribedListIds));
-                Assert.Equal(1, subscribedChannel.SubscriptionCount);
                 return;
             }
 
@@ -56,8 +54,6 @@ namespace youtubed.Tests.ProviderContracts
             var orphanedChannel = Assert.Single(await Provider.Channels.GetBatchAsync(
                 new[] { channel.Id },
                 CancellationToken.None));
-            Assert.Empty(orphanedChannel.SubscribedListIds);
-            Assert.Equal(0, orphanedChannel.SubscriptionCount);
         }
 
         protected async Task ExpiredShareLinkCleanupContractAsync()

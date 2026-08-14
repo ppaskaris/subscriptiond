@@ -10,12 +10,6 @@ namespace youtubed.Persistence
     {
         Task<Channel> GetByIdAsync(string id);
         Task SaveDiscoveredChannelAsync(Channel channel, DateTimeOffset staleAfter);
-        Task<IReadOnlyList<StaleChannelReference>> GetStaleLookaheadAsync(
-            DateTimeOffset now,
-            int take,
-            CancellationToken cancellationToken);
-        Task<DateTimeOffset?> GetNextActiveSubscribedRefreshAtAsync(
-            CancellationToken cancellationToken);
         Task<IReadOnlyList<Channel>> GetBatchAsync(
             IReadOnlyCollection<string> channelIds,
             CancellationToken cancellationToken);

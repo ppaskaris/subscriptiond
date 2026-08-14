@@ -17,15 +17,6 @@ namespace youtubed.Tests.ProviderContracts
         public Task CanonicalChannelCreateReadUpdate() => CanonicalChannelCreateReadUpdateContractAsync();
 
         [LocalDbFact]
-        public Task StaleLookahead() => StaleLookaheadContractAsync();
-
-        [LocalDbFact]
-        public Task UnavailableChannelsAreExcludedFromRefresh() => UnavailableChannelsAreExcludedFromRefreshContractAsync();
-
-        [LocalDbFact]
-        public Task SubscriptionReferencesAndCount() => SubscriptionReferencesAndCountContractAsync();
-
-        [LocalDbFact]
         public Task ProjectionUpdate() => ProjectionUpdateContractAsync();
     }
 }

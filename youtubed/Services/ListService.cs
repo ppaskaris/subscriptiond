@@ -16,19 +16,16 @@ namespace youtubed.Services
     {
         private readonly IListRepository _listRepository;
         private readonly IAppClock _clock;
-        private readonly IWorkerStateStore _workerStateStore;
-        private readonly IWorkerWakeSignal _wakeSignal;
+        private readonly IChannelRefreshQueue _refreshQueue;
 
         public ListService(
             IListRepository listRepository,
             IAppClock clock,
-            IWorkerStateStore workerStateStore = null,
-            IWorkerWakeSignal wakeSignal = null)
+            IChannelRefreshQueue refreshQueue)
         {
             _listRepository = listRepository;
             _clock = clock;
-            _workerStateStore = workerStateStore;
-            _wakeSignal = wakeSignal;
+            _refreshQueue = refreshQueue;
         }
 
         public async Task<ListModel> CreateListAsync(string title)
@@ -87,7 +84,9 @@ namespace youtubed.Services
                 CreateExpiredAfter(now),
                 DateOnly.FromDateTime(now.UtcDateTime),
                 Constants.ListRenderMaxItems + 1);
-            return CreateListView(projection, now);
+            var view = CreateListView(projection, now);
+            QueueRefreshCandidates(projection?.ChannelIds, view?.Channels, now);
+            return view;
         }
 
         public async Task<ListViewModel> GetListViewAsync(Guid id)
@@ -115,10 +114,25 @@ namespace youtubed.Services
         public async Task AddChannelAsync(Guid listId, string channelId)
         {
             await _listRepository.AddChannelAsync(listId, channelId);
-            if (_workerStateStore != null)
+            _refreshQueue.TryEnqueue(channelId);
+        }
+
+        public async Task ForceRefreshAsync(ListModel list)
+        {
+            if (list == null)
             {
-                await _workerStateStore.ForceChannelRefreshAsync(CancellationToken.None);
-                _wakeSignal?.Pulse();
+                return;
+            }
+
+            var projection = await _listRepository.GetChannelProjectionAsync(ToDomainList(list));
+            if (projection == null)
+            {
+                return;
+            }
+
+            foreach (var channelId in projection.ChannelIds)
+            {
+                _refreshQueue.TryEnqueue(channelId);
             }
         }
 
@@ -160,7 +174,9 @@ namespace youtubed.Services
                 return null;
             }
 
-            return CreateListView(projection, now);
+            var view = CreateListView(projection, now);
+            QueueRefreshCandidates(projection.ChannelIds, view.Channels, now);
+            return view;
         }
 
         private static ListViewModel CreateListView(
@@ -209,12 +225,35 @@ namespace youtubed.Services
                 return null;
             }
 
-            return CreateViewModel(
+            var view = CreateViewModel(
                 projection.List,
                 MapChannels(projection.Channels),
                 Enumerable.Empty<VideoViewModel>(),
                 false,
                 now);
+            QueueRefreshCandidates(projection.ChannelIds, view.Channels, now);
+            return view;
+        }
+
+        private void QueueRefreshCandidates(
+            IEnumerable<string> channelIds,
+            IEnumerable<ChannelModel> channels,
+            DateTimeOffset now)
+        {
+            if (channelIds == null || channels == null)
+            {
+                return;
+            }
+
+            var channelsById = channels.ToDictionary(channel => channel.Id, StringComparer.Ordinal);
+            foreach (var channelId in channelIds)
+            {
+                if (!channelsById.TryGetValue(channelId, out var channel)
+                    || (channel.Status == ChannelStatus.Active && channel.StaleAfter <= now))
+                {
+                    _refreshQueue.TryEnqueue(channelId);
+                }
+            }
         }
 
         private static ListViewModel CreateViewModel(

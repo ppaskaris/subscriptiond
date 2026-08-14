@@ -34,8 +34,6 @@ namespace youtubed.Tests.ProviderContracts
                 lists,
                 channels,
                 shareLinks,
-                new SqlListProjectionRepository(),
-                new WorkerStateRepository(_fixture.ConnectionFactory, clock),
                 new SqlExpirationPurger(lists, shareLinks, channels, clock));
         }
     }

@@ -28,16 +28,10 @@ namespace youtubed.Tests.ProviderContracts
             await SaveVideosAsync(channel, video);
             var shareLink = await CreateShareLinkAsync(list.Id, "sql-contract-share");
 
-            await Provider.ListProjections.UpdateProjectedChannelsAsync(
-                await Provider.Channels.GetBatchAsync(
-                    new[] { channel.Id },
-                    CancellationToken.None),
-                CancellationToken.None);
             var videoProjection = await Provider.Lists.GetVideoProjectionAsync(
                 list,
                 Constants.ListRenderMaxItems);
             var shareLinks = await Provider.ShareLinks.GetByListAsync(list.Id);
-            var workerState = await GetOrCreateWorkerStateAsync();
             var deletedLists = await Provider.ExpirationPurger.PurgeExpiredListsAsync(
                 CancellationToken.None);
 
@@ -46,7 +40,6 @@ namespace youtubed.Tests.ProviderContracts
             Assert.Equal("SQL Contract Channel", projectedChannel.Title);
             Assert.Equal("sql-contract-video", Assert.Single(projectedChannel.Videos).VideoId);
             Assert.Equal(shareLink.Password, Assert.Single(shareLinks).Password);
-            Assert.Equal(DefaultNow, workerState.NextChannelRefreshAt);
             Assert.Equal(0, deletedLists);
             Assert.Equal("SqlServer", ProviderName);
         }

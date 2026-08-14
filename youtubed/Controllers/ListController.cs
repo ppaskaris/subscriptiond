@@ -72,6 +72,24 @@ namespace youtubed.Controllers
             return View(listView);
         }
 
+        [HttpGet, Route("refresh")]
+        public async Task<IActionResult> Refresh(Guid? id, string token)
+        {
+            if (id == null || token == null)
+            {
+                return BadRequest();
+            }
+
+            var list = await _listService.GetAuthenticatedListAsync(id.Value, token);
+            if (list == null)
+            {
+                return NotFound();
+            }
+
+            await _listService.ForceRefreshAsync(list);
+            return RedirectToAction(nameof(Index), new { token = list.TokenString, id = list.Id });
+        }
+
         [HttpGet, Route("add-channel")]
         public async Task<IActionResult> AddChannel(Guid? id, string token)
         {

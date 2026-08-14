@@ -39,10 +39,7 @@ namespace youtubed.Persistence
             services.AddSingleton<IListRepository, ListRepository>();
             services.AddSingleton<IShareLinkRepository, ShareLinkRepository>();
             services.AddSingleton<IChannelRepository, ChannelRepository>();
-            services.AddSingleton<IWorkerStateStore, WorkerStateRepository>();
             services.AddSingleton<IExpirationPurger, SqlExpirationPurger>();
-            services.AddSingleton<IListProjectionRepository, SqlListProjectionRepository>();
-            services.AddSingleton<IConsistencyRecoveryService, SqlConsistencyRecoveryService>();
 
             return services;
         }

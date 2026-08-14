@@ -630,6 +630,23 @@ namespace youtubed.Tests.Controllers
             shareLinkService.Verify(service => service.DeleteShareLinkInListAsync(id, "password"), Times.Once);
         }
 
+        [Fact]
+        public async Task Refresh_AuthenticatesQueuesAllAndRedirects()
+        {
+            var id = Guid.NewGuid();
+            var list = CreateList(id);
+            var listService = CreateListServiceReturning(id, list);
+            listService.Setup(service => service.ForceRefreshAsync(list)).Returns(Task.CompletedTask);
+
+            var result = await CreateController(listService: listService)
+                .Refresh(id, list.TokenString);
+
+            var redirect = Assert.IsType<RedirectToActionResult>(result);
+            Assert.Equal("Index", redirect.ActionName);
+            Assert.Equal(id, redirect.RouteValues["id"]);
+            listService.Verify(service => service.ForceRefreshAsync(list), Times.Once);
+        }
+
         private static ListController CreateController(
             Mock<IListService> listService = null,
             Mock<IChannelService> channelService = null,

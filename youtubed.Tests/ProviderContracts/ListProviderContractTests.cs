@@ -42,7 +42,7 @@ namespace youtubed.Tests.ProviderContracts
                 expiredAfter: Clock.UtcNow.AddDays(1),
                 expirationRenewedOn: yesterday);
             Clock.RandomDelayValue = TimeSpan.FromDays(45);
-            var service = new ListService(Provider.Lists, Clock);
+            var service = new ListService(Provider.Lists, Clock, new ChannelRefreshQueue());
 
             Assert.Null(await service.GetAuthenticatedListAsync(list.Id, "wrong-token"));
             var afterRejectedAccess = await Provider.Lists.GetAsync(list.Id);

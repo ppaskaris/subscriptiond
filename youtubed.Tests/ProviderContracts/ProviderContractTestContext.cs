@@ -8,15 +8,11 @@ namespace youtubed.Tests.ProviderContracts
             IListRepository lists,
             IChannelRepository channels,
             IShareLinkRepository shareLinks,
-            IListProjectionRepository listProjections,
-            IWorkerStateStore workerState,
             IExpirationPurger expirationPurger)
         {
             Lists = lists;
             Channels = channels;
             ShareLinks = shareLinks;
-            ListProjections = listProjections;
-            WorkerState = workerState;
             ExpirationPurger = expirationPurger;
         }
 
@@ -25,10 +21,6 @@ namespace youtubed.Tests.ProviderContracts
         public IChannelRepository Channels { get; }
 
         public IShareLinkRepository ShareLinks { get; }
-
-        public IListProjectionRepository ListProjections { get; }
-
-        public IWorkerStateStore WorkerState { get; }
 
         public IExpirationPurger ExpirationPurger { get; }
     }

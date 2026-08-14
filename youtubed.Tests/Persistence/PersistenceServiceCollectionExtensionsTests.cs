@@ -78,10 +78,7 @@ namespace youtubed.Tests.Persistence
             AssertRegistration<IListRepository, ListRepository>(services);
             AssertRegistration<IShareLinkRepository, ShareLinkRepository>(services);
             AssertRegistration<IChannelRepository, ChannelRepository>(services);
-            AssertRegistration<IWorkerStateStore, WorkerStateRepository>(services);
             AssertRegistration<IExpirationPurger, SqlExpirationPurger>(services);
-            AssertRegistration<IListProjectionRepository, SqlListProjectionRepository>(services);
-            AssertRegistration<IConsistencyRecoveryService, SqlConsistencyRecoveryService>(services);
         }
 
         private static void AssertRegistration<TService, TImplementation>(IServiceCollection services)

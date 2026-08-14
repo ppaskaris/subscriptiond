@@ -1,6 +1,6 @@
 # Task 0200: Simplify Refresh And Maintenance
 
-Status: Not Started
+Status: Completed
 
 Depends On: 0100_retire_existing_cosmos_provider
 
@@ -51,4 +51,30 @@ single-instance worker while proving the behavior first on SQL Server.
 
 ## Implementation Summary
 
-Not implemented.
+- Added one bounded, deduplicating in-memory channel-refresh queue and a queue-draining hosted
+  service. The queue wakes blocked consumers, keeps queued and in-flight IDs within one capacity
+  bound, drains explicit batches, and re-enqueues a batch after a failed refresh.
+- Authenticated list rendering and channel-management reads now enqueue only missing or active stale
+  channel IDs. The existing visible refresh flow now authenticates and enqueues every canonical ID
+  in the target list, while adding a channel queues that newly added ID.
+- Changed the refresh pipeline to accept and enforce an explicit bounded ID batch. It retains the
+  existing cancellation-safe YouTube call boundaries and persists completed metadata/video results
+  with a non-cancelable final save. Unit coverage includes cancellation between playlist pages,
+  during a playlist request, between duration chunks, and mixed completed/incomplete batches;
+  LocalDB coverage exercises metadata, video, and stale-time persistence end to end. Channel
+  persistence is now the complete refresh write; the SQL projection writer and global stale/due
+  queries were removed.
+- Replaced the unified durable worker with the refresh hosted service and the existing simple
+  periodic maintenance service. Removed worker state, force generations, recovery scheduling,
+  consistency recovery, projection-writer ports, reverse subscription fields, their SQL
+  implementations, and obsolete tests/contracts.
+- Removed `WorkerState` from `Schema.sql` and added rerunnable
+  `20260814_DropWorkerState.sql`, which drops both `dbo.WorkerState` and the schema-qualified
+  `youtubed.WorkerState` shape used by an earlier intermediate migration. Incremented
+  `AssemblyVersion` from `2.23.1.0` to `2.24.0.0` for this backward-compatible feature.
+- Validation: `dotnet build youtubed.sln` passed with zero warnings and errors; tests excluding
+  LocalDB and Cosmos passed 127/127 with no skips; opted-in LocalDB tests passed 50/50 with no
+  skips, including the rerunnable drop migration; the production obsolete-type search returned no
+  matches outside design/task history and earlier migrations; and `git diff --check` passed. The
+  Cosmos suite was not applicable because this task deliberately leaves the Cosmos provider absent
+  and changes no Cosmos implementation.

@@ -12,69 +12,61 @@ namespace youtubed.Services
     {
         private readonly IChannelRepository _channelRepository;
         private readonly IYoutubeService _youtubeService;
-        private readonly IListProjectionRepository _projectionRepository;
         private readonly IAppClock _clock;
         private readonly IYoutubeCallDelay _youtubeCallDelay;
 
         public ChannelRefreshPipeline(
             IChannelRepository channelRepository,
             IYoutubeService youtubeService,
-            IListProjectionRepository projectionRepository,
             IAppClock clock,
             IYoutubeCallDelay youtubeCallDelay)
         {
             _channelRepository = channelRepository;
             _youtubeService = youtubeService;
-            _projectionRepository = projectionRepository;
             _clock = clock;
             _youtubeCallDelay = youtubeCallDelay;
         }
 
-        public async Task<ChannelRefreshPipelineResult> RefreshStaleChannelsAsync(CancellationToken cancellationToken)
+        public async Task<ChannelRefreshPipelineResult> RefreshAsync(
+            IReadOnlyCollection<string> channelIds,
+            CancellationToken cancellationToken)
         {
-            var now = _clock.UtcNow;
-            var lookahead = await _channelRepository.GetStaleLookaheadAsync(
-                now,
-                Constants.ChannelRefreshLookaheadCount,
-                cancellationToken);
+            if (channelIds == null)
+            {
+                throw new ArgumentNullException(nameof(channelIds));
+            }
+            if (channelIds.Count > Constants.ChannelRefreshBatchSize)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(channelIds),
+                    $"A refresh batch cannot exceed {Constants.ChannelRefreshBatchSize} channel IDs.");
+            }
 
-            var selectedIds = lookahead
-                .Take(Constants.ChannelRefreshBatchSize)
-                .Select(channel => channel.Id)
+            var selectedIds = channelIds
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.Ordinal)
                 .ToList();
             var channels = await _channelRepository.GetBatchAsync(selectedIds, cancellationToken);
             var result = new ChannelRefreshPipelineResult
             {
-                StaleLookaheadCount = lookahead.Count,
                 SelectedChannelCount = channels.Count
             };
 
             if (channels.Count == 0)
             {
-                result.NextChannelRefreshAt =
-                    await _channelRepository.GetNextActiveSubscribedRefreshAtAsync(cancellationToken);
                 return result;
             }
 
             var refreshResults = await ProcessBatchAsync(channels, result, cancellationToken);
             if (refreshResults.Count == 0)
             {
-                result.NextChannelRefreshAt =
-                    await _channelRepository.GetNextActiveSubscribedRefreshAtAsync(CancellationToken.None);
                 return result;
             }
 
             await _channelRepository.SaveRefreshResultsAsync(refreshResults, CancellationToken.None);
-            result.ProjectionUpdateAttemptCount = 1;
-            await _projectionRepository.UpdateProjectedChannelsAsync(
-                refreshResults.Select(value => value.Channel).ToList(),
-                CancellationToken.None);
-            result.ProjectionUpdateSuccessCount = 1;
 
             result.RefreshedChannelCount = refreshResults.Count(value => value.VideosRefreshed);
             result.UnavailableChannelCount = refreshResults.Count(value => value.Channel.Status == ChannelStatus.Unavailable);
-            result.NextChannelRefreshAt =
-                await _channelRepository.GetNextActiveSubscribedRefreshAtAsync(CancellationToken.None);
             return result;
         }
 

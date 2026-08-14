@@ -131,11 +131,6 @@ namespace youtubed.Tests.ProviderContracts
                 CancellationToken.None);
         }
 
-        protected Task<WorkerState> GetOrCreateWorkerStateAsync()
-        {
-            return Provider.WorkerState.GetOrCreateAsync(CancellationToken.None);
-        }
-
         protected ChannelVideo CreateVideo(
             string channelId,
             string videoId = null,

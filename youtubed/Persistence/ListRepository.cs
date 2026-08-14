@@ -87,6 +87,11 @@ namespace youtubed.Persistence
             using var connection = _connectionFactory.CreateConnection();
             using var query = await connection.QueryMultipleAsync(
                 @"
+                SELECT ChannelId
+                FROM ListChannel
+                WHERE ListId = @id
+                ORDER BY ChannelId ASC;
+
                 SELECT Channel.Id,
                        Channel.Title,
                        Channel.Url,
@@ -115,6 +120,7 @@ namespace youtubed.Persistence
                 ",
                 new { id = list.Id, videoLimit });
 
+            var channelIds = (await query.ReadAsync<string>()).AsList();
             var channels = (await query.ReadAsync<ListVideoProjection.Channel>()).AsList();
             var videosByChannelId = (await query.ReadAsync<ChannelVideo>())
                 .ToLookup(video => video.ChannelId, StringComparer.Ordinal);
@@ -127,6 +133,7 @@ namespace youtubed.Persistence
             return new ListVideoProjection
             {
                 List = list,
+                ChannelIds = channelIds,
                 Channels = channels
             };
         }
@@ -136,6 +143,11 @@ namespace youtubed.Persistence
             using var connection = _connectionFactory.CreateConnection();
             using var query = await connection.QueryMultipleAsync(
                 @"
+                SELECT ChannelId
+                FROM ListChannel
+                WHERE ListId = @id
+                ORDER BY ChannelId ASC;
+
                 SELECT Channel.Id,
                        Channel.Title,
                        Channel.Url,
@@ -151,9 +163,11 @@ namespace youtubed.Persistence
                 ",
                 new { id = list.Id });
 
+            var channelIds = (await query.ReadAsync<string>()).AsList();
             return new ListChannelProjection
             {
                 List = list,
+                ChannelIds = channelIds,
                 Channels = (await query.ReadAsync<ListChannelProjection.Channel>()).AsList()
             };
         }

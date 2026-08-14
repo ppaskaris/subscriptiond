@@ -34,14 +34,15 @@ builder.Services.AddSingleton<IYoutubeService, YoutubeService>();
 
 builder.Services.AddSingleton<IAppClock, AppClock>();
 builder.Services.AddSingleton<IYoutubeCallDelay, YoutubeCallDelay>();
-builder.Services.AddSingleton<IWorkerWakeSignal, InProcessWorkerWakeSignal>();
+builder.Services.AddSingleton<IChannelRefreshQueue, ChannelRefreshQueue>();
 builder.Services.AddSingleton<IChannelUrlLookupCache, ChannelUrlLookupCache>();
 builder.Services.AddSingleton<IChannelService, ChannelService>();
 builder.Services.AddSingleton<IChannelRefreshPipeline, ChannelRefreshPipeline>();
 builder.Services.AddSingleton<IListService, ListService>();
 builder.Services.AddSingleton<IShareLinkService, ShareLinkService>();
 
-builder.Services.AddSingleton<IHostedService, UnifiedWorkerHostedService>();
+builder.Services.AddSingleton<IHostedService, ChannelRefreshHostedService>();
+builder.Services.AddSingleton<IHostedService, MaintenanceHostedService>();
 
 var app = builder.Build();
 

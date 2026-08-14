@@ -95,6 +95,7 @@ namespace youtubed.Tests.Integration
             Assert.Equal(now.AddDays(1), projection.List.ExpiredAfter);
             Assert.Null(projection.List.ExpirationRenewedOn);
             Assert.Equal(new[] { "Alpha", "Beta", "Empty" }, projection.Channels.Select(channel => channel.Title).ToArray());
+            Assert.Equal(new[] { "channel-a", "channel-b", "channel-empty" }, projection.ChannelIds);
             Assert.Empty(projection.Channels.Single(channel => channel.Id == "channel-empty").Videos);
             Assert.Equal(new[] { "video-a", "video-b" }, projection.Channels.SelectMany(channel => channel.Videos).Select(video => video.VideoId).ToArray());
         }
@@ -138,6 +139,7 @@ namespace youtubed.Tests.Integration
             var projection = await _repository.GetChannelProjectionAsync(list);
 
             var channel = Assert.Single(projection.Channels);
+            Assert.Equal("channel-1", Assert.Single(projection.ChannelIds));
             Assert.Equal("channel-1", channel.Id);
             Assert.Equal(ChannelStatus.Unavailable, channel.Status);
             Assert.Equal(ChannelStatusReason.NotFound, channel.StatusReason);

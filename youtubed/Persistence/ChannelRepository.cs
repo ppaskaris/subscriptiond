@@ -101,47 +101,6 @@ namespace youtubed.Persistence
             transaction.Commit();
         }
 
-        public async Task<IReadOnlyList<StaleChannelReference>> GetStaleLookaheadAsync(
-            DateTimeOffset now,
-            int take,
-            CancellationToken cancellationToken)
-        {
-            using var connection = _connectionFactory.CreateConnection();
-            var channels = await connection.QueryAsync<StaleChannelReference>(
-                new CommandDefinition(
-                    @"
-                    SELECT TOP (@take) Id, StaleAfter
-                    FROM Channel
-                    WHERE StaleAfter <= @now
-                      AND Status = @status
-                      AND EXISTS(SELECT * FROM ListChannel WHERE ListChannel.ChannelId = Channel.Id)
-                    ORDER BY StaleAfter ASC,
-                             Id ASC;
-                    ",
-                    new { now, take, status = ChannelStatus.Active },
-                    cancellationToken: cancellationToken));
-
-            return channels.AsList();
-        }
-
-        public async Task<DateTimeOffset?> GetNextActiveSubscribedRefreshAtAsync(
-            CancellationToken cancellationToken)
-        {
-            using var connection = _connectionFactory.CreateConnection();
-            return await connection.ExecuteScalarAsync<DateTimeOffset?>(
-                new CommandDefinition(
-                    @"
-                    SELECT TOP (1) StaleAfter
-                    FROM Channel
-                    WHERE Status = @status
-                      AND EXISTS(SELECT * FROM ListChannel WHERE ListChannel.ChannelId = Channel.Id)
-                    ORDER BY StaleAfter ASC,
-                             Id ASC;
-                    ",
-                    new { status = ChannelStatus.Active },
-                    cancellationToken: cancellationToken));
-        }
-
         public async Task<IReadOnlyList<Channel>> GetBatchAsync(
             IReadOnlyCollection<string> channelIds,
             CancellationToken cancellationToken)
@@ -167,12 +126,6 @@ namespace youtubed.Persistence
                     FROM Channel
                     WHERE Id IN @channelIds;
 
-                    SELECT ChannelId, ListId
-                    FROM ListChannel
-                    WHERE ChannelId IN @channelIds
-                    ORDER BY ChannelId ASC,
-                             ListId ASC;
-
                     SELECT ChannelId,
                            Id AS VideoId,
                            Title,
@@ -187,15 +140,11 @@ namespace youtubed.Persistence
 
             var channelsById = (await query.ReadAsync<Channel>())
                 .ToDictionary(channel => channel.Id, StringComparer.Ordinal);
-            var subscriptions = (await query.ReadAsync<ChannelSubscriptionRow>())
-                .ToLookup(row => row.ChannelId, row => row.ListId, StringComparer.Ordinal);
             var videos = (await query.ReadAsync<ChannelVideo>())
                 .ToLookup(video => video.ChannelId, StringComparer.Ordinal);
 
             foreach (var channel in channelsById.Values)
             {
-                channel.SubscribedListIds = subscriptions[channel.Id].ToList();
-                channel.SubscriptionCount = channel.SubscribedListIds.Count;
                 channel.Videos = videos[channel.Id].ToList();
             }
 
@@ -363,10 +312,5 @@ namespace youtubed.Persistence
             return dataRecord;
         }
 
-        private sealed class ChannelSubscriptionRow
-        {
-            public string ChannelId { get; set; }
-            public Guid ListId { get; set; }
-        }
     }
 }

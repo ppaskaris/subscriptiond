@@ -6,6 +6,7 @@ namespace youtubed.Domain
     public class ListVideoProjection
     {
         public SubscriptionList List { get; set; }
+        public IReadOnlyList<string> ChannelIds { get; set; } = Array.Empty<string>();
         public IReadOnlyList<Channel> Channels { get; set; } = Array.Empty<Channel>();
 
         public class Channel

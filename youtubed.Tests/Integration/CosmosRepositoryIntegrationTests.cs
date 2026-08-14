@@ -1,10 +1,11 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
+using Microsoft.Azure.Cosmos;
 using Xunit;
 using youtubed.Domain;
 using youtubed.Persistence.Cosmos;
@@ -28,8 +29,8 @@ namespace youtubed.Tests.Integration
         {
             var now = new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero);
             var clock = new FakeAppClock { UtcNow = now };
-            var listLogger = new RecordingLogger<CosmosListRepository>();
-            var channelLogger = new RecordingLogger<CosmosChannelRepository>();
+            var listLogger = new CosmosRequestRecorder<CosmosListRepository>();
+            var channelLogger = new CosmosRequestRecorder<CosmosChannelRepository>();
             var lists = new CosmosListRepository(_fixture.Context, clock, listLogger);
             var channels = new CosmosChannelRepository(_fixture.Context, channelLogger);
             var list = CreateList(now, DateOnly.FromDateTime(now.UtcDateTime));
@@ -49,10 +50,10 @@ namespace youtubed.Tests.Integration
             Assert.NotNull(projection);
             Assert.Equal(
                 new[] { "pointRead", "readMany" },
-                listLogger.Messages.Select(message => message.Operation));
-            Assert.All(listLogger.Messages, message => Assert.Equal(1, message.RequestCount));
-            Assert.All(listLogger.Messages, message => Assert.True(message.RequestCharge > 0));
-            Assert.DoesNotContain(listLogger.Messages, message =>
+                listLogger.Records.Select(message => message.Operation));
+            Assert.All(listLogger.Records, message => Assert.Equal(1, message.RequestCount));
+            Assert.All(listLogger.Records, message => Assert.True(message.RequestCharge > 0));
+            Assert.DoesNotContain(listLogger.Records, message =>
                 message.Container != "lists" && message.Container != "channels");
 
             clock.UtcNow = now.AddDays(1);
@@ -65,7 +66,7 @@ namespace youtubed.Tests.Integration
                 100);
             Assert.Equal(
                 new[] { "pointRead", "replace", "readMany" },
-                listLogger.Messages.Select(message => message.Operation));
+                listLogger.Records.Select(message => message.Operation));
         }
 
         [CosmosFact]
@@ -76,17 +77,17 @@ namespace youtubed.Tests.Integration
             var setupLists = new CosmosListRepository(
                 _fixture.Context,
                 clock,
-                new RecordingLogger<CosmosListRepository>());
+                new CosmosRequestRecorder<CosmosListRepository>());
             var setupChannels = new CosmosChannelRepository(
                 _fixture.Context,
-                new RecordingLogger<CosmosChannelRepository>());
+                new CosmosRequestRecorder<CosmosChannelRepository>());
             var list = CreateList(now, DateOnly.FromDateTime(now.UtcDateTime));
             var channel = CreateChannel("UC-concurrent-old", "Old", now);
             await setupLists.CreateAsync(list);
             await setupChannels.SaveDiscoveredChannelAsync(channel, channel.StaleAfter);
             await setupLists.AddChannelAsync(list.Id, channel.Id);
 
-            var requestLogger = new RecordingLogger<object>();
+            var requestLogger = new CosmosRequestRecorder<object>();
             var coordinatedClient = new CoordinatedCosmosRepositoryClient(
                 new CosmosRepositoryClient(_fixture.Context, requestLogger));
             var firstLists = new CosmosListRepository(coordinatedClient, clock);
@@ -98,12 +99,12 @@ namespace youtubed.Tests.Integration
                 firstLists.AddChannelAsync(list.Id, "UC-concurrent-new"),
                 secondLists.RemoveChannelAsync(list.Id, channel.Id));
 
-            Assert.Single(requestLogger.Messages, message =>
+            Assert.Single(requestLogger.Records, message =>
                 message.Container == "lists"
                 && message.Operation == "replace"
                 && message.Status == 412
                 && message.RetryCount == 0);
-            Assert.Single(requestLogger.Messages, message =>
+            Assert.Single(requestLogger.Records, message =>
                 message.Container == "lists"
                 && message.Operation == "replace"
                 && message.Status == 200
@@ -127,12 +128,12 @@ namespace youtubed.Tests.Integration
                     new[] { new ChannelRefreshResult { Channel = secondRefresh, VideosRefreshed = true } },
                     CancellationToken.None));
 
-            Assert.Single(requestLogger.Messages, message =>
+            Assert.Single(requestLogger.Records, message =>
                 message.Container == "channels"
                 && message.Operation == "replace"
                 && message.Status == 412
                 && message.RetryCount == 0);
-            Assert.Single(requestLogger.Messages, message =>
+            Assert.Single(requestLogger.Records, message =>
                 message.Container == "channels"
                 && message.Operation == "replace"
                 && message.Status == 200
@@ -148,6 +149,64 @@ namespace youtubed.Tests.Integration
                     .ThenBy(video => video.VideoId, StringComparer.Ordinal)
                     .Select(video => video.VideoId),
                 persisted.Videos.Select(video => video.VideoId));
+        }
+
+        [CosmosFact]
+        public async Task SdkRetriesAnInjected429OnceThenSurfacesExhaustionWithoutLeakingDetails()
+        {
+            var now = new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero);
+            var clock = new FakeAppClock { UtcNow = now };
+            var list = CreateList(now, DateOnly.FromDateTime(now.UtcDateTime));
+            var document = CosmosDocumentMapper.ToDocument(
+                list,
+                Array.Empty<string>(),
+                now);
+            await _fixture.Context.Lists.CreateItemAsync(
+                document,
+                new PartitionKey(document.Id));
+
+            var handler = new InjectedThrottleHandler(document.Id)
+            {
+                InnerHandler = new HttpClientHandler
+                {
+                    ServerCertificateCustomValidationCallback =
+                        HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+                }
+            };
+            using var httpClient = new HttpClient(handler);
+            var clientOptions = CosmosClientFactory.CreateClientOptions();
+            clientOptions.HttpClientFactory = () => httpClient;
+            clientOptions.MaxRetryAttemptsOnRateLimitedRequests = 1;
+            clientOptions.MaxRetryWaitTimeOnRateLimitedRequests = TimeSpan.FromSeconds(1);
+            var emulator = CosmosEmulatorOptions.FromEnvironment();
+            using var client = new CosmosClient(emulator.ConnectionString, clientOptions);
+            var context = new CosmosPersistenceContext(
+                client,
+                new CosmosOptions { DatabaseName = _fixture.DatabaseName });
+            var logger = new CosmosRequestRecorder<CosmosListRepository>();
+            var repository = new CosmosListRepository(context, clock, logger);
+
+            try
+            {
+                var exception = await Assert.ThrowsAsync<CosmosException>(() =>
+                    repository.GetAsync(list.Id));
+
+                Assert.Equal(HttpStatusCode.TooManyRequests, exception.StatusCode);
+                Assert.Equal(2, handler.InjectedResponseCount);
+                var request = Assert.Single(logger.Records);
+                Assert.Equal("pointRead", request.Operation);
+                Assert.Equal((int)HttpStatusCode.TooManyRequests, request.Status);
+                Assert.Equal(0, request.RetryCount);
+                Assert.DoesNotContain(document.Id, request.Rendered, StringComparison.Ordinal);
+                Assert.DoesNotContain("diagnostic", request.Rendered, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("dbs/", request.Rendered, StringComparison.OrdinalIgnoreCase);
+            }
+            finally
+            {
+                await _fixture.Context.Lists.DeleteItemAsync<CosmosListDocument>(
+                    document.Id,
+                    new PartitionKey(document.Id));
+            }
         }
 
         private static SubscriptionList CreateList(DateTimeOffset now, DateOnly renewedOn)
@@ -295,61 +354,44 @@ namespace youtubed.Tests.Integration
             }
         }
 
-        private sealed class RecordingLogger<T> : ILogger<T>
+        private sealed class InjectedThrottleHandler : DelegatingHandler
         {
-            private readonly ConcurrentQueue<RequestMessage> _messages = new();
+            private readonly string _targetId;
+            private int _injectedResponseCount;
 
-            public IReadOnlyList<RequestMessage> Messages => _messages.ToArray();
-
-            public void Clear()
+            public InjectedThrottleHandler(string targetId)
             {
-                while (_messages.TryDequeue(out _))
-                {
-                }
+                _targetId = targetId;
             }
 
-            public IDisposable BeginScope<TState>(TState state) => NullScope.Instance;
+            public int InjectedResponseCount => _injectedResponseCount;
 
-            public bool IsEnabled(LogLevel logLevel) => true;
-
-            public void Log<TState>(
-                LogLevel logLevel,
-                EventId eventId,
-                TState state,
-                Exception exception,
-                Func<TState, Exception, string> formatter)
+            protected override Task<HttpResponseMessage> SendAsync(
+                HttpRequestMessage request,
+                CancellationToken cancellationToken)
             {
-                var values = state as IEnumerable<KeyValuePair<string, object>>;
-                if (eventId.Id != 4100 || values == null)
+                if (request.Method == HttpMethod.Get
+                    && request.RequestUri.AbsolutePath.Contains(
+                        $"/docs/{_targetId}",
+                        StringComparison.Ordinal))
                 {
-                    return;
+                    Interlocked.Increment(ref _injectedResponseCount);
+                    var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+                    {
+                        RequestMessage = request,
+                        Content = new StringContent(
+                            "{\"code\":\"TooManyRequests\",\"message\":\"Injected throttle.\"}")
+                    };
+                    response.Headers.TryAddWithoutValidation("x-ms-activity-id", Guid.Empty.ToString());
+                    response.Headers.TryAddWithoutValidation("x-ms-request-charge", "0");
+                    response.Headers.TryAddWithoutValidation("x-ms-retry-after-ms", "1");
+                    response.Headers.TryAddWithoutValidation("x-ms-substatus", "0");
+                    return Task.FromResult(response);
                 }
 
-                var fields = values.ToDictionary(value => value.Key, value => value.Value);
-                _messages.Enqueue(new RequestMessage(
-                    (string)fields["Operation"],
-                    (string)fields["Container"],
-                    (int)fields["RequestCount"],
-                    Convert.ToDouble(fields["RequestCharge"]),
-                    (int)fields["Status"],
-                    (int)fields["RetryCount"],
-                    formatter(state, exception)));
-            }
-
-            private sealed class NullScope : IDisposable
-            {
-                public static readonly NullScope Instance = new();
-                public void Dispose() { }
+                return base.SendAsync(request, cancellationToken);
             }
         }
 
-        private sealed record RequestMessage(
-            string Operation,
-            string Container,
-            int RequestCount,
-            double RequestCharge,
-            int Status,
-            int RetryCount,
-            string Rendered);
     }
 }

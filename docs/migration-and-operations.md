@@ -39,6 +39,9 @@ Provisioning is a deliberate manual operation:
 Record the account, database, region, throughput mode, backup mode, and container policy in the
 operator notes without recording credentials.
 
+Use [`cosmos-release-validation.md`](cosmos-release-validation.md) for the checked-in emulator
+envelope, read-only Azure resource-shape check, smoke-test flow, and evidence format.
+
 ## Migration Strategy
 
 Use a bounded-downtime offline import. Do not implement dual writes.

@@ -11,6 +11,8 @@ Read the documents in this order:
    document shapes, indexing, TTL, concurrency, and capacity limits.
 3. [`migration-and-operations.md`](migration-and-operations.md) defines free-tier provisioning,
    the offline SQL-to-Cosmos migration, cutover, rollback, and operating constraints.
+4. [`cosmos-release-validation.md`](cosmos-release-validation.md) defines the measured emulator
+   release envelope and the manual, secret-safe Azure evidence procedure.
 
 Implementation work is tracked in [`../tasks/`](../tasks/README.md). The documents describe
 the intended end state; the tasks describe how to move the current branch to it without

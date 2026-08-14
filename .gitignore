@@ -480,5 +480,6 @@ $RECYCLE.BIN/
 ### Project-specific stuff.
 ###
 
+/.local/azure/
 youtubed/Properties/ServiceDependencies/
 youtubed/wwwroot/css/site.css

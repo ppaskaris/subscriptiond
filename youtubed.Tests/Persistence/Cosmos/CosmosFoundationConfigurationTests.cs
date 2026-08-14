@@ -65,5 +65,42 @@ namespace youtubed.Tests.Persistence.Cosmos
             Assert.DoesNotContain(secret, exception.Message);
             Assert.DoesNotContain("AccountKey", exception.Message);
         }
+
+        [Fact]
+        public void FoundationRejectsMissingDatabaseNameWithoutEchoingCredentials()
+        {
+            const string secret = "AccountEndpoint=https://localhost:8081/;AccountKey=secret;";
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string>
+                {
+                    ["Cosmos:ConnectionString"] = secret,
+                    ["Cosmos:DatabaseName"] = " "
+                })
+                .Build();
+
+            var exception = Assert.Throws<System.InvalidOperationException>(() =>
+                new ServiceCollection().AddCosmosFoundation(configuration));
+
+            Assert.Contains("Cosmos:DatabaseName", exception.Message);
+            Assert.DoesNotContain(secret, exception.Message);
+        }
+
+        [Fact]
+        public void FoundationRequiresDatabaseNameKeyToBeExplicitlyConfigured()
+        {
+            const string secret = "AccountEndpoint=https://localhost:8081/;AccountKey=secret;";
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string>
+                {
+                    ["Cosmos:ConnectionString"] = secret
+                })
+                .Build();
+
+            var exception = Assert.Throws<System.InvalidOperationException>(() =>
+                new ServiceCollection().AddCosmosFoundation(configuration));
+
+            Assert.Contains("Cosmos:DatabaseName", exception.Message);
+            Assert.DoesNotContain(secret, exception.Message);
+        }
     }
 }

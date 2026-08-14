@@ -52,8 +52,7 @@ namespace youtubed.Persistence.Cosmos
             catch (CosmosException exception) when (exception.StatusCode == HttpStatusCode.NotFound)
             {
                 throw new InvalidOperationException(
-                    $"Cosmos database '{options.DatabaseName}' must be provisioned before production startup.",
-                    exception);
+                    "The configured Cosmos database must be provisioned before production startup.");
             }
 
             await ValidateAsync(database, cancellationToken);
@@ -140,8 +139,7 @@ namespace youtubed.Persistence.Cosmos
                 catch (CosmosException exception) when (exception.StatusCode == HttpStatusCode.NotFound)
                 {
                     throw new InvalidOperationException(
-                        $"Cosmos container '{expected.Id}' must be provisioned before production startup.",
-                        exception);
+                        "A required Cosmos container must be provisioned before production startup.");
                 }
 
                 ValidateContainerProperties(actual, expected);

@@ -6,6 +6,6 @@ namespace youtubed.Persistence.Cosmos
 
         public string ConnectionString { get; set; }
 
-        public string DatabaseName { get; set; } = "youtubed";
+        public string DatabaseName { get; set; }
     }
 }

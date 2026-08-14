@@ -61,8 +61,39 @@ namespace youtubed.Tests.Integration
                     options));
 
             Assert.Contains("must be provisioned", exception.Message);
+            Assert.DoesNotContain(databaseName, exception.Message);
+            Assert.Null(exception.InnerException);
             await Assert.ThrowsAsync<CosmosException>(() =>
                 _fixture.Client.GetDatabase(databaseName).ReadAsync());
+        }
+
+        [CosmosFact]
+        public async Task ProductionSetupDoesNotExposeAMissingContainerRequest()
+        {
+            var databaseName = $"missing-container-{Guid.NewGuid():N}";
+            var database = (await _fixture.Client.CreateDatabaseAsync(
+                databaseName,
+                CosmosContainerInitializer.SharedDatabaseThroughput)).Database;
+            try
+            {
+                var expected = CosmosContainerInitializer.GetContainerProperties();
+                await database.CreateContainerAsync(expected[0]);
+                await database.CreateContainerAsync(expected[1]);
+
+                var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                    new CosmosContainerInitializer().InitializeProductionAsync(
+                        _fixture.Client,
+                        new CosmosOptions { DatabaseName = databaseName }));
+
+                Assert.Contains("required Cosmos container", exception.Message);
+                Assert.DoesNotContain(databaseName, exception.Message);
+                Assert.DoesNotContain(CosmosContainerNames.ShareLinks, exception.Message);
+                Assert.Null(exception.InnerException);
+            }
+            finally
+            {
+                await database.DeleteAsync();
+            }
         }
 
         [CosmosFact]

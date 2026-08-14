@@ -32,7 +32,7 @@ namespace youtubed.Tests.Persistence
         }
 
         [Fact]
-        public void CosmosProvider_ImplementsOnlyTheRepositoriesEnabledByCurrentTask()
+        public void CosmosProvider_ImplementsTheCompleteStorageAgnosticRepositorySet()
         {
             var assembly = typeof(IListRepository).Assembly;
             var cosmosTypes = assembly.GetTypes()
@@ -42,8 +42,10 @@ namespace youtubed.Tests.Persistence
             Assert.NotEmpty(cosmosTypes);
             Assert.Contains(cosmosTypes, type => typeof(IListRepository).IsAssignableFrom(type));
             Assert.Contains(cosmosTypes, type => typeof(IChannelRepository).IsAssignableFrom(type));
-            Assert.DoesNotContain(cosmosTypes, type =>
+            Assert.Contains(cosmosTypes, type =>
                 typeof(IShareLinkRepository).IsAssignableFrom(type));
+            Assert.Contains(cosmosTypes, type =>
+                typeof(IExpirationPurger).IsAssignableFrom(type));
         }
 
         [Fact]

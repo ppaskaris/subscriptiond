@@ -29,6 +29,7 @@ namespace youtubed.Tests.ProviderContracts
         {
             await DeleteAllAsync<CosmosListDocument>(_fixture.Context.Lists);
             await DeleteAllAsync<CosmosChannelDocument>(_fixture.Context.Channels);
+            await DeleteAllAsync<CosmosShareLinkDocument>(_fixture.Context.ShareLinks);
         }
 
         public ProviderContractTestContext CreateContext(IAppClock clock)
@@ -40,10 +41,14 @@ namespace youtubed.Tests.ProviderContracts
             var channels = new CosmosChannelRepository(
                 _fixture.Context,
                 NullLogger<CosmosChannelRepository>.Instance);
+            var shareLinks = new CosmosShareLinkRepository(
+                _fixture.Context,
+                clock,
+                NullLogger<CosmosShareLinkRepository>.Instance);
             return new ProviderContractTestContext(
                 lists,
                 channels,
-                new UnavailableShareLinkRepository(),
+                shareLinks,
                 new CosmosExpirationPurger());
         }
 
@@ -67,18 +72,5 @@ namespace youtubed.Tests.ProviderContracts
             }
         }
 
-        private sealed class UnavailableShareLinkRepository : IShareLinkRepository
-        {
-            private static InvalidOperationException Unavailable() =>
-                new("Cosmos share-link persistence is implemented by Task 0500.");
-
-            public Task<bool> TryCreateAsync(ShareLink shareLink) => throw Unavailable();
-            public Task<IReadOnlyList<ShareLink>> GetByListAsync(Guid listId) => throw Unavailable();
-            public Task DeleteAsync(Guid listId, string password) => throw Unavailable();
-            public Task DeleteByListAsync(Guid listId) => throw Unavailable();
-            public Task<ConsumedShareLink> ConsumeAsync(string password, DateTimeOffset now) =>
-                throw Unavailable();
-            public Task<int> RemoveExpiredAsync(DateTimeOffset deleteBefore) => throw Unavailable();
-        }
     }
 }

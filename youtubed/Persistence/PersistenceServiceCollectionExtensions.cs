@@ -3,6 +3,7 @@ using Dapper;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using youtubed.Data;
+using youtubed.Persistence.Cosmos;
 
 namespace youtubed.Persistence
 {
@@ -19,12 +20,23 @@ namespace youtubed.Persistence
             return options.Provider switch
             {
                 PersistenceProvider.SqlServer => services.AddSqlServerPersistence(configuration),
-                PersistenceProvider.Cosmos => throw new InvalidOperationException(
-                    "Cosmos persistence is temporarily unavailable while the simplified " +
-                    "provider is being rebuilt. Select 'SqlServer' with Persistence:Provider."),
+                PersistenceProvider.Cosmos => services.AddCosmosPersistence(configuration),
                 _ => throw new InvalidOperationException(
                     $"Unsupported persistence provider '{options.Provider}'.")
             };
+        }
+
+        public static IServiceCollection AddCosmosPersistence(
+            this IServiceCollection services,
+            IConfiguration configuration)
+        {
+            services.AddCosmosFoundation(configuration);
+            services.AddSingleton<IListRepository, CosmosListRepository>();
+            services.AddSingleton<IShareLinkRepository, CosmosShareLinkRepository>();
+            services.AddSingleton<IChannelRepository, CosmosChannelRepository>();
+            services.AddSingleton<IExpirationPurger, CosmosExpirationPurger>();
+
+            return services;
         }
 
         public static IServiceCollection AddSqlServerPersistence(

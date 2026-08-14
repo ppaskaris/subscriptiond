@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using Xunit;
 using youtubed.Data;
 using youtubed.Persistence;
+using youtubed.Persistence.Cosmos;
 
 namespace youtubed.Tests.Persistence
 {
@@ -38,24 +39,44 @@ namespace youtubed.Tests.Persistence
         }
 
         [Fact]
-        public void AddPersistence_CosmosFailsEarlyWithTemporaryRebuildMessage()
+        public void AddPersistence_RegistersCosmosProvider()
         {
             var services = new ServiceCollection();
-            var configuration = CreateConfiguration(PersistenceProvider.Cosmos.ToString());
+            var configuration = CreateConfiguration(
+                PersistenceProvider.Cosmos.ToString(),
+                includeCosmos: true);
 
-            var exception = Assert.Throws<InvalidOperationException>(
-                () => services.AddPersistence(configuration));
+            services.AddPersistence(configuration);
 
-            Assert.Equal(
-                "Cosmos persistence is temporarily unavailable while the simplified " +
-                "provider is being rebuilt. Select 'SqlServer' with Persistence:Provider.",
-                exception.Message);
-            Assert.DoesNotContain(
-                services,
-                service => service.ServiceType == typeof(IListRepository));
+            AssertRegistration<IListRepository, CosmosListRepository>(services);
+            AssertRegistration<IShareLinkRepository, CosmosShareLinkRepository>(services);
+            AssertRegistration<IChannelRepository, CosmosChannelRepository>(services);
+            AssertRegistration<IExpirationPurger, CosmosExpirationPurger>(services);
         }
 
-        private static IConfiguration CreateConfiguration(string provider = null)
+        [Fact]
+        public void AddPersistence_CosmosRequiresCredentialsWithoutEchoingConfiguration()
+        {
+            const string secretName = "do-not-echo-database-name";
+            var services = new ServiceCollection();
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string>
+                {
+                    ["Persistence:Provider"] = PersistenceProvider.Cosmos.ToString(),
+                    ["Cosmos:DatabaseName"] = secretName
+                })
+                .Build();
+
+            var exception = Assert.Throws<InvalidOperationException>(() =>
+                services.AddPersistence(configuration));
+
+            Assert.Contains("Cosmos:ConnectionString", exception.Message);
+            Assert.DoesNotContain(secretName, exception.Message);
+        }
+
+        private static IConfiguration CreateConfiguration(
+            string provider = null,
+            bool includeCosmos = false)
         {
             var values = new Dictionary<string, string>
             {
@@ -65,6 +86,13 @@ namespace youtubed.Tests.Persistence
             if (provider != null)
             {
                 values["Persistence:Provider"] = provider;
+            }
+
+            if (includeCosmos)
+            {
+                values["Cosmos:ConnectionString"] =
+                    "AccountEndpoint=https://localhost:8081/;AccountKey=test-key;";
+                values["Cosmos:DatabaseName"] = "registration-test";
             }
 
             return new ConfigurationBuilder()

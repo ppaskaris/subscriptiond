@@ -1,121 +1,67 @@
-# Task Prompt Preamble
+# Task Execution Rules
 
-Use this preamble when starting any implementation task from this folder.
+## Authoritative Design
 
-## Project Objective
+Before implementing a task, read:
 
-The project is migrating toward a multi-persistence architecture that can keep SQL Server as the current provider while adding an RU-efficient Azure Cosmos DB for NoSQL backend later.
+- [`../docs/architecture.md`](../docs/architecture.md);
+- [`../docs/cosmos-data-model.md`](../docs/cosmos-data-model.md);
+- [`../docs/migration-and-operations.md`](../docs/migration-and-operations.md);
+- the repository `AGENTS.md`.
 
-The high-level strategy is SQL-first:
+If a task conflicts with those documents, stop and update the design explicitly before coding.
+Do not silently reintroduce the discarded recovery-ledger or embedded-projection architecture.
 
-1. Refactor the application domain, read models, and worker behavior while SQL Server still backs the app.
-2. Hide storage-specific details behind provider-neutral interfaces.
-3. Keep SQL implementations working and covered by tests.
-4. Add Cosmos implementations behind the same interfaces.
-5. Use shared provider contract tests to prove SQL and Cosmos behavior match at the domain level.
+## Status And Dependencies
 
-The Cosmos target optimizes for free-tier quota usage. The common list page should become a cheap point read in Cosmos, while SQL can continue using normalized tables and selective joins. The domain layer should not know whether data is normalized or denormalized.
+Every task has one status: `Not Started`, `In Progress`, or `Completed`.
 
-Preserve the anonymous secret-link model. Do not introduce accounts or authentication unless explicitly requested.
+Before changing code:
 
-## Test-Server Readiness Phase
+1. confirm every dependency is `Completed`;
+2. set the task to `In Progress`;
+3. inspect the current implementation because earlier task summaries may not capture follow-ups.
 
-Tasks at ordinal 2000 and later close reliability gaps found by the overall Cosmos project review so the application can be deployed safely to the owner's test server. This is a hobby project: validation runs locally on the owner's computer and deployment is performed manually with [`scripts/deploy.ps1`](../scripts/deploy.ps1).
+Complete one task at a time. Do not opportunistically implement later tasks unless the current task
+cannot compile or validate without a narrowly scoped dependency adjustment.
 
-For these tasks:
+## Implementation Discipline
 
-- Treat every `Validation` item as required evidence, together with the repository-wide validation rules in [`AGENTS.md`](../AGENTS.md).
-- Do not mark a task `Completed` when a required LocalDB, Cosmos emulator, migration rehearsal, or local release check was skipped or unavailable.
-- Prefer objective local automated assertions over implementation summaries that only state a manual check was performed.
-- If validation exposes a design gap, update the relevant design document and dependent task files before continuing.
-- Do not add hosted CI, GitHub Actions, automatic deployment, cloud release gates, branch-protection requirements, Azure staging environments, or production infrastructure-as-code unless the user explicitly changes the deployment model.
-- Deploying to the test server remains a separate user-authorized action; a task may prepare or rehearse deployment without performing it.
+- Keep SQL and Cosmos storage details behind provider-specific persistence code.
+- Preserve the anonymous secret-link model and existing controller route templates.
+- Reuse existing domain models, services, mappers, and test infrastructure when they still fit.
+- Prefer deletion over compatibility shims for unshipped Cosmos recovery behavior.
+- Do not preserve old recovery document shapes or tests as a second supported mode.
+- Treat the one-instance, request-driven refresh model as a product constraint.
+- Use ETags with one reread/reapply attempt for Cosmos conflicts.
+- Never log tokens, share passwords, keys, connection strings, document bodies, or raw diagnostics.
+- Update `AssemblyVersion` in the eventual commit for each meaningful shipped code change, following
+  `AGENTS.md`.
 
-## Design Docs Index
+## Validation
 
-Read only the docs relevant to the task, but use this index to know where to look.
+Run validation sequentially after a successful build:
 
-- `docs/multi-persistence-system-design.md`
-  - High-level architecture for SQL plus Cosmos providers.
-  - Domain concepts, provider boundaries, shared ports, time abstraction, and contract-test strategy.
+1. tests excluding LocalDB and Cosmos;
+2. opted-in LocalDB integration tests when SQL or shared behavior changed;
+3. opted-in Cosmos emulator tests when Cosmos behavior changed.
 
-- `docs/implementation-contracts.md`
-  - Sketches of the provider-neutral interfaces.
-  - Conflict retry policy: one retry after the initial optimistic-concurrency failure, then throw.
-  - Configuration knobs, worker logging expectations, and recommended early implementation order.
+Also run `git diff --check`. Run formatting and vulnerability checks when required by `AGENTS.md` or
+when preparing deployment. Never report a skipped, unavailable, or failed check as passing.
 
-- `docs/pre-cosmos-application-behavior.md`
-  - Application behavior changes to make before Cosmos exists.
-  - List read models, stale channel count behavior, unavailable channel behavior, daily list renewal, URL lookup cache, and projection/read-model rules.
+Cosmos emulator tests should prove visible behavior and the documented request shape. Add genuine
+concurrency tests only for supported competing requests such as ETag list mutation or share-link
+consumption; do not rebuild failure matrices for deliberately absent distributed invariants.
 
-- `docs/worker-state-model.md`
-  - Unified background worker design.
-  - Worker state semantics, state diagram, batching, YouTube call flow, and cancellation rules.
+## Completion
 
-- `docs/sql-schema-plan.md`
-  - SQL schema changes for the SQL-first refactor.
-  - Channel status fields, list renewal field, worker state table, `VisibleAfter` removal, and SQL expiration purger behavior.
+A task can be marked `Completed` only when:
 
-- `docs/cosmos-schema-plan.md`
-  - Target Cosmos containers, partition keys, document shapes, TTL usage, projection sizing, and indexing policy intent.
+- its scoped implementation and tests are committed together;
+- every required check passed, or the user explicitly changed the task's validation requirement;
+- its implementation summary records material behavior, deletions, validation evidence, and any
+  accepted constraint;
+- no temporary compatibility path or unexplained TODO remains.
 
-- `docs/cosmos-implementation-sketch.md`
-  - How the Cosmos provider should implement list, channel, share link, projection, worker state, and expiration purger interfaces.
-  - Cosmos emulator test expectations.
-
-## Tasks Folder
-
-Implementation tasks live in `tasks/NNNN_task_name.md`. Task IDs are fixed-width numeric ordering prefixes. New planned tasks usually advance by 100; splits should use available numbers between neighboring tasks, such as `0611_task_name.md` or `0612_task_name.md`.
-
-The prefix is dependency order. Prefer completing lower-numbered tasks first, including inserted split tasks in numeric order, unless the current task explicitly says its dependencies are complete or the user asks otherwise.
-
-Each task file uses this structure:
-
-- `Status`
-  - Use `Not Started`, `In Progress`, or `Completed`.
-
-- `Depends On`
-  - Lists prerequisite task ids/names.
-  - Before implementing a task, inspect its dependencies and confirm they are completed or that the user intentionally wants to work out of order.
-
-- `Goal`
-  - The outcome the task should accomplish.
-
-- `Scope`
-  - Work that belongs in the task.
-
-- `Out Of Scope`
-  - Work to avoid even if nearby.
-
-- `Validation`
-  - Tests or checks to run before completing the task.
-
-- `Implementation Summary`
-  - Update this when completing the task.
-  - Summarize what changed, important decisions made during implementation, and what validation passed or could not be run.
-
-## Progress Tracking Rules
-
-When starting a task:
-
-1. Open the task file.
-2. Open the relevant design docs from the index above.
-3. Check dependency task files.
-4. Set `Status: In Progress` before making code changes.
-
-When finishing a task:
-
-1. Run the validation listed in the task file, unless blocked.
-2. Update `Status: Completed`.
-3. Fill in `Implementation Summary`.
-4. Mention any tests that could not be run and why.
-
-For tasks at ordinal 2000 or later, a blocked required validation prevents step 2: leave the task `In Progress`, document the blocker, and resume when the required environment or evidence is available.
-
-If implementation changes the design:
-
-1. Update the relevant docs in `docs/`.
-2. Update the current task's `Implementation Summary`.
-3. If future tasks are affected, update those task files too.
-
-Keep task changes bite-sized. Do not opportunistically implement later tasks unless the user explicitly asks or the current task cannot be completed without moving a dependency forward.
+Production provisioning, deployment, and cutover require explicit user authorization even when a
+task describing them is ready to execute.

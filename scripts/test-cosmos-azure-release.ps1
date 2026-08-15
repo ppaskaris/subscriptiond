@@ -26,12 +26,29 @@ Set-StrictMode -Version Latest
 function Invoke-AzureCliJson {
     param([string[]]$Arguments)
 
-    $result = & az @Arguments --subscription $SubscriptionId --only-show-errors --output json
+    $result = @(& az @Arguments --subscription $SubscriptionId --only-show-errors --output json)
     if ($LASTEXITCODE -ne 0) {
         throw "Azure CLI could not read the requested resource. No raw response was retained."
     }
 
-    return $result | ConvertFrom-Json
+    try {
+        # Windows PowerShell sends native stdout to the pipeline one line at a time. Joining the
+        # lines before parsing keeps multi-line objects and empty or single-item arrays consistent
+        # with PowerShell 7 without retaining or echoing the control-plane response.
+        $parsed = ConvertFrom-Json -InputObject ($result -join [Environment]::NewLine)
+    }
+    catch {
+        throw "Azure CLI returned an unreadable response. No raw response was retained."
+    }
+
+    if ($parsed -is [System.Array]) {
+        foreach ($item in $parsed) {
+            Write-Output $item
+        }
+        return
+    }
+
+    return $parsed
 }
 
 function Assert-Equal {
@@ -168,10 +185,14 @@ foreach ($container in $containers) {
     $policy = $expectedPolicies[$container.name]
     $indexingPolicy = $container.resource.indexingPolicy
     $defaultTtl = Get-OptionalProperty -Object $container.resource -Name "defaultTtl"
-    $compositeIndexes = @(Get-OptionalProperty -Object $indexingPolicy -Name "compositeIndexes")
-    $spatialIndexes = @(Get-OptionalProperty -Object $indexingPolicy -Name "spatialIndexes")
-    $vectorIndexes = @(Get-OptionalProperty -Object $indexingPolicy -Name "vectorIndexes")
-    $fullTextIndexes = @(Get-OptionalProperty -Object $indexingPolicy -Name "fullTextIndexes")
+    $compositeIndexes = @(Get-OptionalProperty -Object $indexingPolicy `
+        -Name "compositeIndexes" | Where-Object { $null -ne $_ })
+    $spatialIndexes = @(Get-OptionalProperty -Object $indexingPolicy `
+        -Name "spatialIndexes" | Where-Object { $null -ne $_ })
+    $vectorIndexes = @(Get-OptionalProperty -Object $indexingPolicy `
+        -Name "vectorIndexes" | Where-Object { $null -ne $_ })
+    $fullTextIndexes = @(Get-OptionalProperty -Object $indexingPolicy `
+        -Name "fullTextIndexes" | Where-Object { $null -ne $_ })
     $vectorEmbeddingPolicy = Get-OptionalProperty `
         -Object $container.resource -Name "vectorEmbeddingPolicy"
     $fullTextPolicy = Get-OptionalProperty -Object $container.resource -Name "fullTextPolicy"
@@ -222,14 +243,44 @@ $webApp = Invoke-AzureCliJson -Arguments @(
     "--resource-group", $AppServiceResourceGroup,
     "--name", $AppServiceName
 )
-$plan = Invoke-AzureCliJson -Arguments @("appservice", "plan", "show", "--ids", $webApp.serverFarmId)
-Assert-Equal -Actual $plan.sku.capacity -Expected 1 -Description "App Service plan instance count"
+$plan = Invoke-AzureCliJson -Arguments @(
+    "appservice", "plan", "show",
+    "--ids", $webApp.serverFarmId
+)
+$planCapacity = Get-OptionalProperty -Object $plan.sku -Name "capacity"
+$maximumNumberOfWorkers = Get-OptionalProperty `
+    -Object $plan.properties -Name "maximumNumberOfWorkers"
+Assert-Equal -Actual $webApp.siteConfig.numberOfWorkers -Expected 1 `
+    -Description "App Service instance count"
+Assert-Equal -Actual $plan.properties.perSiteScaling -Expected $false `
+    -Description "App Service per-site scaling"
+Assert-Equal -Actual $plan.properties.elasticScaleEnabled -Expected $false `
+    -Description "App Service elastic scale"
+
+# Azure reports capacity=0 for an F1 plan even though the plan has one fixed worker. Accept that
+# sentinel only for the Free/F1 shape when the plan's own maximum confirms that scale-out is
+# impossible. Other SKUs report configured plan capacity directly and must report exactly one.
+if ($planCapacity -eq 0) {
+    Assert-Equal -Actual $plan.sku.name -Expected "F1" `
+        -Description "Zero-capacity App Service plan SKU"
+    Assert-Equal -Actual $plan.sku.tier -Expected "Free" `
+        -Description "Zero-capacity App Service plan tier"
+    Assert-Equal -Actual $maximumNumberOfWorkers -Expected 1 `
+        -Description "Free App Service plan maximum worker count"
+}
+else {
+    Assert-Equal -Actual $planCapacity -Expected 1 `
+        -Description "App Service plan configured capacity"
+}
 
 $autoscaleSettings = @(Invoke-AzureCliJson -Arguments @(
-    "monitor", "autoscale", "list",
-    "--resource", $webApp.serverFarmId
+    "resource", "list",
+    "--resource-type", "Microsoft.Insights/autoscaleSettings"
 ))
-if (@($autoscaleSettings | Where-Object { $_.enabled }).Count -ne 0) {
+if (@($autoscaleSettings | Where-Object {
+            $_.properties.enabled -and
+            $_.properties.targetResourceUri -eq $webApp.serverFarmId
+        }).Count -ne 0) {
     throw "An enabled autoscale setting targets the App Service plan; scale-out must remain disabled."
 }
 
@@ -241,7 +292,12 @@ $evidence = [ordered]@{
     BackupMode = $account.backupPolicy.type
     DatabaseManualThroughput = 1000
     Containers = $containerEvidence
-    AppServicePlanInstances = 1
+    AppServicePlanSku = $plan.sku.name
+    AppServicePlanReportedCapacity = $planCapacity
+    AppServiceConfiguredWorkers = $webApp.siteConfig.numberOfWorkers
+    AppServicePlanMaximumWorkers = $maximumNumberOfWorkers
+    AppServicePerSiteScalingEnabled = $plan.properties.perSiteScaling
+    AppServiceElasticScaleEnabled = $plan.properties.elasticScaleEnabled
     AppServiceAutoscaleEnabled = $false
 }
 

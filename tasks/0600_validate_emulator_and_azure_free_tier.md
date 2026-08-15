@@ -1,6 +1,6 @@
 # Task 0600: Validate Emulator And Azure Free Tier
 
-Status: In Progress
+Status: Completed
 
 Depends On: 0500_implement_share_links_and_enable_cosmos
 
@@ -73,7 +73,23 @@ actual correctly provisioned Azure Cosmos DB free-tier database.
   --check`, PowerShell syntax parsing and a no-Azure nested evidence-directory test for the Azure
   verifier, and the direct-plus-transitive NuGet vulnerability scan also passed. `AssemblyVersion`
   was incremented from `2.27.0.0` to `2.28.0.0`.
-- Remaining external evidence: no Azure resources were provisioned, mutated, or queried without
-  explicit authorization. The approved free-tier resource-shape check, Azure application-flow
-  smoke test, intentional isolated policy-drift startup failure, RU comparison, throttling review,
-  and operator evidence are therefore still required before this task can be marked `Completed`.
+- Azure evidence on 2026-08-14: the approved free-tier shape passed before testing and after
+  restoration: one region, 1,000 RU/s manual shared database throughput, exactly the three intended
+  container policies, one App Service worker, and no enabled autoscale. Hosted create/render/daily
+  renewal, channel cache-miss/add/refresh/remove/cache-hit, share create/list/consume/delete, and
+  list-delete flows passed. The combined captured flows produced 74 sanitized structured request
+  events totaling 218.82 RU; the maximum request was 13.33 RU, maximum observed latency was
+  249.87 ms, retry count was zero, and only expected not-found reads occurred. Request shapes
+  agreed with the emulator evidence without requiring exact RU or latency equality, no throttling
+  was left unhandled, and evidence scans found no secrets, bodies, or raw diagnostics.
+- Because the free-tier account's total throughput was capped at 1,000 RU/s, the user explicitly
+  approved the documented zero-cost drift-test fallback. With the application stopped, only the
+  verified-empty `lists` container was replaced by a wrong-partition-key container. Production
+  startup failed safely with HTTP 500 and a sanitized policy message. The replacement was freshly
+  verified empty before deletion, the exact original container policy was restored, and the full
+  verifier plus hosted HTTP health check passed afterward. The verifier's Windows PowerShell
+  compatibility follow-up increments `AssemblyVersion` from
+  `2.28.0.0` to `2.28.0.1`. Final local validation passed sequentially: build with zero warnings
+  and errors, 151 non-provider tests, 50 opted-in LocalDB tests, 27 opted-in Cosmos emulator tests,
+  format verification, Windows PowerShell 5.1 syntax and multi-line/single-item/empty-array JSON
+  compatibility checks, `git diff --check`, and the direct-plus-transitive vulnerability scan.

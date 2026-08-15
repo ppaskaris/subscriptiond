@@ -83,6 +83,26 @@ namespace youtubed.Tests.DataTransfer
             Assert.DoesNotContain("Provider failed", message, StringComparison.Ordinal);
         }
 
+        [Fact]
+        public void CreateMetricsOutput_SeparatesInitializationFromTargetOperationMetrics()
+        {
+            var output = SqlToCosmosCommandRunner.CreateMetricsOutput(
+                SqlToCosmosImportMode.Import,
+                succeeded: true,
+                totalDuration: TimeSpan.FromMilliseconds(125.5),
+                initializationDuration: TimeSpan.FromMilliseconds(25.25),
+                new SqlToCosmosTargetMetrics(7, 12.75, 1));
+
+            Assert.Contains("TotalDurationMs=125.5", output, StringComparison.Ordinal);
+            Assert.Contains("InitializationDurationMs=25.25", output, StringComparison.Ordinal);
+            Assert.Contains("TargetSdkOperations=7", output, StringComparison.Ordinal);
+            Assert.Contains("TargetOperationRu=12.75", output, StringComparison.Ordinal);
+            Assert.Contains("SurfacedThrottles=1", output, StringComparison.Ordinal);
+            Assert.Contains("InitializationIncludedInTargetMetrics=false", output, StringComparison.Ordinal);
+            Assert.DoesNotContain("TargetRequests", output, StringComparison.Ordinal);
+            Assert.DoesNotContain("TargetRu", output, StringComparison.Ordinal);
+        }
+
         private static string[] CreateArgs()
         {
             return new[]

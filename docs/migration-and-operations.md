@@ -90,6 +90,10 @@ A durable general-purpose checkpoint/poison framework is not part of the applica
 
 ## Cutover Runbook
 
+Use the executable operator checklist in
+[`sql-to-cosmos-migration-runbook.md`](sql-to-cosmos-migration-runbook.md). Keep its sanitized
+evidence under the ignored `.local/migration` directory.
+
 1. Build and run ordinary tests, opted-in LocalDB tests, and opted-in Cosmos emulator tests in the
    required sequential order.
 2. Run format, diff, and package-vulnerability checks required by `AGENTS.md`.

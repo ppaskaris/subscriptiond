@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 using youtubed.Models;
 using youtubed.Persistence;
 using youtubed.Services;
@@ -16,17 +17,20 @@ namespace youtubed.Controllers
         private readonly IChannelService _channelService;
         private readonly IShareLinkService _shareLinkService;
         private readonly IAppClock _clock;
+        private readonly ShareLinkOptions _shareLinkOptions;
 
         public ListController(
             IListService listService,
             IChannelService channelService,
             IShareLinkService shareLinkService,
-            IAppClock clock)
+            IAppClock clock,
+            IOptions<ShareLinkOptions> shareLinkOptions)
         {
             _listService = listService;
             _channelService = channelService;
             _shareLinkService = shareLinkService;
             _clock = clock;
+            _shareLinkOptions = shareLinkOptions.Value;
         }
 
         [HttpGet]
@@ -314,6 +318,7 @@ namespace youtubed.Controllers
                 ListId = list.Id,
                 Token = list.TokenString,
                 Title = list.Title,
+                ShareCreationEnabled = _shareLinkOptions.CreationEnabled,
                 ShareLinks = shareLinks.Select(shareLink => new ShareLinkListItemViewModel
                 {
                     Password = shareLink.Password,
@@ -341,6 +346,16 @@ namespace youtubed.Controllers
             if (list == null)
             {
                 return NotFound();
+            }
+
+            if (!_shareLinkOptions.CreationEnabled)
+            {
+                return new ContentResult
+                {
+                    Content = "New share links are temporarily unavailable during maintenance.",
+                    ContentType = "text/plain",
+                    StatusCode = 503
+                };
             }
 
             await _shareLinkService.CreateShareLinkAsync(list.Id);

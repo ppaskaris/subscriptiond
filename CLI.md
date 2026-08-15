@@ -96,3 +96,10 @@ dotnet run --project youtubed -- transfer-data `
   --SourceConnectionString "Server=old-sql;Database=subscriptiond;Integrated Security=True;TrustServerCertificate=True" `
   --TargetConnectionString "Server=new-sql;Database=subscriptiond;Integrated Security=True;TrustServerCertificate=True"
 ```
+
+## Import SQL Data Into Cosmos
+
+The offline `import-sql-to-cosmos` command has `validate`, `import`, and `reconcile` modes. It is
+only for a stopped-site, pre-cutover migration. See
+[`docs/sql-to-cosmos-migration-runbook.md`](docs/sql-to-cosmos-migration-runbook.md) for the exact
+sequence, confirmation flags, interruption recovery, evidence, and rollback boundary.

@@ -13,15 +13,18 @@
             </svg>
             <span class="sr-only">Back</span>
         </a>
-        <form asp-action="CreateShareLink" asp-route-token="@Model.Token" asp-route-id="@Model.ListId">
-            <button type="submit" class="btn btn-primary btn-icon" title="Create share link">
+        @if (Model.ShareCreationEnabled)
+        {
+            <form asp-action="CreateShareLink" asp-route-token="@Model.Token" asp-route-id="@Model.ListId">
+                <button type="submit" class="btn btn-primary btn-icon" title="Create share link">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" class="bi bi-plus-circle" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
                     <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14m0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16" />
                     <path d="M8 4a.5.5 0 0 1 .5.5v3h3a.5.5 0 0 1 0 1h-3v3a.5.5 0 0 1-1 0v-3h-3a.5.5 0 0 1 0-1h3v-3A.5.5 0 0 1 8 4" />
                 </svg>
                 <span class="sr-only">Create share link</span>
-            </button>
-        </form>
+                </button>
+            </form>
+        }
         <form asp-action="DeleteAllShareLinks" asp-route-token="@Model.Token" asp-route-id="@Model.ListId">
             <button type="submit" class="btn btn-danger btn-icon" title="Delete all share links" @(Model.HasLinks ? null : "disabled")>
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" class="bi bi-folder-x" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
@@ -33,6 +36,12 @@
         </form>
     </div>
 </div>
+@if (!Model.ShareCreationEnabled)
+{
+    <p class="alert alert-info" role="status">
+        New share links are temporarily unavailable during maintenance. Existing links can still be used or deleted.
+    </p>
+}
 <p>
     Create a short one-time share link to open this list on another device.
     Type or copy the link exactly as shown below. Each link works once and

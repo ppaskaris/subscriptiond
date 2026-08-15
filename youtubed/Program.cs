@@ -33,6 +33,7 @@ builder.Services.AddLogging(loggingBuilder =>
 });
 
 builder.Services.Configure<YoutubeOptions>(builder.Configuration.GetSection("Youtube"));
+builder.Services.Configure<ShareLinkOptions>(builder.Configuration.GetSection(ShareLinkOptions.SectionName));
 
 builder.Services.AddPersistence(builder.Configuration);
 builder.Services.AddSingleton<IYoutubeService, YoutubeService>();

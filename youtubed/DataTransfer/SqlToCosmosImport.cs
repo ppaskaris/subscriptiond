@@ -172,6 +172,11 @@ namespace youtubed.DataTransfer
         int ChannelCount,
         string ReconciliationHash);
 
+    internal sealed record SqlToCosmosTargetMetrics(
+        int RequestCount,
+        double RequestCharge,
+        int SurfacedThrottleCount);
+
     internal sealed class SqlToCosmosImportService
     {
         private readonly ISqlToCosmosImportSource _source;
@@ -604,10 +609,28 @@ namespace youtubed.DataTransfer
     internal sealed class CosmosImportTarget : ISqlToCosmosImportTarget
     {
         private readonly CosmosPersistenceContext _context;
+        private readonly object _metricsSync = new();
+        private int _requestCount;
+        private double _requestCharge;
+        private int _surfacedThrottleCount;
 
         public CosmosImportTarget(CosmosPersistenceContext context)
         {
             _context = context ?? throw new ArgumentNullException(nameof(context));
+        }
+
+        public SqlToCosmosTargetMetrics Metrics
+        {
+            get
+            {
+                lock (_metricsSync)
+                {
+                    return new(
+                        _requestCount,
+                        _requestCharge,
+                        _surfacedThrottleCount);
+                }
+            }
         }
 
         public IAsyncEnumerable<CosmosListDocument> ReadListsAsync(
@@ -631,8 +654,16 @@ namespace youtubed.DataTransfer
             var count = 0;
             while (iterator.HasMoreResults)
             {
-                var response = await iterator.ReadNextAsync(cancellationToken);
-                count += response.Single();
+                try
+                {
+                    var response = await iterator.ReadNextAsync(cancellationToken);
+                    Record(response.RequestCharge);
+                    count += response.Single();
+                }
+                catch (CosmosException exception) when (RecordSurfacedThrottle(exception))
+                {
+                    throw;
+                }
             }
             return count;
         }
@@ -641,23 +672,39 @@ namespace youtubed.DataTransfer
             CosmosListDocument document,
             CancellationToken cancellationToken)
         {
-            await _context.Lists.UpsertItemAsync(
-                document,
-                new PartitionKey(document.Id),
-                cancellationToken: cancellationToken);
+            try
+            {
+                var response = await _context.Lists.UpsertItemAsync(
+                    document,
+                    new PartitionKey(document.Id),
+                    cancellationToken: cancellationToken);
+                Record(response.RequestCharge);
+            }
+            catch (CosmosException exception) when (RecordSurfacedThrottle(exception))
+            {
+                throw;
+            }
         }
 
         public async Task UpsertChannelAsync(
             CosmosChannelDocument document,
             CancellationToken cancellationToken)
         {
-            await _context.Channels.UpsertItemAsync(
-                document,
-                new PartitionKey(document.Id),
-                cancellationToken: cancellationToken);
+            try
+            {
+                var response = await _context.Channels.UpsertItemAsync(
+                    document,
+                    new PartitionKey(document.Id),
+                    cancellationToken: cancellationToken);
+                Record(response.RequestCharge);
+            }
+            catch (CosmosException exception) when (RecordSurfacedThrottle(exception))
+            {
+                throw;
+            }
         }
 
-        private static async IAsyncEnumerable<T> ReadAsync<T>(
+        private async IAsyncEnumerable<T> ReadAsync<T>(
             Container container,
             int batchSize,
             [EnumeratorCancellation] CancellationToken cancellationToken)
@@ -667,13 +714,45 @@ namespace youtubed.DataTransfer
                 requestOptions: new QueryRequestOptions { MaxItemCount = batchSize });
             while (iterator.HasMoreResults)
             {
-                var response = await iterator.ReadNextAsync(cancellationToken);
+                FeedResponse<T> response;
+                try
+                {
+                    response = await iterator.ReadNextAsync(cancellationToken);
+                    Record(response.RequestCharge);
+                }
+                catch (CosmosException exception) when (RecordSurfacedThrottle(exception))
+                {
+                    throw;
+                }
+
                 foreach (var document in response)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     yield return document;
                 }
             }
+        }
+
+        private void Record(double requestCharge)
+        {
+            lock (_metricsSync)
+            {
+                _requestCount++;
+                _requestCharge += requestCharge;
+            }
+        }
+
+        private bool RecordSurfacedThrottle(CosmosException exception)
+        {
+            if (exception.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+            {
+                lock (_metricsSync)
+                {
+                    _surfacedThrottleCount++;
+                }
+            }
+
+            return true;
         }
     }
 }

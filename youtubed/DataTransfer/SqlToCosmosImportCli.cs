@@ -2,6 +2,7 @@ using Dapper;
 using Microsoft.Azure.Cosmos;
 using System;
 using System.Globalization;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -73,6 +74,11 @@ namespace youtubed.DataTransfer
             TextWriter output,
             CancellationToken cancellationToken)
         {
+            var stopwatch = Stopwatch.StartNew();
+            var initializationStopwatch = Stopwatch.StartNew();
+            var initializationDuration = TimeSpan.Zero;
+            CosmosImportTarget target = null;
+            var succeeded = false;
             SqlMapper.AddTypeHandler(new TimeSpanTypeHandler());
             SqlMapper.AddTypeHandler(new DateOnlyTypeHandler());
             var cosmosOptions = new CosmosOptions
@@ -80,33 +86,74 @@ namespace youtubed.DataTransfer
                 ConnectionString = command.TargetConnectionString,
                 DatabaseName = command.TargetDatabaseName
             };
-            using var client = CosmosClientFactory.Create(cosmosOptions);
-            CosmosPersistenceContext context;
             try
             {
-                context = await new CosmosContainerInitializer()
-                    .InitializeProductionAsync(client, cosmosOptions, cancellationToken);
-            }
-            catch (InvalidOperationException)
-            {
-                throw new SqlToCosmosImportOperationException(
-                    SqlToCosmosImportError.TargetConfigurationInvalid);
-            }
+                using var client = CosmosClientFactory.Create(cosmosOptions);
+                CosmosPersistenceContext context;
+                try
+                {
+                    context = await new CosmosContainerInitializer()
+                        .InitializeProductionAsync(client, cosmosOptions, cancellationToken);
+                    initializationStopwatch.Stop();
+                    initializationDuration = initializationStopwatch.Elapsed;
+                }
+                catch (InvalidOperationException)
+                {
+                    throw new SqlToCosmosImportOperationException(
+                        SqlToCosmosImportError.TargetConfigurationInvalid);
+                }
 
-            var clock = new AppClock();
-            var service = new SqlToCosmosImportService(
-                new SqlImportSource(command.SourceConnectionString),
-                new CosmosImportTarget(context),
-                output,
-                clock);
-            await service.RunAsync(
-                new SqlToCosmosImportOptions(
+                var clock = new AppClock();
+                target = new CosmosImportTarget(context);
+                var service = new SqlToCosmosImportService(
+                    new SqlImportSource(command.SourceConnectionString),
+                    target,
+                    output,
+                    clock);
+                await service.RunAsync(
+                    new SqlToCosmosImportOptions(
+                        command.Mode,
+                        command.BatchSize,
+                        command.ConfirmEmptyTarget,
+                        command.ConfirmPreCutoverRerun),
+                    clock.UtcNow,
+                    cancellationToken);
+                succeeded = true;
+            }
+            finally
+            {
+                stopwatch.Stop();
+                if (initializationStopwatch.IsRunning)
+                {
+                    initializationStopwatch.Stop();
+                    initializationDuration = initializationStopwatch.Elapsed;
+                }
+                var metrics = target?.Metrics ?? new SqlToCosmosTargetMetrics(0, 0, 0);
+                await output.WriteLineAsync(CreateMetricsOutput(
                     command.Mode,
-                    command.BatchSize,
-                    command.ConfirmEmptyTarget,
-                    command.ConfirmPreCutoverRerun),
-                clock.UtcNow,
-                cancellationToken);
+                    succeeded,
+                    stopwatch.Elapsed,
+                    initializationDuration,
+                    metrics));
+            }
+        }
+
+        internal static string CreateMetricsOutput(
+            SqlToCosmosImportMode mode,
+            bool succeeded,
+            TimeSpan totalDuration,
+            TimeSpan initializationDuration,
+            SqlToCosmosTargetMetrics metrics)
+        {
+            ArgumentNullException.ThrowIfNull(metrics);
+            return $"MigrationMetrics Mode={mode.ToString().ToLowerInvariant()} " +
+                    $"Succeeded={succeeded.ToString().ToLowerInvariant()} " +
+                    $"TotalDurationMs={totalDuration.TotalMilliseconds.ToString("0.##", CultureInfo.InvariantCulture)} " +
+                    $"InitializationDurationMs={initializationDuration.TotalMilliseconds.ToString("0.##", CultureInfo.InvariantCulture)} " +
+                    $"TargetSdkOperations={metrics.RequestCount.ToString(CultureInfo.InvariantCulture)} " +
+                    $"TargetOperationRu={metrics.RequestCharge.ToString("0.##", CultureInfo.InvariantCulture)} " +
+                    $"SurfacedThrottles={metrics.SurfacedThrottleCount.ToString(CultureInfo.InvariantCulture)} " +
+                    "InitializationIncludedInTargetMetrics=false";
         }
     }
 

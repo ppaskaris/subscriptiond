@@ -13,6 +13,11 @@ if (DataTransferCli.IsDataTransferCommand(args))
     return await DataTransferCli.RunAsync(args);
 }
 
+if (SqlToCosmosImportCli.IsCommand(args))
+{
+    return await SqlToCosmosImportCli.RunAsync(args);
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOptions();

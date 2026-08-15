@@ -14,9 +14,5 @@ Read the documents in this order:
 4. [`cosmos-release-validation.md`](cosmos-release-validation.md) defines the measured emulator
    release envelope and the manual, secret-safe Azure evidence procedure.
 
-Implementation work is tracked in [`../tasks/`](../tasks/README.md). The documents describe
-the intended end state; the tasks describe how to move the current branch to it without
-leaving intermediate commits broken.
-
 The main design rule is simple: every durable fact has one authoritative owner. The design
 does not maintain distributed copies merely to save a few reads.

@@ -1,0 +1,26 @@
+{
+  "indexingMode": "consistent",
+  "automatic": true,
+  "includedPaths": [
+    {
+      "path": "/createdAt/?"
+    },
+    {
+      "path": "/expiresAfter/?"
+    },
+    {
+      "path": "/listId/?"
+    },
+    {
+      "path": "/usedAt/?"
+    }
+  ],
+  "excludedPaths": [
+    {
+      "path": "/\"_etag\"/?"
+    },
+    {
+      "path": "/*"
+    }
+  ]
+}

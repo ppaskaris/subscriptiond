@@ -11,6 +11,10 @@ that the database already has the expected shared throughput and that existing c
 the expected partition key, TTL setting, and indexing policy. It must not silently create a
 different billing shape.
 
+The Azure CLI indexing-policy artifacts are checked in under [`youtubed/CosmosSchema/`](../youtubed/CosmosSchema/):
+`lists.index.json`, `channels.index.json`, and `shareLinks.index.json`. Pass the matching file to
+`az cosmosdb sql container create --idx`; keep the partition key and TTL values described below.
+
 ## Containers
 
 The provider uses exactly three containers:

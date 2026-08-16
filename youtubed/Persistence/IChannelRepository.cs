@@ -13,8 +13,8 @@ namespace youtubed.Persistence
         Task<IReadOnlyList<Channel>> GetBatchAsync(
             IReadOnlyCollection<string> channelIds,
             CancellationToken cancellationToken);
-        Task SaveRefreshResultsAsync(
-            IReadOnlyCollection<ChannelRefreshResult> results,
+        Task SaveRefreshResultAsync(
+            ChannelRefreshResult result,
             CancellationToken cancellationToken);
         Task<int> RemoveOrphanChannelsAsync(DateTimeOffset now);
     }

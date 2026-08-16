@@ -176,8 +176,8 @@ namespace youtubed.Tests.Persistence.Cosmos
                 .ToArray();
             client.ChannelReplaceConflictsRemaining = 1;
 
-            await repository.SaveRefreshResultsAsync(
-                new[] { new ChannelRefreshResult { Channel = refreshed, VideosRefreshed = true } },
+            await repository.SaveRefreshResultAsync(
+                new ChannelRefreshResult { Channel = refreshed, VideosRefreshed = true },
                 CancellationToken.None);
 
             var saved = await repository.GetByIdAsync(channel.Id);
@@ -188,15 +188,15 @@ namespace youtubed.Tests.Persistence.Cosmos
             var metadataOnly = CreateChannel();
             metadataOnly.Title = "Metadata only";
             metadataOnly.Videos = Array.Empty<ChannelVideo>();
-            await repository.SaveRefreshResultsAsync(
-                new[] { new ChannelRefreshResult { Channel = metadataOnly, VideosRefreshed = false } },
+            await repository.SaveRefreshResultAsync(
+                new ChannelRefreshResult { Channel = metadataOnly, VideosRefreshed = false },
                 CancellationToken.None);
             Assert.Equal(100, (await repository.GetByIdAsync(channel.Id)).Videos.Count);
 
             client.ChannelReplaceConflictsRemaining = 2;
             await Assert.ThrowsAsync<CosmosException>(() =>
-                repository.SaveRefreshResultsAsync(
-                    new[] { new ChannelRefreshResult { Channel = refreshed } },
+                repository.SaveRefreshResultAsync(
+                    new ChannelRefreshResult { Channel = refreshed },
                     CancellationToken.None));
         }
 

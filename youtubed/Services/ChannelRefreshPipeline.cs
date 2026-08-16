@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -10,308 +12,452 @@ namespace youtubed.Services
 {
     public sealed class ChannelRefreshPipeline : IChannelRefreshPipeline
     {
+        private sealed class PlaylistPlan
+        {
+            public ChannelRefreshRequest Request { get; init; }
+            public Channel Channel { get; init; }
+            public IReadOnlyList<ChannelVideo> CachedVideos { get; init; }
+            public IReadOnlyList<YoutubeVideo> ScannedVideos { get; set; } = Array.Empty<YoutubeVideo>();
+            public IReadOnlyList<string> NewVideoIds { get; set; } = Array.Empty<string>();
+            public int PlaylistCalls { get; set; }
+            public int DurationCalls { get; set; }
+        }
+
         private readonly IChannelRepository _channelRepository;
         private readonly IYoutubeService _youtubeService;
         private readonly IAppClock _clock;
-        private readonly IYoutubeCallDelay _youtubeCallDelay;
+        private readonly YoutubeSyncOptions _options;
+        private readonly ILogger<ChannelRefreshPipeline> _logger;
 
         public ChannelRefreshPipeline(
             IChannelRepository channelRepository,
             IYoutubeService youtubeService,
             IAppClock clock,
-            IYoutubeCallDelay youtubeCallDelay)
+            IOptions<YoutubeSyncOptions> options,
+            ILogger<ChannelRefreshPipeline> logger)
         {
             _channelRepository = channelRepository;
             _youtubeService = youtubeService;
             _clock = clock;
-            _youtubeCallDelay = youtubeCallDelay;
+            _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            if (_options.CohortSize <= 0
+                || _options.CohortSize > 50
+                || _options.MaximumPlaylistPages <= 0
+                || _options.MaximumVideosPerChannel <= 0
+                || _options.MaximumVideosPerChannel > Constants.ListRenderMaxItems)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(options),
+                    "YouTube sync cohorts must contain 1-50 channels and retained videos must remain within the document bound.");
+            }
         }
 
         public async Task<ChannelRefreshPipelineResult> RefreshAsync(
-            IReadOnlyCollection<string> channelIds,
+            IReadOnlyCollection<ChannelRefreshRequest> requests,
             CancellationToken cancellationToken)
         {
-            if (channelIds == null)
-            {
-                throw new ArgumentNullException(nameof(channelIds));
-            }
-            if (channelIds.Count > Constants.ChannelRefreshBatchSize)
+            ArgumentNullException.ThrowIfNull(requests);
+            if (requests.Count > _options.CohortSize)
             {
                 throw new ArgumentOutOfRangeException(
-                    nameof(channelIds),
-                    $"A refresh batch cannot exceed {Constants.ChannelRefreshBatchSize} channel IDs.");
+                    nameof(requests),
+                    $"A refresh cohort cannot exceed {_options.CohortSize} channels.");
             }
 
-            var selectedIds = channelIds
-                .Where(id => !string.IsNullOrWhiteSpace(id))
-                .Distinct(StringComparer.Ordinal)
+            var selected = requests
+                .Where(request => request != null && !string.IsNullOrWhiteSpace(request.ChannelId))
+                .GroupBy(request => request.ChannelId, StringComparer.Ordinal)
+                .Select(group => group.OrderBy(request => request.Reason).First())
                 .ToList();
-            var channels = await _channelRepository.GetBatchAsync(selectedIds, cancellationToken);
             var result = new ChannelRefreshPipelineResult
             {
-                SelectedChannelCount = channels.Count
+                SelectedChannelCount = selected.Count
             };
-
-            if (channels.Count == 0)
+            var outcomes = new Dictionary<string, ChannelRefreshOutcome>(StringComparer.Ordinal);
+            if (selected.Count == 0)
             {
                 return result;
             }
 
-            var refreshResults = await ProcessBatchAsync(channels, result, cancellationToken);
-            if (refreshResults.Count == 0)
-            {
-                return result;
-            }
+            var cachedChannels = await _channelRepository.GetBatchAsync(
+                selected.Select(request => request.ChannelId).ToList(),
+                cancellationToken);
+            var cachedById = cachedChannels.ToDictionary(channel => channel.Id, StringComparer.Ordinal);
 
-            await _channelRepository.SaveRefreshResultsAsync(refreshResults, CancellationToken.None);
-
-            result.RefreshedChannelCount = refreshResults.Count(value => value.VideosRefreshed);
-            result.UnavailableChannelCount = refreshResults.Count(value => value.Channel.Status == ChannelStatus.Unavailable);
-            return result;
-        }
-
-        private async Task<IReadOnlyList<ChannelRefreshResult>> ProcessBatchAsync(
-            IReadOnlyList<Channel> channels,
-            ChannelRefreshPipelineResult result,
-            CancellationToken cancellationToken)
-        {
             if (cancellationToken.IsCancellationRequested)
             {
                 result.CanceledBeforeStartingYoutubeCall = true;
-                return Array.Empty<ChannelRefreshResult>();
+                AddRetryOutcomes(selected, outcomes);
+                return CompleteResult(result, outcomes);
             }
 
             IReadOnlyDictionary<string, YoutubeChannel> metadataById;
             try
             {
                 metadataById = await _youtubeService.GetChannelsByIdAsync(
-                    channels.Select(channel => channel.Id).ToList(),
+                    selected.Select(request => request.ChannelId).ToList(),
                     cancellationToken);
+                result.MetadataCallCount = 1;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 result.CanceledDuringYoutubeWork = true;
-                return Array.Empty<ChannelRefreshResult>();
+                AddRetryOutcomes(selected, outcomes);
+                return CompleteResult(result, outcomes);
+            }
+            catch (YoutubePermanentException)
+            {
+                AddPermanentOutcomes(selected, outcomes);
+                return CompleteResult(result, outcomes);
+            }
+            catch (Exception exception) when (IsTransient(exception))
+            {
+                AddRetryOutcomes(selected, outcomes);
+                return CompleteResult(result, outcomes);
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(exception, "YouTube metadata request failed permanently.");
+                AddPermanentOutcomes(selected, outcomes);
+                return CompleteResult(result, outcomes);
             }
 
-            result.MetadataCallCount++;
-
-            var refreshResultsByChannelId = new Dictionary<string, ChannelRefreshResult>(StringComparer.Ordinal);
-            var channelsReadyForPlaylist = new List<Channel>();
-            foreach (var channel in channels)
+            var playlistPlans = new List<PlaylistPlan>();
+            foreach (var request in selected)
             {
-                if (!metadataById.TryGetValue(channel.Id, out var metadata))
+                cachedById.TryGetValue(request.ChannelId, out var cached);
+                if (!metadataById.TryGetValue(request.ChannelId, out var metadata))
                 {
-                    if (string.IsNullOrWhiteSpace(channel.PlaylistId))
+                    var unavailable = cached ?? CreateMissingChannel(request.ChannelId);
+                    MarkUnavailable(unavailable);
+                    await SaveOutcomeAsync(
+                        request,
+                        new ChannelRefreshResult { Channel = unavailable, VideosRefreshed = false },
+                        ChannelRefreshDisposition.Unavailable,
+                        playlistCalls: 0,
+                        durationCalls: 0,
+                        outcomes);
+                    continue;
+                }
+
+                var channel = cached ?? CreateMissingChannel(request.ChannelId);
+                var cachedVideos = channel.Videos?.ToList() ?? new List<ChannelVideo>();
+                ApplyMetadata(channel, metadata);
+                if (string.IsNullOrWhiteSpace(channel.PlaylistId))
+                {
+                    SetNextRefresh(channel);
+                    await SaveOutcomeAsync(
+                        request,
+                        new ChannelRefreshResult { Channel = channel, VideosRefreshed = false },
+                        ChannelRefreshDisposition.Refreshed,
+                        playlistCalls: 0,
+                        durationCalls: 0,
+                        outcomes);
+                    continue;
+                }
+
+                playlistPlans.Add(new PlaylistPlan
+                {
+                    Request = request,
+                    Channel = channel,
+                    CachedVideos = cachedVideos
+                });
+            }
+
+            var readyPlans = new List<PlaylistPlan>();
+            var durationsById = new Dictionary<string, TimeSpan>(StringComparer.Ordinal);
+            var youtubeWorkHalted = false;
+            foreach (var plan in playlistPlans)
+            {
+                if (youtubeWorkHalted || cancellationToken.IsCancellationRequested)
+                {
+                    result.CanceledDuringYoutubeWork |= cancellationToken.IsCancellationRequested;
+                    outcomes[plan.Request.ChannelId] = Retry(plan.Request.ChannelId, plan.PlaylistCalls, 0);
+                    continue;
+                }
+
+                try
+                {
+                    await FetchPlaylistIncrementallyAsync(plan, cancellationToken);
+                    if (plan.NewVideoIds.Count == 0)
                     {
-                        MarkUnavailable(channel);
-                        refreshResultsByChannelId[channel.Id] = new ChannelRefreshResult
-                        {
-                            Channel = channel,
-                            VideosRefreshed = false
-                        };
+                        await MergeAndSaveAsync(plan, durationsById, outcomes);
                     }
                     else
                     {
-                        channelsReadyForPlaylist.Add(channel);
+                        readyPlans.Add(plan);
                     }
-
-                    continue;
-                }
-
-                ApplyMetadata(channel, metadata);
-                refreshResultsByChannelId[channel.Id] = new ChannelRefreshResult
-                {
-                    Channel = channel,
-                    VideosRefreshed = false
-                };
-
-                if (!string.IsNullOrWhiteSpace(channel.PlaylistId))
-                {
-                    channelsReadyForPlaylist.Add(channel);
-                }
-                else
-                {
-                    channel.StaleAfter = _clock.UtcNowAfterRandomDelay(
-                        Constants.ChannelMaxAgeMin,
-                        Constants.ChannelMaxAgeMax);
-                }
-            }
-
-            var earliestPublishedAt = _clock.UtcNow.Subtract(Constants.VideoMaxAge);
-            var playlistVideosByChannelId = new Dictionary<string, IReadOnlyList<YoutubeVideo>>(StringComparer.Ordinal);
-            foreach (var channel in channelsReadyForPlaylist)
-            {
-                var playlistVideos = await FetchPlaylistVideosAsync(
-                    channel,
-                    earliestPublishedAt,
-                    result,
-                    cancellationToken);
-                if (playlistVideos == null)
-                {
-                    break;
-                }
-
-                playlistVideosByChannelId[channel.Id] = playlistVideos;
-            }
-
-            var videoIds = playlistVideosByChannelId.Values
-                .SelectMany(videos => videos)
-                .Select(video => video.Id)
-                .Where(id => !string.IsNullOrWhiteSpace(id))
-                .Distinct(StringComparer.Ordinal)
-                .ToList();
-            IReadOnlyDictionary<string, TimeSpan> durationsById =
-                new Dictionary<string, TimeSpan>(StringComparer.Ordinal);
-            var durationFetchCanceled = false;
-            if (videoIds.Count > 0)
-            {
-                var fetchedDurationsById = new Dictionary<string, TimeSpan>(StringComparer.Ordinal);
-                foreach (var chunk in videoIds.Chunk(50))
-                {
-                    if (!await CanStartNextYoutubeCallAsync(result, cancellationToken))
-                    {
-                        durationFetchCanceled = true;
-                        break;
-                    }
-
-                    IReadOnlyDictionary<string, TimeSpan> chunkDurations;
-                    try
-                    {
-                        chunkDurations = await _youtubeService.GetVideoDurationsByIdAsync(chunk, cancellationToken);
-                    }
-                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                    {
-                        result.CanceledDuringYoutubeWork = true;
-                        durationFetchCanceled = true;
-                        break;
-                    }
-
-                    foreach (var duration in chunkDurations)
-                    {
-                        fetchedDurationsById[duration.Key] = duration.Value;
-                    }
-
-                    result.DurationCallCount++;
-                }
-
-                durationsById = fetchedDurationsById;
-            }
-
-            foreach (var channel in channelsReadyForPlaylist)
-            {
-                if (!playlistVideosByChannelId.TryGetValue(channel.Id, out var playlistVideos))
-                {
-                    continue;
-                }
-
-                var requiredVideoIds = playlistVideos
-                    .Select(video => video.Id)
-                    .Where(id => !string.IsNullOrWhiteSpace(id))
-                    .Distinct(StringComparer.Ordinal)
-                    .ToList();
-                if (durationFetchCanceled && requiredVideoIds.Any(id => !durationsById.ContainsKey(id)))
-                {
-                    continue;
-                }
-
-                channel.Videos = playlistVideos
-                    .Where(video => durationsById.ContainsKey(video.Id))
-                    .Select(video => new ChannelVideo
-                    {
-                        ChannelId = channel.Id,
-                        VideoId = video.Id,
-                        Title = video.Title,
-                        Duration = durationsById[video.Id],
-                        PublishedAt = video.PublishedAt,
-                        ThumbnailUrl = video.Thumbnail
-                    })
-                    .ToList();
-                channel.StaleAfter = _clock.UtcNowAfterRandomDelay(
-                    Constants.ChannelMaxAgeMin,
-                    Constants.ChannelMaxAgeMax);
-                if (!refreshResultsByChannelId.TryGetValue(channel.Id, out var refreshResult))
-                {
-                    refreshResult = new ChannelRefreshResult
-                    {
-                        Channel = channel
-                    };
-                    refreshResultsByChannelId[channel.Id] = refreshResult;
-                }
-
-                refreshResult.VideosRefreshed = true;
-                refreshResult.EarliestPublishedAt = earliestPublishedAt;
-            }
-
-            return refreshResultsByChannelId.Values.ToList();
-        }
-
-        private async Task<IReadOnlyList<YoutubeVideo>> FetchPlaylistVideosAsync(
-            Channel channel,
-            DateTimeOffset earliestPublishedAt,
-            ChannelRefreshPipelineResult result,
-            CancellationToken cancellationToken)
-        {
-            var videos = new List<YoutubeVideo>();
-            string pageToken = null;
-            do
-            {
-                if (!await CanStartNextYoutubeCallAsync(result, cancellationToken))
-                {
-                    return null;
-                }
-
-                YoutubePlaylistVideoPage page;
-                try
-                {
-                    page = await _youtubeService.GetPlaylistVideoPageAsync(
-                        channel.PlaylistId,
-                        earliestPublishedAt,
-                        pageToken,
-                        cancellationToken);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
                     result.CanceledDuringYoutubeWork = true;
-                    return null;
+                    youtubeWorkHalted = true;
+                    outcomes[plan.Request.ChannelId] = Retry(plan.Request.ChannelId, plan.PlaylistCalls, 0);
+                }
+                catch (YoutubePermanentException)
+                {
+                    outcomes[plan.Request.ChannelId] = new ChannelRefreshOutcome(
+                        plan.Request.ChannelId,
+                        ChannelRefreshDisposition.FailedPermanent,
+                        plan.PlaylistCalls,
+                        0);
+                }
+                catch (Exception exception) when (IsTransient(exception))
+                {
+                    youtubeWorkHalted = true;
+                    outcomes[plan.Request.ChannelId] = Retry(plan.Request.ChannelId, plan.PlaylistCalls, 0);
+                }
+                catch (Exception exception)
+                {
+                    _logger.LogError(
+                        exception,
+                        "YouTube playlist request failed permanently. ChannelId={ChannelId}.",
+                        plan.Request.ChannelId);
+                    outcomes[plan.Request.ChannelId] = new ChannelRefreshOutcome(
+                        plan.Request.ChannelId,
+                        ChannelRefreshDisposition.FailedPermanent,
+                        plan.PlaylistCalls,
+                        0);
+                }
+                finally
+                {
+                    result.PlaylistCallCount += plan.PlaylistCalls;
+                }
+            }
+
+            if (youtubeWorkHalted)
+            {
+                foreach (var plan in readyPlans)
+                {
+                    outcomes[plan.Request.ChannelId] = Retry(
+                        plan.Request.ChannelId,
+                        plan.PlaylistCalls,
+                        plan.DurationCalls);
+                }
+                readyPlans.Clear();
+            }
+
+            var durationFailed = false;
+            var durationFailureDisposition = ChannelRefreshDisposition.RetryTransient;
+            foreach (var chunk in readyPlans
+                .SelectMany(plan => plan.NewVideoIds)
+                .Distinct(StringComparer.Ordinal)
+                .Chunk(50))
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    result.CanceledDuringYoutubeWork = true;
+                    durationFailed = true;
+                    break;
                 }
 
-                result.PlaylistCallCount++;
+                try
+                {
+                    var fetched = await _youtubeService.GetVideoDurationsByIdAsync(chunk, cancellationToken);
+                    result.DurationCallCount++;
+                    foreach (var duration in fetched)
+                    {
+                        durationsById[duration.Key] = duration.Value;
+                    }
 
-                videos.AddRange(page.Videos.Where(video => video.ChannelId == channel.Id));
-                pageToken = page.NextPageToken;
-            } while (pageToken != null);
+                    foreach (var plan in readyPlans.Where(plan => plan.NewVideoIds.Any(chunk.Contains)))
+                    {
+                        plan.DurationCalls++;
+                    }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    result.CanceledDuringYoutubeWork = true;
+                    durationFailed = true;
+                    break;
+                }
+                catch (YoutubePermanentException)
+                {
+                    durationFailed = true;
+                    durationFailureDisposition = ChannelRefreshDisposition.FailedPermanent;
+                    break;
+                }
+                catch (Exception exception) when (IsTransient(exception))
+                {
+                    durationFailed = true;
+                    break;
+                }
+                catch (Exception exception)
+                {
+                    _logger.LogError(exception, "YouTube duration request failed permanently.");
+                    durationFailed = true;
+                    durationFailureDisposition = ChannelRefreshDisposition.FailedPermanent;
+                    break;
+                }
+            }
 
-            return videos;
+            foreach (var plan in readyPlans)
+            {
+                if (durationFailed && plan.NewVideoIds.Any(id => !durationsById.ContainsKey(id)))
+                {
+                    outcomes[plan.Request.ChannelId] = new ChannelRefreshOutcome(
+                        plan.Request.ChannelId,
+                        durationFailureDisposition,
+                        plan.PlaylistCalls,
+                        plan.DurationCalls);
+                    continue;
+                }
+
+                await MergeAndSaveAsync(plan, durationsById, outcomes);
+            }
+
+            foreach (var request in selected.Where(request => !outcomes.ContainsKey(request.ChannelId)))
+            {
+                outcomes[request.ChannelId] = Retry(request.ChannelId, 0, 0);
+            }
+
+            return CompleteResult(result, outcomes);
         }
 
-        private async Task<bool> CanStartNextYoutubeCallAsync(
-            ChannelRefreshPipelineResult result,
+        private async Task FetchPlaylistIncrementallyAsync(
+            PlaylistPlan plan,
             CancellationToken cancellationToken)
         {
-            if (cancellationToken.IsCancellationRequested)
+            var cachedIds = plan.CachedVideos
+                .Select(video => video.VideoId)
+                .ToHashSet(StringComparer.Ordinal);
+            var scanned = new List<YoutubeVideo>();
+            var earliestPublishedAt = _clock.UtcNow.Subtract(Constants.VideoMaxAge);
+            string pageToken = null;
+            var overlapFound = false;
+            do
             {
-                result.CanceledDuringYoutubeWork = true;
-                return false;
+                var page = await _youtubeService.GetPlaylistVideoPageAsync(
+                    plan.Channel.PlaylistId,
+                    pageToken,
+                    cancellationToken);
+                plan.PlaylistCalls++;
+                var pageVideos = page.Videos
+                    .Where(video => video.ChannelId == plan.Channel.Id)
+                    .ToList();
+                scanned.AddRange(pageVideos);
+                overlapFound = pageVideos.Any(video => cachedIds.Contains(video.Id));
+                pageToken = page.NextPageToken;
+            } while (pageToken != null
+                && !overlapFound
+                && scanned
+                    .Where(video => video.PublishedAt >= earliestPublishedAt)
+                    .Select(video => video.Id)
+                    .Distinct(StringComparer.Ordinal)
+                    .Count()
+                    < _options.MaximumVideosPerChannel
+                && plan.PlaylistCalls < _options.MaximumPlaylistPages);
+
+            if (pageToken != null && !overlapFound && plan.PlaylistCalls >= _options.MaximumPlaylistPages)
+            {
+                _logger.LogWarning(
+                    "YouTube uploads scan limit reached. ChannelId={ChannelId}; Pages={Pages}.",
+                    plan.Channel.Id,
+                    plan.PlaylistCalls);
             }
 
+            plan.ScannedVideos = scanned;
+            plan.NewVideoIds = scanned
+                .Where(video => video.PublishedAt >= earliestPublishedAt)
+                .Select(video => video.Id)
+                .Where(id => !string.IsNullOrWhiteSpace(id) && !cachedIds.Contains(id))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+        }
+
+        private async Task MergeAndSaveAsync(
+            PlaylistPlan plan,
+            IReadOnlyDictionary<string, TimeSpan> durationsById,
+            IDictionary<string, ChannelRefreshOutcome> outcomes)
+        {
+            var earliestPublishedAt = _clock.UtcNow.Subtract(Constants.VideoMaxAge);
+            var merged = plan.CachedVideos
+                .Where(video => video.PublishedAt >= earliestPublishedAt)
+                .ToDictionary(video => video.VideoId, StringComparer.Ordinal);
+            foreach (var video in plan.ScannedVideos)
+            {
+                if (string.IsNullOrWhiteSpace(video.Id) || video.PublishedAt < earliestPublishedAt)
+                {
+                    continue;
+                }
+
+                merged.TryGetValue(video.Id, out var cached);
+                var duration = default(TimeSpan);
+                if (cached == null && !durationsById.TryGetValue(video.Id, out duration))
+                {
+                    continue;
+                }
+
+                merged[video.Id] = new ChannelVideo
+                {
+                    ChannelId = plan.Channel.Id,
+                    VideoId = video.Id,
+                    Title = video.Title,
+                    Duration = cached?.Duration ?? duration,
+                    PublishedAt = video.PublishedAt,
+                    ThumbnailUrl = video.Thumbnail
+                };
+            }
+
+            plan.Channel.Videos = merged.Values
+                .OrderByDescending(video => video.PublishedAt)
+                .ThenBy(video => video.VideoId, StringComparer.Ordinal)
+                .Take(_options.MaximumVideosPerChannel)
+                .ToList();
+            SetNextRefresh(plan.Channel);
+            await SaveOutcomeAsync(
+                plan.Request,
+                new ChannelRefreshResult
+                {
+                    Channel = plan.Channel,
+                    VideosRefreshed = true,
+                    EarliestPublishedAt = earliestPublishedAt
+                },
+                ChannelRefreshDisposition.Refreshed,
+                plan.PlaylistCalls,
+                plan.DurationCalls,
+                outcomes);
+        }
+
+        private async Task SaveOutcomeAsync(
+            ChannelRefreshRequest request,
+            ChannelRefreshResult refreshResult,
+            ChannelRefreshDisposition successDisposition,
+            int playlistCalls,
+            int durationCalls,
+            IDictionary<string, ChannelRefreshOutcome> outcomes)
+        {
             try
             {
-                await _youtubeCallDelay.DelayAsync(cancellationToken);
+                await _channelRepository.SaveRefreshResultAsync(refreshResult, CancellationToken.None);
+                outcomes[request.ChannelId] = new ChannelRefreshOutcome(
+                    request.ChannelId,
+                    successDisposition,
+                    playlistCalls,
+                    durationCalls);
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            catch (Exception exception)
             {
-                result.CanceledDuringYoutubeWork = true;
-                return false;
+                _logger.LogError(
+                    exception,
+                    "Could not persist a refreshed channel. ChannelId={ChannelId}.",
+                    request.ChannelId);
+                outcomes[request.ChannelId] = Retry(request.ChannelId, playlistCalls, durationCalls);
             }
+        }
 
-            if (cancellationToken.IsCancellationRequested)
+        private Channel CreateMissingChannel(string id)
+        {
+            return new Channel
             {
-                result.CanceledDuringYoutubeWork = true;
-                return false;
-            }
-
-            return true;
+                Id = id,
+                Url = string.Format(Constants.YoutubeChannelUrl, id),
+                Title = string.Empty,
+                Thumbnail = string.Empty,
+                PlaylistId = string.Empty,
+                StaleAfter = _clock.UtcNow
+            };
         }
 
         private void ApplyMetadata(Channel channel, YoutubeChannel metadata)
@@ -332,6 +478,64 @@ namespace youtubed.Services
             channel.StatusReason = ChannelStatusReason.NotFound;
             channel.StatusUpdatedAt = now;
             channel.StaleAfter = now.Add(Constants.ChannelUnavailableStaleDelay);
+        }
+
+        private void SetNextRefresh(Channel channel)
+        {
+            channel.StaleAfter = _clock.UtcNowAfterRandomDelay(
+                Constants.ChannelMaxAgeMin,
+                Constants.ChannelMaxAgeMax);
+        }
+
+        private static bool IsTransient(Exception exception)
+        {
+            return exception is YoutubeTransientException
+                || exception is YoutubeQuotaExceededException;
+        }
+
+        private static ChannelRefreshOutcome Retry(string channelId, int playlistCalls, int durationCalls)
+        {
+            return new ChannelRefreshOutcome(
+                channelId,
+                ChannelRefreshDisposition.RetryTransient,
+                playlistCalls,
+                durationCalls);
+        }
+
+        private static void AddRetryOutcomes(
+            IEnumerable<ChannelRefreshRequest> requests,
+            IDictionary<string, ChannelRefreshOutcome> outcomes)
+        {
+            foreach (var request in requests)
+            {
+                outcomes[request.ChannelId] = Retry(request.ChannelId, 0, 0);
+            }
+        }
+
+        private static void AddPermanentOutcomes(
+            IEnumerable<ChannelRefreshRequest> requests,
+            IDictionary<string, ChannelRefreshOutcome> outcomes)
+        {
+            foreach (var request in requests)
+            {
+                outcomes[request.ChannelId] = new ChannelRefreshOutcome(
+                    request.ChannelId,
+                    ChannelRefreshDisposition.FailedPermanent,
+                    0,
+                    0);
+            }
+        }
+
+        private static ChannelRefreshPipelineResult CompleteResult(
+            ChannelRefreshPipelineResult result,
+            IDictionary<string, ChannelRefreshOutcome> outcomes)
+        {
+            result.Outcomes = outcomes.Values.ToList();
+            result.RefreshedChannelCount = result.Outcomes.Count(outcome =>
+                outcome.Disposition == ChannelRefreshDisposition.Refreshed);
+            result.UnavailableChannelCount = result.Outcomes.Count(outcome =>
+                outcome.Disposition == ChannelRefreshDisposition.Unavailable);
+            return result;
         }
     }
 }

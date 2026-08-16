@@ -22,15 +22,12 @@ namespace youtubed.Tests.ProviderContracts
             updated.StatusReason = ChannelStatusReason.NotFound;
             updated.StatusUpdatedAt = Clock.UtcNow;
 
-            await Provider.Channels.SaveRefreshResultsAsync(
-                new[]
+            await Provider.Channels.SaveRefreshResultAsync(
+                new ChannelRefreshResult
                 {
-                    new ChannelRefreshResult
-                    {
-                        Channel = updated,
-                        VideosRefreshed = true,
-                        EarliestPublishedAt = Clock.UtcNow.AddDays(-1)
-                    }
+                    Channel = updated,
+                    VideosRefreshed = true,
+                    EarliestPublishedAt = Clock.UtcNow.AddDays(-1)
                 },
                 CancellationToken.None);
 
@@ -52,8 +49,8 @@ namespace youtubed.Tests.ProviderContracts
             var refreshed = ToDomainChannel(channel, Array.Empty<ChannelVideo>());
             refreshed.Title = "After";
 
-            await Provider.Channels.SaveRefreshResultsAsync(
-                new[] { new ChannelRefreshResult { Channel = refreshed } },
+            await Provider.Channels.SaveRefreshResultAsync(
+                new ChannelRefreshResult { Channel = refreshed },
                 CancellationToken.None);
 
             var projection = await Provider.Lists.GetChannelProjectionAsync(list);

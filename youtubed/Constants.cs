@@ -25,7 +25,6 @@ namespace youtubed
         public static readonly TimeSpan ChannelUnavailableStaleDelay = TimeSpan.FromDays(36500);
         public const int ChannelRefreshBatchSize = 10;
         public const int ChannelRefreshQueueCapacity = 1000;
-        public static readonly TimeSpan YoutubeCallDelay = TimeSpan.FromSeconds(2);
         public static readonly TimeSpan ListMaxAgeMin = TimeSpan.FromDays(45);
         public static readonly TimeSpan ListMaxAgeMax = TimeSpan.FromDays(47);
         public static readonly TimeSpan MaintenanceFrequencyMin = TimeSpan.FromMinutes(8);

@@ -126,9 +126,7 @@ namespace youtubed.Tests.ProviderContracts
                     : videos.Min(video => video.PublishedAt)
             };
 
-            await Provider.Channels.SaveRefreshResultsAsync(
-                new[] { result },
-                CancellationToken.None);
+            await Provider.Channels.SaveRefreshResultAsync(result, CancellationToken.None);
         }
 
         protected ChannelVideo CreateVideo(

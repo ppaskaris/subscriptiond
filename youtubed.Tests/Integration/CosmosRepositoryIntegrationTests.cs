@@ -121,11 +121,11 @@ namespace youtubed.Tests.Integration
             var secondRefresh = CreateChannel(channel.Id, "Second", now);
             secondRefresh.Videos = CreateVideos(channel.Id, now.AddSeconds(1), 120);
             await Task.WhenAll(
-                firstChannels.SaveRefreshResultsAsync(
-                    new[] { new ChannelRefreshResult { Channel = firstRefresh, VideosRefreshed = true } },
+                firstChannels.SaveRefreshResultAsync(
+                    new ChannelRefreshResult { Channel = firstRefresh, VideosRefreshed = true },
                     CancellationToken.None),
-                secondChannels.SaveRefreshResultsAsync(
-                    new[] { new ChannelRefreshResult { Channel = secondRefresh, VideosRefreshed = true } },
+                secondChannels.SaveRefreshResultAsync(
+                    new ChannelRefreshResult { Channel = secondRefresh, VideosRefreshed = true },
                     CancellationToken.None));
 
             Assert.Single(requestLogger.Records, message =>

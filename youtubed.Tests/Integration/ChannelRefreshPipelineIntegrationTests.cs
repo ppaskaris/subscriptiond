@@ -2,6 +2,8 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Xunit;
 using youtubed.Domain;
 using youtubed.Persistence;
@@ -43,7 +45,9 @@ namespace youtubed.Tests.Integration
             });
             var pipeline = CreatePipeline(youtube, now);
 
-            var result = await pipeline.RefreshAsync(new[] { "channel-1" }, CancellationToken.None);
+            var result = await pipeline.RefreshAsync(
+                new[] { new ChannelRefreshRequest("channel-1", ChannelRefreshReason.Stale, now) },
+                CancellationToken.None);
 
             var channel = await QuerySingleAsync<(string Title, string Thumbnail, string PlaylistId, DateTimeOffset StaleAfter, ChannelStatus Status, ChannelStatusReason StatusReason, DateTimeOffset? StatusUpdatedAt)>(@"
                 SELECT Title, Thumbnail, PlaylistId, StaleAfter, Status, StatusReason, StatusUpdatedAt
@@ -85,14 +89,16 @@ namespace youtubed.Tests.Integration
             });
 
             var result = await CreatePipeline(youtube, now)
-                .RefreshAsync(new[] { "channel-1" }, CancellationToken.None);
+                .RefreshAsync(
+                    new[] { new ChannelRefreshRequest("channel-1", ChannelRefreshReason.Stale, now) },
+                    CancellationToken.None);
 
             var channel = await QuerySingleAsync<(string Title, string Thumbnail, string PlaylistId, DateTimeOffset StaleAfter, ChannelStatus Status, ChannelStatusReason StatusReason, DateTimeOffset? StatusUpdatedAt)>(@"
                 SELECT Title, Thumbnail, PlaylistId, StaleAfter, Status, StatusReason, StatusUpdatedAt
                 FROM Channel
                 WHERE Id = N'channel-1';
                 ");
-            Assert.Equal(0, result.RefreshedChannelCount);
+            Assert.Equal(1, result.RefreshedChannelCount);
             Assert.Equal("Updated", channel.Title);
             Assert.Equal("new.png", channel.Thumbnail);
             Assert.Equal(string.Empty, channel.PlaylistId);
@@ -100,6 +106,40 @@ namespace youtubed.Tests.Integration
             Assert.Equal(ChannelStatus.Active, channel.Status);
             Assert.Equal(ChannelStatusReason.None, channel.StatusReason);
             Assert.Null(channel.StatusUpdatedAt);
+        }
+
+        [LocalDbFact]
+        public async Task RefreshAsync_MissingCacheIsCreatedAndUnavailableCacheIsNegativeCached()
+        {
+            var now = new DateTimeOffset(2026, 6, 14, 12, 0, 0, TimeSpan.Zero);
+            var youtube = new FakeYoutubeService();
+            youtube.SetChannelById("channel-created", new YoutubeChannel
+            {
+                Id = "channel-created",
+                Title = "Created",
+                Thumbnail = "created.png"
+            });
+            var pipeline = CreatePipeline(youtube, now);
+
+            var result = await pipeline.RefreshAsync(
+                new[]
+                {
+                    new ChannelRefreshRequest("channel-created", ChannelRefreshReason.Missing),
+                    new ChannelRefreshRequest("channel-gone", ChannelRefreshReason.Missing)
+                },
+                CancellationToken.None);
+
+            var rows = await QueryAsync<(string Id, string Title, string Thumbnail, ChannelStatus Status)>(@"
+                SELECT Id, Title, Thumbnail, Status
+                FROM Channel
+                WHERE Id IN (N'channel-created', N'channel-gone')
+                ORDER BY Id;
+                ");
+            Assert.Equal(2, rows.Count);
+            Assert.Equal(("channel-created", "Created", "created.png", ChannelStatus.Active), rows[0]);
+            Assert.Equal(("channel-gone", string.Empty, string.Empty, ChannelStatus.Unavailable), rows[1]);
+            Assert.Equal(1, result.RefreshedChannelCount);
+            Assert.Equal(1, result.UnavailableChannelCount);
         }
 
         private async Task InsertChannelAsync(DateTimeOffset now)
@@ -130,12 +170,8 @@ namespace youtubed.Tests.Integration
                 new ChannelRepository(Fixture.ConnectionFactory),
                 youtube,
                 new FakeAppClock { UtcNow = now, RandomDelayValue = TimeSpan.FromMinutes(60) },
-                new ImmediateYoutubeCallDelay());
-        }
-
-        private sealed class ImmediateYoutubeCallDelay : IYoutubeCallDelay
-        {
-            public Task DelayAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+                Options.Create(new YoutubeSyncOptions()),
+                NullLogger<ChannelRefreshPipeline>.Instance);
         }
     }
 }

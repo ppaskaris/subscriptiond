@@ -13,11 +13,18 @@ namespace youtubed.Services
     public class YoutubeService : IYoutubeService
     {
         private readonly YoutubeOptions _options;
+        private readonly IYoutubeRequestGate _requestGate;
+        private readonly YoutubeHttpResponseObserver _responseObserver;
         private readonly Lazy<YouTubeService> _service;
 
-        public YoutubeService(IOptions<YoutubeOptions> options)
+        public YoutubeService(
+            IOptions<YoutubeOptions> options,
+            IYoutubeRequestGate requestGate,
+            YoutubeHttpResponseObserver responseObserver)
         {
             _options = options.Value;
+            _requestGate = requestGate ?? throw new ArgumentNullException(nameof(requestGate));
+            _responseObserver = responseObserver ?? throw new ArgumentNullException(nameof(responseObserver));
             _service = new Lazy<YouTubeService>(CreateService);
         }
 
@@ -65,7 +72,10 @@ namespace youtubed.Services
             request.Fields = "items(id,snippet(title,thumbnails(medium,default)),contentDetails(relatedPlaylists(uploads)))";
             request.Id = string.Join(",", normalizedIds);
 
-            var response = await request.ExecuteAsync(cancellationToken);
+            var response = await _requestGate.ExecuteAsync(
+                token => request.ExecuteAsync(token),
+                waitForCooldown: true,
+                cancellationToken);
             return response.Items.ToDictionary(
                 item => item.Id,
                 item => new YoutubeChannel
@@ -96,7 +106,10 @@ namespace youtubed.Services
                     throw new ArgumentException("url", "Invalid format.");
             }
 
-            var response = await request.ExecuteAsync();
+            var response = await _requestGate.ExecuteAsync(
+                token => request.ExecuteAsync(token),
+                waitForCooldown: false,
+                CancellationToken.None);
             var item = response.Items.FirstOrDefault();
             if (item == null)
             {
@@ -127,7 +140,10 @@ namespace youtubed.Services
             request.Fields = "items(snippet(channelId))";
             request.Id = identifier;
 
-            var response = await request.ExecuteAsync();
+            var response = await _requestGate.ExecuteAsync(
+                token => request.ExecuteAsync(token),
+                waitForCooldown: false,
+                CancellationToken.None);
             var item = response.Items.FirstOrDefault();
             if (item == null)
             {
@@ -137,28 +153,8 @@ namespace youtubed.Services
             return await GetChannelByIdentifierAsync("channel", item.Snippet.ChannelId);
         }
 
-        public async Task<IEnumerable<YoutubeVideo>> GetPlaylistVideosAsync(string playlistId, DateTimeOffset publishedAfter)
-        {
-            string nextPageToken = null;
-            var results = new List<YoutubeVideo>();
-
-            do
-            {
-                var page = await GetPlaylistVideoPageAsync(
-                    playlistId,
-                    publishedAfter,
-                    nextPageToken,
-                    CancellationToken.None);
-                results.AddRange(page.Videos);
-                nextPageToken = page.NextPageToken;
-            } while (nextPageToken != null);
-
-            return results;
-        }
-
         public async Task<YoutubePlaylistVideoPage> GetPlaylistVideoPageAsync(
             string playlistId,
-            DateTimeOffset publishedAfter,
             string pageToken,
             CancellationToken cancellationToken)
         {
@@ -171,7 +167,10 @@ namespace youtubed.Services
                 request.PageToken = pageToken;
             }
 
-            var response = await request.ExecuteAsync(cancellationToken);
+            var response = await _requestGate.ExecuteAsync(
+                token => request.ExecuteAsync(token),
+                waitForCooldown: true,
+                cancellationToken);
             var nextPageToken = response.NextPageToken;
             var videos = new List<YoutubeVideo>();
             foreach (var item in response.Items)
@@ -190,11 +189,8 @@ namespace youtubed.Services
                 //
 
                 var publishedAt = item.ContentDetails.VideoPublishedAtDateTimeOffset;
-                if (publishedAt == null || publishedAt < publishedAfter)
+                if (publishedAt == null)
                 {
-                    // Stop after this page. We might as well finish reading
-                    // the current page since we already paid for the API call.
-                    nextPageToken = null;
                     continue;
                 }
 
@@ -237,37 +233,14 @@ namespace youtubed.Services
             request.Fields = "items(id,contentDetails(duration))";
             request.Id = string.Join(",", normalizedIds);
 
-            var response = await request.ExecuteAsync(cancellationToken);
+            var response = await _requestGate.ExecuteAsync(
+                token => request.ExecuteAsync(token),
+                waitForCooldown: true,
+                cancellationToken);
             return YoutubeVideoDurationParser.ParseById(
                 response.Items.Select(item => new KeyValuePair<string, string>(
                     item.Id,
                     item.ContentDetails?.Duration)));
-        }
-
-        public async Task<IEnumerable<YoutubeVideo>> GetVideosAsync(string playlistId, DateTimeOffset publishedAfter)
-        {
-            var videos = (await GetPlaylistVideosAsync(playlistId, publishedAfter)).ToList();
-            var durationsById = new Dictionary<string, TimeSpan>(StringComparer.Ordinal);
-            foreach (var chunk in videos
-                .Select(video => video.Id)
-                .Where(value => !string.IsNullOrWhiteSpace(value))
-                .Distinct(StringComparer.Ordinal)
-                .Chunk(50))
-            {
-                foreach (var duration in await GetVideoDurationsByIdAsync(chunk, CancellationToken.None))
-                {
-                    durationsById[duration.Key] = duration.Value;
-                }
-            }
-
-            return videos
-                .Where(video => durationsById.ContainsKey(video.Id))
-                .Select(video =>
-                {
-                    video.Duration = durationsById[video.Id];
-                    return video;
-                })
-                .ToList();
         }
 
         private string PickThumbnail(ThumbnailDetails thumbnailDetails)
@@ -283,7 +256,8 @@ namespace youtubed.Services
             var service = new YouTubeService(new BaseClientService.Initializer
             {
                 ApiKey = _options.Credentials,
-                ApplicationName = $"subscriptiond/{AppVersion.Current}"
+                ApplicationName = $"subscriptiond/{AppVersion.Current}",
+                HttpClientInitializer = _responseObserver
             });
             return service;
         }

@@ -154,55 +154,70 @@ namespace youtubed.Persistence
                 .ToList();
         }
 
-        public async Task SaveRefreshResultsAsync(
-            IReadOnlyCollection<ChannelRefreshResult> results,
+        public async Task SaveRefreshResultAsync(
+            ChannelRefreshResult result,
             CancellationToken cancellationToken)
         {
-            if (results.Count == 0)
+            if (result?.Channel == null)
             {
-                return;
+                throw new ArgumentException("A refresh result must contain a channel.", nameof(result));
             }
 
             using var connection = _connectionFactory.CreateConnection();
             await connection.OpenAsync(cancellationToken);
-            using var transaction = connection.BeginTransaction();
-
-            foreach (var result in results)
+            using var transaction = connection.BeginTransaction(IsolationLevel.Serializable);
+            var channel = result.Channel;
+            var parameters = new
             {
-                var channel = result.Channel;
+                id = channel.Id,
+                url = channel.Url,
+                title = channel.Title,
+                thumbnail = channel.Thumbnail,
+                playlistId = channel.PlaylistId,
+                staleAfter = channel.StaleAfter,
+                status = channel.Status,
+                statusReason = channel.StatusReason,
+                statusUpdatedAt = channel.StatusUpdatedAt
+            };
+            var updated = await connection.ExecuteAsync(
+                new CommandDefinition(
+                    @"
+                    UPDATE Channel WITH (UPDLOCK, HOLDLOCK)
+                    SET Url = @url,
+                        Title = @title,
+                        Thumbnail = @thumbnail,
+                        PlaylistId = @playlistId,
+                        StaleAfter = @staleAfter,
+                        Status = @status,
+                        StatusReason = @statusReason,
+                        StatusUpdatedAt = @statusUpdatedAt
+                    WHERE Id = @id;
+                    ",
+                    parameters,
+                    transaction,
+                    cancellationToken: cancellationToken));
+
+            if (updated == 0)
+            {
                 await connection.ExecuteAsync(
                     new CommandDefinition(
                         @"
-                        UPDATE Channel
-                        SET Url = @url,
-                            Title = @title,
-                            Thumbnail = @thumbnail,
-                            PlaylistId = @playlistId,
-                            StaleAfter = @staleAfter,
-                            Status = @status,
-                            StatusReason = @statusReason,
-                            StatusUpdatedAt = @statusUpdatedAt
-                        WHERE Id = @id;
+                        INSERT INTO Channel
+                            (Id, Url, Title, Thumbnail, PlaylistId, StaleAfter, Status, StatusReason, StatusUpdatedAt)
+                        SELECT @id, @url, @title, @thumbnail, @playlistId, @staleAfter, @status, @statusReason, @statusUpdatedAt
+                        WHERE NOT EXISTS (
+                            SELECT 1
+                            FROM Channel WITH (UPDLOCK, HOLDLOCK)
+                            WHERE Id = @id
+                        );
                         ",
-                        new
-                        {
-                            id = channel.Id,
-                            url = channel.Url,
-                            title = channel.Title,
-                            thumbnail = channel.Thumbnail,
-                            playlistId = channel.PlaylistId,
-                            staleAfter = channel.StaleAfter,
-                            status = channel.Status,
-                            statusReason = channel.StatusReason,
-                            statusUpdatedAt = channel.StatusUpdatedAt
-                        },
+                        parameters,
                         transaction,
                         cancellationToken: cancellationToken));
+            }
 
-                if (!result.VideosRefreshed)
-                {
-                    continue;
-                }
+            if (result.VideosRefreshed)
+            {
 
                 if (channel.Videos.Any())
                 {
@@ -241,7 +256,6 @@ namespace youtubed.Persistence
                             DELETE target
                             FROM ChannelVideo target
                             WHERE target.ChannelId = @channelId
-                              AND target.PublishedAt < @earliestPublishedAt
                               AND NOT EXISTS (
                                   SELECT 1
                                   FROM @videoTable source
@@ -252,7 +266,6 @@ namespace youtubed.Persistence
                             new
                             {
                                 channelId = channel.Id,
-                                earliestPublishedAt = result.EarliestPublishedAt.GetValueOrDefault(DateTimeOffset.MinValue),
                                 videoTable
                             },
                             transaction,
@@ -264,13 +277,11 @@ namespace youtubed.Persistence
                         new CommandDefinition(
                             @"
                             DELETE FROM ChannelVideo
-                            WHERE ChannelId = @channelId
-                              AND PublishedAt < @earliestPublishedAt;
+                            WHERE ChannelId = @channelId;
                             ",
                             new
                             {
-                                channelId = channel.Id,
-                                earliestPublishedAt = result.EarliestPublishedAt.GetValueOrDefault(DateTimeOffset.MinValue)
+                                channelId = channel.Id
                             },
                             transaction,
                             cancellationToken: cancellationToken));

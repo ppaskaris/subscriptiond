@@ -175,14 +175,18 @@ namespace youtubed.Tests.Services
                     }
                 });
             var queue = new Mock<IChannelRefreshQueue>(MockBehavior.Strict);
-            queue.Setup(value => value.TryEnqueue("missing")).Returns(true);
-            queue.Setup(value => value.TryEnqueue("stale")).Returns(true);
+            queue.Setup(value => value.Enqueue(It.IsAny<IReadOnlyCollection<ChannelRefreshRequest>>()))
+                .Returns(2);
             var service = new ListService(repository.Object, new FakeAppClock { UtcNow = now }, queue.Object);
 
             await service.GetAuthenticatedListViewAsync(id, WebEncoders.Base64UrlEncode(token));
 
-            queue.Verify(value => value.TryEnqueue("missing"), Times.Once);
-            queue.Verify(value => value.TryEnqueue("stale"), Times.Once);
+            queue.Verify(value => value.Enqueue(It.Is<IReadOnlyCollection<ChannelRefreshRequest>>(requests =>
+                requests.Count == 2
+                && requests.Any(request => request.ChannelId == "missing" && request.Reason == ChannelRefreshReason.Missing)
+                && requests.Any(request => request.ChannelId == "stale"
+                    && request.Reason == ChannelRefreshReason.Stale
+                    && request.StaleAfter == now.AddMinutes(-1)))), Times.Once);
         }
 
         [Fact]
@@ -372,7 +376,9 @@ namespace youtubed.Tests.Services
                 .Setup(value => value.AddChannelAsync(listId, "channel-1"))
                 .Returns(Task.CompletedTask);
             var queue = new Mock<IChannelRefreshQueue>(MockBehavior.Strict);
-            queue.Setup(value => value.TryEnqueue("channel-1")).Returns(true);
+            queue.Setup(value => value.TryEnqueue(It.Is<ChannelRefreshRequest>(request =>
+                request.ChannelId == "channel-1" && request.Reason == ChannelRefreshReason.Missing)))
+                .Returns(true);
             var service = new ListService(
                 repository.Object,
                 new FakeAppClock(),
@@ -381,7 +387,8 @@ namespace youtubed.Tests.Services
             await service.AddChannelAsync(listId, "channel-1");
 
             repository.Verify(value => value.AddChannelAsync(listId, "channel-1"), Times.Once);
-            queue.Verify(value => value.TryEnqueue("channel-1"), Times.Once);
+            queue.Verify(value => value.TryEnqueue(It.Is<ChannelRefreshRequest>(request =>
+                request.ChannelId == "channel-1" && request.Reason == ChannelRefreshReason.Missing)), Times.Once);
         }
 
         [Fact]
@@ -415,14 +422,18 @@ namespace youtubed.Tests.Services
                     }
                 });
             var queue = new Mock<IChannelRefreshQueue>(MockBehavior.Strict);
-            queue.Setup(value => value.TryEnqueue("missing")).Returns(true);
-            queue.Setup(value => value.TryEnqueue("stale")).Returns(true);
+            queue.Setup(value => value.Enqueue(It.IsAny<IReadOnlyCollection<ChannelRefreshRequest>>()))
+                .Returns(2);
             var service = new ListService(repository.Object, new FakeAppClock { UtcNow = now }, queue.Object);
 
             var view = await service.GetListChannelViewAsync(list);
 
-            queue.Verify(value => value.TryEnqueue("missing"), Times.Once);
-            queue.Verify(value => value.TryEnqueue("stale"), Times.Once);
+            queue.Verify(value => value.Enqueue(It.Is<IReadOnlyCollection<ChannelRefreshRequest>>(requests =>
+                requests.Count == 2
+                && requests.Any(request => request.ChannelId == "missing" && request.Reason == ChannelRefreshReason.Missing)
+                && requests.Any(request => request.ChannelId == "stale"
+                    && request.Reason == ChannelRefreshReason.Stale
+                    && request.StaleAfter == now.AddMinutes(-1)))), Times.Once);
             var missing = view.Channels.Single(channel => channel.Id == "missing");
             Assert.True(missing.IsMissing);
             Assert.Equal("Temporarily unavailable", missing.Title);
@@ -440,13 +451,15 @@ namespace youtubed.Tests.Services
                     ChannelIds = new[] { "channel-1", "channel-2" }
                 });
             var queue = new Mock<IChannelRefreshQueue>(MockBehavior.Strict);
-            queue.Setup(value => value.TryEnqueue(It.IsAny<string>())).Returns(true);
+            queue.Setup(value => value.Enqueue(It.IsAny<IReadOnlyCollection<ChannelRefreshRequest>>()))
+                .Returns(2);
             var service = new ListService(repository.Object, new FakeAppClock(), queue.Object);
 
             await service.ForceRefreshAsync(list);
 
-            queue.Verify(value => value.TryEnqueue("channel-1"), Times.Once);
-            queue.Verify(value => value.TryEnqueue("channel-2"), Times.Once);
+            queue.Verify(value => value.Enqueue(It.Is<IReadOnlyCollection<ChannelRefreshRequest>>(requests =>
+                requests.Select(request => request.ChannelId).SequenceEqual(new[] { "channel-1", "channel-2" })
+                && requests.All(request => request.Reason == ChannelRefreshReason.Forced))), Times.Once);
         }
 
         private static IEnumerable<ChannelVideo> CreateVideos(string channelId, DateTimeOffset now)

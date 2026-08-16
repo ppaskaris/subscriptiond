@@ -114,7 +114,9 @@ namespace youtubed.Services
         public async Task AddChannelAsync(Guid listId, string channelId)
         {
             await _listRepository.AddChannelAsync(listId, channelId);
-            _refreshQueue.TryEnqueue(channelId);
+            _refreshQueue.TryEnqueue(new ChannelRefreshRequest(
+                channelId,
+                ChannelRefreshReason.Missing));
         }
 
         public async Task ForceRefreshAsync(ListModel list)
@@ -130,10 +132,11 @@ namespace youtubed.Services
                 return;
             }
 
-            foreach (var channelId in projection.ChannelIds)
-            {
-                _refreshQueue.TryEnqueue(channelId);
-            }
+            _refreshQueue.Enqueue(projection.ChannelIds
+                .Select(channelId => new ChannelRefreshRequest(
+                    channelId,
+                    ChannelRefreshReason.Forced))
+                .ToList());
         }
 
         public Task RemoveChannelAsync(Guid listId, string channelId)
@@ -246,15 +249,25 @@ namespace youtubed.Services
             }
 
             var channelsById = channels.ToDictionary(channel => channel.Id, StringComparer.Ordinal);
+            var candidates = new List<ChannelRefreshRequest>();
             foreach (var channelId in channelIds)
             {
-                if (!channelsById.TryGetValue(channelId, out var channel)
-                    || channel.IsMissing
-                    || (channel.Status == ChannelStatus.Active && channel.StaleAfter <= now))
+                if (!channelsById.TryGetValue(channelId, out var channel) || channel.IsMissing)
                 {
-                    _refreshQueue.TryEnqueue(channelId);
+                    candidates.Add(new ChannelRefreshRequest(
+                        channelId,
+                        ChannelRefreshReason.Missing));
+                }
+                else if (channel.Status == ChannelStatus.Active && channel.StaleAfter <= now)
+                {
+                    candidates.Add(new ChannelRefreshRequest(
+                        channelId,
+                        ChannelRefreshReason.Stale,
+                        channel.StaleAfter));
                 }
             }
+
+            _refreshQueue.Enqueue(candidates);
         }
 
         private static ListViewModel CreateViewModel(

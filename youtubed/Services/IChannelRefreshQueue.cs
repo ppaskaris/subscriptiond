@@ -7,9 +7,12 @@ namespace youtubed.Services
     public interface IChannelRefreshQueue
     {
         int Count { get; }
-        bool TryEnqueue(string channelId);
-        Task<IReadOnlyList<string>> DequeueBatchAsync(int maximumCount, CancellationToken cancellationToken);
+        bool TryEnqueue(ChannelRefreshRequest request);
+        int Enqueue(IReadOnlyCollection<ChannelRefreshRequest> requests);
+        Task<IReadOnlyList<ChannelRefreshRequest>> DequeueBatchAsync(
+            int maximumCount,
+            CancellationToken cancellationToken);
         void Complete(IReadOnlyCollection<string> channelIds);
-        void Requeue(IReadOnlyCollection<string> channelIds);
+        void Requeue(IReadOnlyCollection<ChannelRefreshRequest> requests);
     }
 }

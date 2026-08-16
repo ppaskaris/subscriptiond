@@ -330,8 +330,9 @@ namespace youtubed.Tests.Integration
 
             await service.AddChannelAsync(listId, "channel-1");
 
-            Assert.Equal("channel-1", Assert.Single(
-                await queue.DequeueBatchAsync(10, CancellationToken.None)));
+            var request = Assert.Single(await queue.DequeueBatchAsync(10, CancellationToken.None));
+            Assert.Equal("channel-1", request.ChannelId);
+            Assert.Equal(ChannelRefreshReason.Missing, request.Reason);
         }
 
         [LocalDbFact]

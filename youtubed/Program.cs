@@ -33,13 +33,17 @@ builder.Services.AddLogging(loggingBuilder =>
 });
 
 builder.Services.Configure<YoutubeOptions>(builder.Configuration.GetSection("Youtube"));
+builder.Services.Configure<YoutubeSyncOptions>(builder.Configuration.GetSection(YoutubeSyncOptions.SectionName));
 builder.Services.Configure<ShareLinkOptions>(builder.Configuration.GetSection(ShareLinkOptions.SectionName));
 
 builder.Services.AddPersistence(builder.Configuration);
+builder.Services.AddSingleton<YoutubeHttpResponseObserver>();
+builder.Services.AddSingleton<IYoutubeRetryAfterProvider>(provider =>
+    provider.GetRequiredService<YoutubeHttpResponseObserver>());
+builder.Services.AddSingleton<IYoutubeRequestGate, YoutubeRequestGate>();
 builder.Services.AddSingleton<IYoutubeService, YoutubeService>();
 
 builder.Services.AddSingleton<IAppClock, AppClock>();
-builder.Services.AddSingleton<IYoutubeCallDelay, YoutubeCallDelay>();
 builder.Services.AddSingleton<IChannelRefreshQueue, ChannelRefreshQueue>();
 builder.Services.AddSingleton<IChannelUrlLookupCache, ChannelUrlLookupCache>();
 builder.Services.AddSingleton<IChannelService, ChannelService>();

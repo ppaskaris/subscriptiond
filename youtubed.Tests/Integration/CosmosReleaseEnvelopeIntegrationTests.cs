@@ -180,14 +180,11 @@ namespace youtubed.Tests.Integration
                 var refresh = await MeasureAsync(
                     "channel refresh",
                     channelLogger,
-                    () => channels.SaveRefreshResultsAsync(
-                        new[]
+                    () => channels.SaveRefreshResultAsync(
+                        new ChannelRefreshResult
                         {
-                            new ChannelRefreshResult
-                            {
-                                Channel = refreshed,
-                                VideosRefreshed = true
-                            }
+                            Channel = refreshed,
+                            VideosRefreshed = true
                         },
                         CancellationToken.None));
                 AssertRequestShape(refresh, "pointRead", "replace");

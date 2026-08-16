@@ -781,7 +781,6 @@ namespace youtubed.Tests.Integration
                 {
                     services.RemoveAll<IAppClock>();
                     services.RemoveAll<IYoutubeService>();
-                    services.RemoveAll<IYoutubeCallDelay>();
                     foreach (var maintenance in services
                         .Where(service => service.ServiceType == typeof(IHostedService)
                             && service.ImplementationType == typeof(MaintenanceHostedService))
@@ -801,7 +800,6 @@ namespace youtubed.Tests.Integration
                     });
                     services.AddSingleton<IAppClock>(_clock);
                     services.AddSingleton<IYoutubeService>(_youtube);
-                    services.AddSingleton<IYoutubeCallDelay, ImmediateYoutubeCallDelay>();
                     services.AddSingleton<ILogger<CosmosListRepository>>(_listRecorder);
                     services.AddSingleton<ILogger<CosmosChannelRepository>>(_channelRecorder);
                     services.AddSingleton<ILogger<CosmosShareLinkRepository>>(_shareRecorder);
@@ -886,11 +884,6 @@ namespace youtubed.Tests.Integration
             public Task UpdateListAsync(Guid id, string title, decimal playbackRate) =>
                 _inner.UpdateListAsync(id, title, playbackRate);
             public Task DeleteListAsync(Guid id) => _inner.DeleteListAsync(id);
-        }
-
-        private sealed class ImmediateYoutubeCallDelay : IYoutubeCallDelay
-        {
-            public Task DelayAsync(CancellationToken cancellationToken) => Task.CompletedTask;
         }
 
         private sealed class InterruptAfterDurableWriteTarget : ISqlToCosmosImportTarget

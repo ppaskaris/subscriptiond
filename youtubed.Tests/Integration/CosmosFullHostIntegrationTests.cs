@@ -333,7 +333,6 @@ namespace youtubed.Tests.Integration
                 {
                     services.RemoveAll<IYoutubeService>();
                     services.RemoveAll<IAppClock>();
-                    services.RemoveAll<IYoutubeCallDelay>();
                     var maintenance = services
                         .Where(service => service.ServiceType == typeof(IHostedService)
                             && service.ImplementationType == typeof(MaintenanceHostedService))
@@ -352,7 +351,6 @@ namespace youtubed.Tests.Integration
                     });
                     services.AddSingleton<IYoutubeService>(_youtube);
                     services.AddSingleton<IAppClock>(_clock);
-                    services.AddSingleton<IYoutubeCallDelay, ImmediateYoutubeCallDelay>();
                 });
             }
         }
@@ -423,12 +421,5 @@ namespace youtubed.Tests.Integration
             }
         }
 
-        private sealed class ImmediateYoutubeCallDelay : IYoutubeCallDelay
-        {
-            public Task DelayAsync(CancellationToken cancellationToken)
-            {
-                return Task.CompletedTask;
-            }
-        }
     }
 }

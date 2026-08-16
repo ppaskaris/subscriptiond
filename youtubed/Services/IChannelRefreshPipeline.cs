@@ -7,7 +7,7 @@ namespace youtubed.Services
     public interface IChannelRefreshPipeline
     {
         Task<ChannelRefreshPipelineResult> RefreshAsync(
-            IReadOnlyCollection<string> channelIds,
+            IReadOnlyCollection<ChannelRefreshRequest> requests,
             CancellationToken cancellationToken);
     }
 }

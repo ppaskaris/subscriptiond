@@ -113,51 +113,81 @@ namespace youtubed.Persistence.Cosmos
                 .ToArray();
         }
 
-        public async Task SaveRefreshResultsAsync(
-            IReadOnlyCollection<ChannelRefreshResult> results,
+        public async Task SaveRefreshResultAsync(
+            ChannelRefreshResult result,
             CancellationToken cancellationToken)
         {
-            ArgumentNullException.ThrowIfNull(results);
-            foreach (var result in results)
+            if (result?.Channel == null)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (result?.Channel == null)
-                {
-                    throw new ArgumentException(
-                        "Refresh results must contain a channel.",
-                        nameof(results));
-                }
-
-                var replacement = CosmosDocumentMapper.ToDocument(result.Channel);
-                var current = await _client.ReadChannelAsync(
-                    replacement.Id,
-                    retryCount: 0,
-                    cancellationToken);
-                if (current == null)
-                {
-                    throw new InvalidOperationException("The refreshed channel does not exist.");
-                }
-
-                await ReplaceWithRetryAsync(
-                    current,
-                    document =>
-                    {
-                        var retainedVideos = document.Videos;
-                        document.Url = replacement.Url;
-                        document.Title = replacement.Title;
-                        document.Thumbnail = replacement.Thumbnail;
-                        document.PlaylistId = replacement.PlaylistId;
-                        document.StaleAfter = replacement.StaleAfter;
-                        document.Status = replacement.Status;
-                        document.StatusReason = replacement.StatusReason;
-                        document.StatusUpdatedAt = replacement.StatusUpdatedAt;
-                        document.Videos = result.VideosRefreshed
-                            ? replacement.Videos
-                            : retainedVideos;
-                    },
-                    firstRetryCount: 0,
-                    cancellationToken);
+                throw new ArgumentException("A refresh result must contain a channel.", nameof(result));
             }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            var replacement = CosmosDocumentMapper.ToDocument(result.Channel);
+            var current = await _client.ReadChannelAsync(
+                replacement.Id,
+                retryCount: 0,
+                cancellationToken);
+            var firstRetryCount = 0;
+            if (current == null)
+            {
+                try
+                {
+                    await _client.CreateChannelAsync(replacement, retryCount: 0, cancellationToken);
+                    return;
+                }
+                catch (CosmosException exception) when (IsConcurrencyConflict(exception.StatusCode))
+                {
+                    current = await _client.ReadChannelAsync(
+                        replacement.Id,
+                        retryCount: 1,
+                        cancellationToken);
+                    if (current == null)
+                    {
+                        throw;
+                    }
+                    firstRetryCount = 1;
+                }
+            }
+
+            var applyCount = 0;
+            await ReplaceWithRetryAsync(
+                current,
+                document =>
+                {
+                    applyCount++;
+                    var retainedVideos = document.Videos;
+                    document.Url = replacement.Url;
+                    document.Title = replacement.Title;
+                    document.Thumbnail = replacement.Thumbnail;
+                    document.PlaylistId = replacement.PlaylistId;
+                    document.StaleAfter = replacement.StaleAfter;
+                    document.Status = replacement.Status;
+                    document.StatusReason = replacement.StatusReason;
+                    document.StatusUpdatedAt = replacement.StatusUpdatedAt;
+                    if (!result.VideosRefreshed)
+                    {
+                        document.Videos = retainedVideos;
+                    }
+                    else if (applyCount == 1)
+                    {
+                        document.Videos = replacement.Videos;
+                    }
+                    else
+                    {
+                        var earliest = result.EarliestPublishedAt.GetValueOrDefault(DateTimeOffset.MinValue);
+                        document.Videos = replacement.Videos
+                            .Concat(retainedVideos.Where(video => video.PublishedAt >= earliest))
+                            .GroupBy(video => video.Id, StringComparer.Ordinal)
+                            .Select(group => group.First())
+                            .OrderByDescending(video => video.PublishedAt)
+                            .ThenBy(video => video.Id, StringComparer.Ordinal)
+                            .Take(CosmosDocumentMapper.MaximumVideos)
+                            .ToArray();
+                    }
+                },
+                firstRetryCount,
+                cancellationToken);
         }
 
         public Task<int> RemoveOrphanChannelsAsync(DateTimeOffset now)

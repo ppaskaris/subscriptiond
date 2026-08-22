@@ -48,7 +48,8 @@ namespace youtubed.Tests.ProviderContracts
             decimal? playbackRate = null,
             DateTimeOffset? expiredAfter = null,
             DateOnly? expirationRenewedOn = null,
-            byte[] token = null)
+            byte[] token = null,
+            IReadOnlyList<string> channelIds = null)
         {
             var list = new SubscriptionList
             {
@@ -57,7 +58,8 @@ namespace youtubed.Tests.ProviderContracts
                 Title = title,
                 PlaybackRate = playbackRate ?? Constants.DefaultListPlaybackRate,
                 ExpiredAfter = expiredAfter ?? Clock.UtcNow.AddDays(45),
-                ExpirationRenewedOn = expirationRenewedOn
+                ExpirationRenewedOn = expirationRenewedOn,
+                ChannelIds = channelIds ?? Array.Empty<string>()
             };
 
             await Provider.Lists.CreateAsync(list);

@@ -33,10 +33,7 @@ namespace youtubed.Persistence.Cosmos
 
         public async Task CreateAsync(SubscriptionList list)
         {
-            var document = CosmosDocumentMapper.ToDocument(
-                list,
-                Array.Empty<string>(),
-                _clock.UtcNow);
+            var document = CosmosDocumentMapper.ToDocument(list, _clock.UtcNow);
             await _client.CreateListAsync(document, retryCount: 0, CancellationToken.None);
         }
 
@@ -131,14 +128,15 @@ namespace youtubed.Persistence.Cosmos
             }
 
             var document = item.Resource;
-            var channelIds = CosmosDocumentMapper.ToChannelIds(document);
+            var persistedList = CosmosDocumentMapper.ToSubscriptionList(document);
+            var channelIds = persistedList.ChannelIds;
             var channelDocuments = await ReadChannelsAsync(channelIds);
             var channelsById = channelDocuments.ToDictionary(
                 channel => channel.Id,
                 StringComparer.Ordinal);
             return new ListChannelProjection
             {
-                List = CosmosDocumentMapper.ToSubscriptionList(document),
+                List = persistedList,
                 ChannelIds = channelIds,
                 Channels = channelIds
                     .Select(channelId => channelsById.TryGetValue(channelId, out var channel)
@@ -169,9 +167,7 @@ namespace youtubed.Persistence.Cosmos
                     }
 
                     channelIds.Add(channelId);
-                    document.ChannelIds = channelIds
-                        .OrderBy(id => id, StringComparer.Ordinal)
-                        .ToArray();
+                    document.ChannelIds = channelIds;
                     return true;
                 });
         }
@@ -268,7 +264,8 @@ namespace youtubed.Persistence.Cosmos
             CosmosListDocument document,
             int videoLimit)
         {
-            var channelIds = CosmosDocumentMapper.ToChannelIds(document);
+            var list = CosmosDocumentMapper.ToSubscriptionList(document);
+            var channelIds = list.ChannelIds;
             var channelDocuments = await ReadChannelsAsync(channelIds);
             var selectedVideos = channelDocuments
                 .SelectMany(channel => (channel.Videos ?? Array.Empty<CosmosVideoDocument>())
@@ -280,7 +277,7 @@ namespace youtubed.Persistence.Cosmos
 
             return new ListVideoProjection
             {
-                List = CosmosDocumentMapper.ToSubscriptionList(document),
+                List = list,
                 ChannelIds = channelIds,
                 Channels = channelDocuments
                     .OrderBy(channel => channel.Id, StringComparer.Ordinal)

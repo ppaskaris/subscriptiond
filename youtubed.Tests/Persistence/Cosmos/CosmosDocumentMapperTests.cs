@@ -1,5 +1,7 @@
 using System;
+using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using Xunit;
 using youtubed.Domain;
@@ -16,11 +18,9 @@ namespace youtubed.Tests.Persistence.Cosmos
         public void ListMappingRoundTripsAndOrdersMembershipDeterministically()
         {
             var list = CreateList();
+            list.ChannelIds = new[] { "UC-z", "UC-a", "UC-z", "UC-m" };
 
-            var document = CosmosDocumentMapper.ToDocument(
-                list,
-                new[] { "UC-z", "UC-a", "UC-z", "UC-m" },
-                Now);
+            var document = CosmosDocumentMapper.ToDocument(list, Now);
 
             Assert.Equal(new[] { "UC-a", "UC-m", "UC-z" }, document.ChannelIds);
             Assert.Equal(3974400, document.Ttl);
@@ -31,15 +31,65 @@ namespace youtubed.Tests.Persistence.Cosmos
             Assert.Equal(list.PlaybackRate, roundTrip.PlaybackRate);
             Assert.Equal(list.ExpiredAfter, roundTrip.ExpiredAfter);
             Assert.Equal(list.ExpirationRenewedOn, roundTrip.ExpirationRenewedOn);
+            Assert.Equal(new[] { "UC-a", "UC-m", "UC-z" }, roundTrip.ChannelIds);
         }
 
         [Fact]
-        public void ListMappingRejectsMoreThanOneHundredDistinctChannels()
+        public void ListMappingDefaultsMissingOrNullMembershipToEmpty()
         {
-            var channelIds = Enumerable.Range(0, 101).Select(value => $"UC-{value:D3}");
+            const string json = """
+                {
+                  "id": "5fd6b227-3961-4bf9-9a27-b4cfc9b47b28",
+                  "token": "AQIDBA==",
+                  "title": "Subscriptions",
+                  "playbackRate": 1.25,
+                  "expiredAfter": "2026-09-29T12:00:00+00:00",
+                  "expirationRenewedOn": "2026-08-14",
+                  "ttl": 3974400
+                }
+                """;
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+            var document = CosmosSystemTextJsonSerializer.Instance
+                .FromStream<CosmosListDocument>(stream);
+
+            Assert.Empty(CosmosDocumentMapper.ToSubscriptionList(document).ChannelIds);
+
+            document.ChannelIds = null;
+            Assert.Empty(CosmosDocumentMapper.ToSubscriptionList(document).ChannelIds);
+        }
+
+        [Fact]
+        public void ListMappingRejectsNullOrBlankChannelIds()
+        {
+            var list = CreateList();
+            list.ChannelIds = new[] { "UC-valid", null };
+            Assert.Throws<ArgumentException>(() => CosmosDocumentMapper.ToDocument(list, Now));
+
+            list.ChannelIds = new[] { "UC-valid", " " };
+            Assert.Throws<ArgumentException>(() => CosmosDocumentMapper.ToDocument(list, Now));
+        }
+
+        [Fact]
+        public void ListMappingSupportsOneHundredChannelsAndRejectsTheHundredAndFirst()
+        {
+            var list = CreateList();
+            list.ChannelIds = Enumerable.Range(0, 100)
+                .Select(value => $"UC-{value:D3}")
+                .Reverse()
+                .ToArray();
+
+            var document = CosmosDocumentMapper.ToDocument(list, Now);
+
+            Assert.Equal(100, document.ChannelIds.Count);
+            Assert.Equal("UC-000", document.ChannelIds[0]);
+            Assert.Equal("UC-099", document.ChannelIds[99]);
+
+            list.ChannelIds = Enumerable.Range(0, 101)
+                .Select(value => $"UC-{value:D3}")
+                .ToArray();
 
             var exception = Assert.Throws<ArgumentException>(() =>
-                CosmosDocumentMapper.ToDocument(CreateList(), channelIds, Now));
+                CosmosDocumentMapper.ToDocument(list, Now));
 
             Assert.Contains("100", exception.Message);
         }
@@ -107,10 +157,11 @@ namespace youtubed.Tests.Persistence.Cosmos
         [Fact]
         public void SharedSerializerProducesExpectedDocumentNamesAndRepresentativeSizes()
         {
-            var list = CosmosDocumentMapper.ToDocument(
-                CreateList(),
-                Enumerable.Range(0, 100).Select(value => $"UC{new string('x', 20)}{value:D3}"),
-                Now);
+            var subscriptionList = CreateList();
+            subscriptionList.ChannelIds = Enumerable.Range(0, 100)
+                .Select(value => $"UC{new string('x', 20)}{value:D3}")
+                .ToArray();
+            var list = CosmosDocumentMapper.ToDocument(subscriptionList, Now);
             var videos = Enumerable.Range(0, 100)
                 .Select(value => CreateVideo(
                     $"video-{value:D3}",

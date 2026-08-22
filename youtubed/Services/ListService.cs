@@ -347,7 +347,8 @@ namespace youtubed.Services
                 Title = list.Title,
                 PlaybackRate = list.PlaybackRate,
                 ExpiredAfter = list.ExpiredAfter,
-                ExpirationRenewedOn = list.ExpirationRenewedOn
+                ExpirationRenewedOn = list.ExpirationRenewedOn,
+                ChannelIds = list.ChannelIds
             };
         }
 
@@ -360,7 +361,8 @@ namespace youtubed.Services
                 Title = list.Title,
                 PlaybackRate = list.PlaybackRate,
                 ExpiredAfter = list.ExpiredAfter,
-                ExpirationRenewedOn = list.ExpirationRenewedOn
+                ExpirationRenewedOn = list.ExpirationRenewedOn,
+                ChannelIds = list.ChannelIds
             };
         }
 

@@ -70,7 +70,8 @@ namespace youtubed.Tests.Services
                 Token = token,
                 Title = "Projection List",
                 PlaybackRate = 1.50m,
-                ExpiredAfter = now.Add(Constants.ListMaxAgeMin)
+                ExpiredAfter = now.Add(Constants.ListMaxAgeMin),
+                ChannelIds = new[] { "channel-fresh", "channel-stale" }
             };
             var staleChannel = new ListVideoProjection.Channel
             {
@@ -107,7 +108,8 @@ namespace youtubed.Tests.Services
                         actual.Token.SequenceEqual(token) &&
                         actual.Title == "Projection List" &&
                         actual.PlaybackRate == 1.50m &&
-                        actual.ExpiredAfter == now.Add(Constants.ListMaxAgeMin)),
+                        actual.ExpiredAfter == now.Add(Constants.ListMaxAgeMin) &&
+                        actual.ChannelIds.SequenceEqual(new[] { "channel-fresh", "channel-stale" })),
                     Constants.ListRenderMaxItems + 1))
                 .ReturnsAsync(new ListVideoProjection
                 {
@@ -287,7 +289,8 @@ namespace youtubed.Tests.Services
                 Id = id,
                 Token = token,
                 Title = "Authenticated",
-                ExpiredAfter = now.AddDays(-1)
+                ExpiredAfter = now.AddDays(-1),
+                ChannelIds = new[] { "channel-a", "channel-b" }
             };
             var repository = new Mock<IListRepository>(MockBehavior.Strict);
             repository
@@ -308,6 +311,7 @@ namespace youtubed.Tests.Services
 
             Assert.Equal(expectedList.Id, list.Id);
             Assert.Equal(expectedList.Token, list.Token);
+            Assert.Equal(expectedList.ChannelIds, list.ChannelIds);
         }
 
         [Fact]

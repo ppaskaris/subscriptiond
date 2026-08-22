@@ -83,6 +83,27 @@ namespace youtubed.Tests.Persistence.Cosmos
         }
 
         [Fact]
+        public async Task CreateGetAndSettingsUpdatePreserveNormalizedMembership()
+        {
+            var client = new FakeCosmosRepositoryClient();
+            var repository = new CosmosListRepository(client, CreateClock());
+            var list = CreateList();
+            list.ChannelIds = new[] { "UC-z", "UC-a", "UC-z" };
+
+            await repository.CreateAsync(list);
+
+            var created = await repository.GetAsync(list.Id);
+            Assert.Equal(new[] { "UC-a", "UC-z" }, created.ChannelIds);
+
+            await repository.UpdateAsync(list.Id, "Updated", 1.5m);
+
+            var updated = await repository.GetAsync(list.Id);
+            Assert.Equal("Updated", updated.Title);
+            Assert.Equal(1.5m, updated.PlaybackRate);
+            Assert.Equal(new[] { "UC-a", "UC-z" }, updated.ChannelIds);
+        }
+
+        [Fact]
         public async Task ListMutationRetriesOneConflictAndLetsASecondConflictEscape()
         {
             var client = new FakeCosmosRepositoryClient();

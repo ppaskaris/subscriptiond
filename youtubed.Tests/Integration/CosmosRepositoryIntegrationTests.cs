@@ -38,6 +38,7 @@ namespace youtubed.Tests.Integration
             await lists.CreateAsync(list);
             await channels.SaveDiscoveredChannelAsync(channel, channel.StaleAfter);
             await lists.AddChannelAsync(list.Id, channel.Id);
+            Assert.Equal(new[] { channel.Id }, (await lists.GetAsync(list.Id)).ChannelIds);
             listLogger.Clear();
 
             var projection = await lists.GetAuthenticatedVideoProjectionAsync(
@@ -159,7 +160,6 @@ namespace youtubed.Tests.Integration
             var list = CreateList(now, DateOnly.FromDateTime(now.UtcDateTime));
             var document = CosmosDocumentMapper.ToDocument(
                 list,
-                Array.Empty<string>(),
                 now);
             await _fixture.Context.Lists.CreateItemAsync(
                 document,

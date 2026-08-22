@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.WebUtilities;
 using System;
+using System.Collections.Generic;
 
 namespace youtubed.Models
 {
@@ -11,6 +12,7 @@ namespace youtubed.Models
         public decimal PlaybackRate { get; set; } = Constants.DefaultListPlaybackRate;
         public DateTimeOffset ExpiredAfter { get; set; }
         public DateOnly? ExpirationRenewedOn { get; set; }
+        public IReadOnlyList<string> ChannelIds { get; set; } = Array.Empty<string>();
 
         public string TokenString => WebEncoders.Base64UrlEncode(Token);
     }

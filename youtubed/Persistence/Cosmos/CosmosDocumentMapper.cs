@@ -12,24 +12,9 @@ namespace youtubed.Persistence.Cosmos
 
         public static CosmosListDocument ToDocument(
             SubscriptionList list,
-            IEnumerable<string> channelIds,
             DateTimeOffset now)
         {
             ArgumentNullException.ThrowIfNull(list);
-            ArgumentNullException.ThrowIfNull(channelIds);
-
-            var orderedChannelIds = channelIds
-                .Select(id => id ?? throw new ArgumentException(
-                    "Channel IDs cannot contain null values.", nameof(channelIds)))
-                .Distinct(StringComparer.Ordinal)
-                .OrderBy(id => id, StringComparer.Ordinal)
-                .ToArray();
-            if (orderedChannelIds.Length > MaximumChannelIds)
-            {
-                throw new ArgumentException(
-                    $"A Cosmos list document cannot contain more than {MaximumChannelIds} channel IDs.",
-                    nameof(channelIds));
-            }
 
             return new CosmosListDocument
             {
@@ -39,7 +24,7 @@ namespace youtubed.Persistence.Cosmos
                 PlaybackRate = list.PlaybackRate,
                 ExpiredAfter = list.ExpiredAfter,
                 ExpirationRenewedOn = list.ExpirationRenewedOn,
-                ChannelIds = orderedChannelIds,
+                ChannelIds = NormalizeChannelIds(list.ChannelIds),
                 Ttl = GetTtlSeconds(list.ExpiredAfter, now)
             };
         }
@@ -54,17 +39,15 @@ namespace youtubed.Persistence.Cosmos
                 Title = document.Title,
                 PlaybackRate = document.PlaybackRate,
                 ExpiredAfter = document.ExpiredAfter,
-                ExpirationRenewedOn = document.ExpirationRenewedOn
+                ExpirationRenewedOn = document.ExpirationRenewedOn,
+                ChannelIds = NormalizeChannelIds(document.ChannelIds)
             };
         }
 
         public static IReadOnlyList<string> ToChannelIds(CosmosListDocument document)
         {
             ArgumentNullException.ThrowIfNull(document);
-            return document.ChannelIds
-                .Distinct(StringComparer.Ordinal)
-                .OrderBy(id => id, StringComparer.Ordinal)
-                .ToArray();
+            return NormalizeChannelIds(document.ChannelIds);
         }
 
         public static CosmosChannelDocument ToDocument(Channel channel)
@@ -141,6 +124,27 @@ namespace youtubed.Persistence.Cosmos
         public static int GetTtlSeconds(DateTimeOffset expiresAt, DateTimeOffset now)
         {
             return Math.Max(1, checked((int)Math.Ceiling((expiresAt - now).TotalSeconds)));
+        }
+
+        private static IReadOnlyList<string> NormalizeChannelIds(IEnumerable<string> channelIds)
+        {
+            var orderedChannelIds = (channelIds ?? Array.Empty<string>())
+                .Select(id => !string.IsNullOrWhiteSpace(id)
+                    ? id
+                    : throw new ArgumentException(
+                        "Channel IDs cannot contain null or blank values.",
+                        nameof(channelIds)))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(id => id, StringComparer.Ordinal)
+                .ToArray();
+            if (orderedChannelIds.Length > MaximumChannelIds)
+            {
+                throw new ArgumentException(
+                    $"A Cosmos list document cannot contain more than {MaximumChannelIds} channel IDs.",
+                    nameof(channelIds));
+            }
+
+            return orderedChannelIds;
         }
 
         private static IEnumerable<ChannelVideo> OrderVideos(IEnumerable<ChannelVideo> videos)

@@ -113,8 +113,9 @@ namespace youtubed.Tests.Integration
                     await lists.AddChannelAsync(list.Id, channel.Id);
                 }
 
+                list.ChannelIds = channelIds;
                 var listSize = CosmosSystemTextJsonSerializer.Instance.GetSerializedUtf8Size(
-                    CosmosDocumentMapper.ToDocument(list, channelIds, clock.UtcNow));
+                    CosmosDocumentMapper.ToDocument(list, clock.UtcNow));
                 var channelSize = channelDocuments.Max(channel =>
                     CosmosSystemTextJsonSerializer.Instance.GetSerializedUtf8Size(
                         CosmosDocumentMapper.ToDocument(channel)));

@@ -16,7 +16,10 @@ namespace youtubed.Tests.ProviderContracts
 
         protected async Task CreateReadUpdateDeleteContractAsync()
         {
-            var list = await CreateListAsync(title: "Original", playbackRate: 1.25m);
+            var list = await CreateListAsync(
+                title: "Original",
+                playbackRate: 1.25m,
+                channelIds: new[] { "UC-z", "UC-a", "UC-z" });
 
             var created = await Provider.Lists.GetAsync(list.Id);
             Assert.NotNull(created);
@@ -24,12 +27,14 @@ namespace youtubed.Tests.ProviderContracts
             Assert.Equal("Original", created.Title);
             Assert.Equal(1.25m, created.PlaybackRate);
             Assert.Equal(list.ExpiredAfter, created.ExpiredAfter);
+            Assert.Equal(new[] { "UC-a", "UC-z" }, created.ChannelIds);
 
             await Provider.Lists.UpdateAsync(list.Id, "Updated", 1.75m);
             var updated = await Provider.Lists.GetAsync(list.Id);
             Assert.Equal("Updated", updated.Title);
             Assert.Equal(1.75m, updated.PlaybackRate);
             Assert.Equal(list.Token, updated.Token);
+            Assert.Equal(new[] { "UC-a", "UC-z" }, updated.ChannelIds);
 
             await Provider.Lists.DeleteAsync(list.Id);
             Assert.Null(await Provider.Lists.GetAsync(list.Id));
@@ -88,11 +93,19 @@ namespace youtubed.Tests.ProviderContracts
             await AddChannelToListAsync(list.Id, first.Id);
             await AddChannelToListAsync(list.Id, second.Id);
 
+            var aggregate = await Provider.Lists.GetAsync(list.Id);
+            Assert.Equal(
+                new[] { first.Id, second.Id }.OrderBy(id => id, StringComparer.Ordinal),
+                aggregate.ChannelIds);
+
             var added = await Provider.Lists.GetChannelProjectionAsync(list);
             Assert.Equal(new[] { second.Id, first.Id }, added.Channels.Select(channel => channel.Id));
 
             await Provider.Lists.RemoveChannelAsync(list.Id, first.Id);
             await Provider.Lists.RemoveChannelAsync(list.Id, first.Id);
+            Assert.Equal(
+                new[] { second.Id },
+                (await Provider.Lists.GetAsync(list.Id)).ChannelIds);
             var removed = await Provider.Lists.GetChannelProjectionAsync(list);
             Assert.Equal(second.Id, Assert.Single(removed.Channels).Id);
         }

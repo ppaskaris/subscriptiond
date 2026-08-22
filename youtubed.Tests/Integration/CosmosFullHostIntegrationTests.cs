@@ -123,6 +123,12 @@ namespace youtubed.Tests.Integration
             using var consumeResponse = await client.GetAsync($"/share/{share.Password}");
             Assert.Equal(HttpStatusCode.Redirect, consumeResponse.StatusCode);
             Assert.Equal(listPath, consumeResponse.Headers.Location?.OriginalString);
+            Assert.NotNull((await shareRepository.GetAsync(share.Password)).UsedAt);
+
+            using var repeatedConsumeResponse = await client.GetAsync($"/share/{share.Password}");
+            Assert.Equal(HttpStatusCode.Redirect, repeatedConsumeResponse.StatusCode);
+            Assert.Equal("/error/404", repeatedConsumeResponse.Headers.Location?.OriginalString);
+            Assert.DoesNotContain(token, repeatedConsumeResponse.Headers.Location?.OriginalString);
 
             using var deleteShareResponse = await client.PostAsync(
                 $"{listPath}/share/delete",

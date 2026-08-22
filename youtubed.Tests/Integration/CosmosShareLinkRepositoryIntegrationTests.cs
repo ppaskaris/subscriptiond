@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 using youtubed.Domain;
 using youtubed.Persistence.Cosmos;
+using youtubed.Services;
 using youtubed.Tests.Infrastructure;
 
 namespace youtubed.Tests.Integration
@@ -24,13 +25,18 @@ namespace youtubed.Tests.Integration
         }
 
         [CosmosFact]
-        public async Task CompetingConsumesReturnTheListTokenExactlyOnce()
+        public async Task CompetingServiceConsumersReturnTheListTokenExactlyOnce()
         {
             var clock = new FakeAppClock
             {
                 UtcNow = new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero)
             };
             var repository = CreateRepository(clock);
+            var lists = new CosmosListRepository(
+                _fixture.Context,
+                clock,
+                NullLogger<CosmosListRepository>.Instance);
+            var service = new ShareLinkService(repository, lists, clock);
             var listId = Guid.NewGuid();
             var token = Enumerable.Repeat((byte)37, 40).ToArray();
             await CreateListAsync(listId, token, clock.UtcNow);
@@ -46,7 +52,7 @@ namespace youtubed.Tests.Integration
             var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var readyCount = 0;
-            async Task<ConsumedShareLink> ConsumeAsync()
+            async Task<youtubed.Models.ConsumedShareLinkModel> ConsumeAsync()
             {
                 if (System.Threading.Interlocked.Increment(ref readyCount) == 2)
                 {
@@ -54,7 +60,7 @@ namespace youtubed.Tests.Integration
                 }
 
                 await release.Task;
-                return await repository.ConsumeAsync(link.Password, clock.UtcNow);
+                return await service.ConsumeShareLinkAsync(link.Password);
             }
 
             var firstTask = Task.Run(ConsumeAsync);
@@ -90,7 +96,10 @@ namespace youtubed.Tests.Integration
             Assert.True(await repository.TryCreateAsync(link));
 
             clock.UtcNow = clock.UtcNow.AddMinutes(10);
-            Assert.NotNull(await repository.ConsumeAsync(link.Password, clock.UtcNow));
+            Assert.True(await repository.TryMarkUsedAsync(
+                link.Password,
+                listId,
+                clock.UtcNow));
             using var response = await _fixture.Context.ShareLinks.ReadItemStreamAsync(
                 link.Password,
                 new PartitionKey(link.Password));
@@ -102,6 +111,70 @@ namespace youtubed.Tests.Integration
                     link.ExpiresAfter + Constants.ShareLinkRetentionAfterExpiration,
                     clock.UtcNow),
                 json.RootElement.GetProperty("ttl").GetInt32());
+        }
+
+        [CosmosFact]
+        public async Task MissingTargetListLeavesShareUnused()
+        {
+            var clock = new FakeAppClock
+            {
+                UtcNow = new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero)
+            };
+            var repository = CreateRepository(clock);
+            var lists = new CosmosListRepository(
+                _fixture.Context,
+                clock,
+                NullLogger<CosmosListRepository>.Instance);
+            var service = new ShareLinkService(repository, lists, clock);
+            var link = new ShareLink
+            {
+                Password = $"missing-list-{Guid.NewGuid():N}",
+                ListId = Guid.NewGuid(),
+                CreatedAt = clock.UtcNow,
+                ExpiresAfter = clock.UtcNow.AddHours(1)
+            };
+            Assert.True(await repository.TryCreateAsync(link));
+
+            var result = await service.ConsumeShareLinkAsync(link.Password);
+
+            Assert.Null(result);
+            Assert.Null((await repository.GetAsync(link.Password)).UsedAt);
+        }
+
+        [CosmosFact]
+        public async Task RestartAfterCommittedUseCannotRevealToken()
+        {
+            var clock = new FakeAppClock
+            {
+                UtcNow = new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero)
+            };
+            var repository = CreateRepository(clock);
+            var lists = new CosmosListRepository(
+                _fixture.Context,
+                clock,
+                NullLogger<CosmosListRepository>.Instance);
+            var listId = Guid.NewGuid();
+            await CreateListAsync(
+                listId,
+                Enumerable.Repeat((byte)53, 40).ToArray(),
+                clock.UtcNow);
+            var link = new ShareLink
+            {
+                Password = $"restart-{Guid.NewGuid():N}",
+                ListId = listId,
+                CreatedAt = clock.UtcNow,
+                ExpiresAfter = clock.UtcNow.AddHours(1)
+            };
+            Assert.True(await repository.TryCreateAsync(link));
+            Assert.True(await repository.TryMarkUsedAsync(
+                link.Password,
+                link.ListId,
+                clock.UtcNow));
+
+            var restartedService = new ShareLinkService(repository, lists, clock);
+            var result = await restartedService.ConsumeShareLinkAsync(link.Password);
+
+            Assert.Null(result);
         }
 
         [CosmosFact]

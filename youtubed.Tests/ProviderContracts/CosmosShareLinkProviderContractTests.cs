@@ -17,7 +17,7 @@ namespace youtubed.Tests.ProviderContracts
         public Task CreateAndList() => CreateAndListContractAsync();
 
         [CosmosFact]
-        public Task Consume() => ConsumeContractAsync();
+        public Task ConditionalUse() => ConditionalUseContractAsync();
 
         [CosmosFact]
         public Task Delete() => DeleteContractAsync();

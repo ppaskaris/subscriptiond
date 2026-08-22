@@ -44,23 +44,41 @@ namespace youtubed.Tests.ProviderContracts
             Assert.Empty(await Provider.ShareLinks.GetByListAsync(otherList.Id));
         }
 
-        protected async Task ConsumeContractAsync()
+        protected async Task ConditionalUseContractAsync()
         {
-            var list = await CreateListAsync(token: Enumerable.Repeat((byte)7, 40).ToArray());
+            var list = await CreateListAsync();
             var link = await CreateShareLinkAsync(list.Id, "consume-once");
 
-            var consumed = await Provider.ShareLinks.ConsumeAsync(link.Password, Clock.UtcNow);
-            var consumedAgain = await Provider.ShareLinks.ConsumeAsync(link.Password, Clock.UtcNow.AddSeconds(1));
+            var loaded = await Provider.ShareLinks.GetAsync(link.Password);
+            var consumed = await Provider.ShareLinks.TryMarkUsedAsync(
+                link.Password,
+                list.Id,
+                Clock.UtcNow);
+            var consumedAgain = await Provider.ShareLinks.TryMarkUsedAsync(
+                link.Password,
+                list.Id,
+                Clock.UtcNow.AddSeconds(1));
             var stored = Assert.Single(await Provider.ShareLinks.GetByListAsync(list.Id));
 
-            Assert.NotNull(consumed);
-            Assert.Equal(list.Id, consumed.ListId);
-            Assert.Equal(list.Token, consumed.Token);
-            Assert.Null(consumedAgain);
+            Assert.Equal(link.Password, loaded.Password);
+            Assert.Equal(list.Id, loaded.ListId);
+            Assert.True(consumed);
+            Assert.False(consumedAgain);
             Assert.Equal(Clock.UtcNow, stored.UsedAt);
+            Assert.Null(await Provider.ShareLinks.GetAsync("missing"));
 
             var expired = await CreateShareLinkAsync(list.Id, "expired");
-            Assert.Null(await Provider.ShareLinks.ConsumeAsync(expired.Password, expired.ExpiresAfter));
+            Assert.False(await Provider.ShareLinks.TryMarkUsedAsync(
+                expired.Password,
+                list.Id,
+                expired.ExpiresAfter));
+
+            var wrongList = await CreateShareLinkAsync(list.Id, "wrong-list");
+            Assert.False(await Provider.ShareLinks.TryMarkUsedAsync(
+                wrongList.Password,
+                Guid.NewGuid(),
+                Clock.UtcNow));
+            Assert.Null((await Provider.ShareLinks.GetAsync(wrongList.Password)).UsedAt);
         }
 
         protected async Task DeleteContractAsync()

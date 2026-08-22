@@ -95,6 +95,7 @@ namespace youtubed.Tests.Integration
                 clock,
                 new ChannelRefreshQueue());
             var shares = new CosmosShareLinkRepository(_fixture.Context, clock, shareLogger);
+            var shareService = new ShareLinkService(shares, lists, clock);
             var scope = Guid.NewGuid().ToString("N");
             var token = Enumerable.Range(1, 40).Select(value => (byte)value).ToArray();
             var list = new SubscriptionList
@@ -205,11 +206,30 @@ namespace youtubed.Tests.Integration
                     shareLogger,
                     async () => Assert.Single(await shares.GetByListAsync(list.Id)));
                 AssertRequestShape(shareList, "query");
-                var shareConsume = await MeasureAsync(
+                shareLogger.Clear();
+                listLogger.Clear();
+                Assert.NotNull(await shareService.ConsumeShareLinkAsync(share.Password));
+                Assert.Equal(
+                    new[] { "pointRead", "pointRead", "replace" },
+                    shareLogger.Records.Select(request => request.Operation));
+                Assert.All(
+                    shareLogger.Records,
+                    request => Assert.Equal(CosmosContainerNames.ShareLinks, request.Container));
+                Assert.Equal(
+                    new[] { "pointRead" },
+                    listLogger.Records.Select(request => request.Operation));
+                Assert.All(
+                    listLogger.Records,
+                    request => Assert.Equal(CosmosContainerNames.Lists, request.Container));
+                var shareConsume = new OperationMeasurement(
                     "share consume",
-                    shareLogger,
-                    async () => Assert.NotNull(await shares.ConsumeAsync(share.Password, clock.UtcNow)));
-                AssertRequestShape(shareConsume, "pointRead", "pointRead", "replace");
+                    shareLogger.Records.Concat(listLogger.Records).ToArray());
+                AssertRequestShape(
+                    shareConsume,
+                    "pointRead",
+                    "pointRead",
+                    "replace",
+                    "pointRead");
                 var shareDelete = await MeasureAsync(
                     "share delete",
                     shareLogger,

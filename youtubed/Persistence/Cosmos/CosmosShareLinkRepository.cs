@@ -73,6 +73,15 @@ namespace youtubed.Persistence.Cosmos
                 .ToArray();
         }
 
+        public async Task<ShareLink> GetAsync(string password)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(password);
+            var item = await ReadShareAsync(password);
+            return item == null
+                ? null
+                : CosmosDocumentMapper.ToShareLink(item.Resource);
+        }
+
         public async Task DeleteAsync(Guid listId, string password)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(password);
@@ -111,24 +120,25 @@ namespace youtubed.Persistence.Cosmos
             }
         }
 
-        public async Task<ConsumedShareLink> ConsumeAsync(string password, DateTimeOffset now)
+        public async Task<bool> TryMarkUsedAsync(
+            string password,
+            Guid expectedListId,
+            DateTimeOffset usedAt)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(password);
             var share = await ReadShareAsync(password);
             if (share == null
                 || share.Resource.UsedAt.HasValue
-                || share.Resource.ExpiresAfter <= now)
+                || share.Resource.ExpiresAfter <= usedAt
+                || !string.Equals(
+                    share.Resource.ListId,
+                    expectedListId.ToString("D"),
+                    StringComparison.OrdinalIgnoreCase))
             {
-                return null;
+                return false;
             }
 
-            var list = await ReadListAsync(share.Resource.ListId);
-            if (list == null)
-            {
-                return null;
-            }
-
-            share.Resource.UsedAt = now;
+            share.Resource.UsedAt = usedAt;
             share.Resource.Ttl = CosmosDocumentMapper.GetTtlSeconds(
                 share.Resource.ExpiresAfter + Constants.ShareLinkRetentionAfterExpiration,
                 _clock.UtcNow);
@@ -148,14 +158,10 @@ namespace youtubed.Persistence.Cosmos
                 || exception.StatusCode == HttpStatusCode.PreconditionFailed
                 || exception.StatusCode == HttpStatusCode.NotFound)
             {
-                return null;
+                return false;
             }
 
-            return new ConsumedShareLink
-            {
-                ListId = Guid.Parse(share.Resource.ListId),
-                Token = list.Resource.Token.ToArray()
-            };
+            return true;
         }
 
         private async Task<CosmosItem<CosmosShareLinkDocument>> ReadShareAsync(string password)
@@ -169,24 +175,6 @@ namespace youtubed.Persistence.Cosmos
                         password,
                         new PartitionKey(password)));
                 return new CosmosItem<CosmosShareLinkDocument>(response.Resource, response.ETag);
-            }
-            catch (CosmosException exception) when (exception.StatusCode == HttpStatusCode.NotFound)
-            {
-                return null;
-            }
-        }
-
-        private async Task<CosmosItem<CosmosListDocument>> ReadListAsync(string id)
-        {
-            try
-            {
-                var response = await ExecuteAsync(
-                    "pointRead",
-                    CosmosContainerNames.Lists,
-                    () => _context.Lists.ReadItemAsync<CosmosListDocument>(
-                        id,
-                        new PartitionKey(id)));
-                return new CosmosItem<CosmosListDocument>(response.Resource, response.ETag);
             }
             catch (CosmosException exception) when (exception.StatusCode == HttpStatusCode.NotFound)
             {

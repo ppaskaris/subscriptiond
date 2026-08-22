@@ -17,12 +17,19 @@ namespace youtubed.Services
         private static readonly Lazy<string[]> PasswordWords = new Lazy<string[]>(LoadPasswordWords);
 
         private readonly IShareLinkRepository _shareLinkRepository;
+        private readonly IListRepository _listRepository;
         private readonly IAppClock _clock;
 
-        public ShareLinkService(IShareLinkRepository shareLinkRepository, IAppClock clock)
+        public ShareLinkService(
+            IShareLinkRepository shareLinkRepository,
+            IListRepository listRepository,
+            IAppClock clock)
         {
-            _shareLinkRepository = shareLinkRepository;
-            _clock = clock;
+            _shareLinkRepository = shareLinkRepository
+                ?? throw new ArgumentNullException(nameof(shareLinkRepository));
+            _listRepository = listRepository
+                ?? throw new ArgumentNullException(nameof(listRepository));
+            _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         }
 
         public async Task<ShareLinkModel> CreateShareLinkAsync(Guid listId)
@@ -68,14 +75,35 @@ namespace youtubed.Services
 
         public async Task<ConsumedShareLinkModel> ConsumeShareLinkAsync(string password)
         {
-            var consumed = await _shareLinkRepository.ConsumeAsync(password, _clock.UtcNow);
-            return consumed == null
-                ? null
-                : new ConsumedShareLinkModel
-                {
-                    ListId = consumed.ListId,
-                    Token = consumed.Token
-                };
+            ArgumentException.ThrowIfNullOrWhiteSpace(password);
+            var now = _clock.UtcNow;
+            var shareLink = await _shareLinkRepository.GetAsync(password);
+            if (shareLink == null
+                || shareLink.UsedAt.HasValue
+                || shareLink.ExpiresAfter <= now)
+            {
+                return null;
+            }
+
+            var list = await _listRepository.GetAsync(shareLink.ListId);
+            if (list == null)
+            {
+                return null;
+            }
+
+            if (!await _shareLinkRepository.TryMarkUsedAsync(
+                password,
+                shareLink.ListId,
+                now))
+            {
+                return null;
+            }
+
+            return new ConsumedShareLinkModel
+            {
+                ListId = list.Id,
+                Token = list.Token.ToArray()
+            };
         }
 
         private static ShareLinkModel ToModel(ShareLink shareLink)

@@ -16,6 +16,5 @@ namespace youtubed.Persistence
         Task SaveRefreshResultAsync(
             ChannelRefreshResult result,
             CancellationToken cancellationToken);
-        Task<int> RemoveOrphanChannelsAsync(DateTimeOffset now);
     }
 }

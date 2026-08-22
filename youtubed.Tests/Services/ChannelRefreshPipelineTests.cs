@@ -511,7 +511,6 @@ namespace youtubed.Tests.Services
             public Task<Channel> GetByIdAsync(string id) => throw new NotImplementedException();
             public Task SaveDiscoveredChannelAsync(Channel channel, DateTimeOffset staleAfter) =>
                 throw new NotImplementedException();
-            public Task<int> RemoveOrphanChannelsAsync(DateTimeOffset now) => throw new NotImplementedException();
         }
     }
 }

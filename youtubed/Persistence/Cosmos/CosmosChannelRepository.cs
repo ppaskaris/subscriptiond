@@ -190,11 +190,6 @@ namespace youtubed.Persistence.Cosmos
                 cancellationToken);
         }
 
-        public Task<int> RemoveOrphanChannelsAsync(DateTimeOffset now)
-        {
-            return Task.FromResult(0);
-        }
-
         private async Task ReplaceWithRetryAsync(
             CosmosItem<CosmosChannelDocument> initial,
             Action<CosmosChannelDocument> apply,

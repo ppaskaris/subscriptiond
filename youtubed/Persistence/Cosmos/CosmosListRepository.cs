@@ -211,11 +211,6 @@ namespace youtubed.Persistence.Cosmos
             return _client.DeleteListAsync(id.ToString("D"), CancellationToken.None);
         }
 
-        public Task<int> RemoveExpiredAsync(DateTimeOffset now)
-        {
-            return Task.FromResult(0);
-        }
-
         private Task<CosmosItem<CosmosListDocument>> ReadAsync(Guid id, int retryCount)
         {
             return _client.ReadListAsync(

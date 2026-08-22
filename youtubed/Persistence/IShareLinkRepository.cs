@@ -12,6 +12,5 @@ namespace youtubed.Persistence
         Task DeleteAsync(Guid listId, string password);
         Task DeleteByListAsync(Guid listId);
         Task<ConsumedShareLink> ConsumeAsync(string password, DateTimeOffset now);
-        Task<int> RemoveExpiredAsync(DateTimeOffset deleteBefore);
     }
 }

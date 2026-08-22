@@ -21,6 +21,5 @@ namespace youtubed.Persistence
         Task RemoveChannelAsync(Guid listId, string channelId);
         Task UpdateAsync(Guid id, string title, decimal playbackRate);
         Task DeleteAsync(Guid id);
-        Task<int> RemoveExpiredAsync(DateTimeOffset now);
     }
 }

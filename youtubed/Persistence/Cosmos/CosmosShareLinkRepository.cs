@@ -158,11 +158,6 @@ namespace youtubed.Persistence.Cosmos
             };
         }
 
-        public Task<int> RemoveExpiredAsync(DateTimeOffset deleteBefore)
-        {
-            return Task.FromResult(0);
-        }
-
         private async Task<CosmosItem<CosmosShareLinkDocument>> ReadShareAsync(string password)
         {
             try

@@ -47,7 +47,11 @@ namespace youtubed.Tests.ProviderContracts
                 expiredAfter: Clock.UtcNow.AddDays(1),
                 expirationRenewedOn: yesterday);
             Clock.RandomDelayValue = TimeSpan.FromDays(45);
-            var service = new ListService(Provider.Lists, Clock, new ChannelRefreshQueue());
+            var service = new ListService(
+                Provider.Lists,
+                Provider.Channels,
+                Clock,
+                new ChannelRefreshQueue());
 
             Assert.Null(await service.GetAuthenticatedListAsync(list.Id, "wrong-token"));
             var afterRejectedAccess = await Provider.Lists.GetAsync(list.Id);
@@ -76,8 +80,9 @@ namespace youtubed.Tests.ProviderContracts
             var directRenewal = Clock.UtcNow.AddDays(50);
             var ignoredSameDayRenewal = Clock.UtcNow.AddDays(51);
             var followingDay = Clock.UtcToday.AddDays(1);
-            await Provider.Lists.RenewExpirationAsync(list.Id, directRenewal, followingDay);
-            await Provider.Lists.RenewExpirationAsync(list.Id, ignoredSameDayRenewal, followingDay);
+            var loadedForRenewal = await Provider.Lists.GetAsync(list.Id);
+            await Provider.Lists.RenewExpirationAsync(loadedForRenewal, directRenewal, followingDay);
+            await Provider.Lists.RenewExpirationAsync(loadedForRenewal, ignoredSameDayRenewal, followingDay);
             var afterRepeatedDirectRenewal = await Provider.Lists.GetAsync(list.Id);
             Assert.Equal(directRenewal, afterRepeatedDirectRenewal.ExpiredAfter);
             Assert.Equal(followingDay, afterRepeatedDirectRenewal.ExpirationRenewedOn);
@@ -98,54 +103,11 @@ namespace youtubed.Tests.ProviderContracts
                 new[] { first.Id, second.Id }.OrderBy(id => id, StringComparer.Ordinal),
                 aggregate.ChannelIds);
 
-            var added = await Provider.Lists.GetChannelProjectionAsync(list);
-            Assert.Equal(new[] { second.Id, first.Id }, added.Channels.Select(channel => channel.Id));
-
             await Provider.Lists.RemoveChannelAsync(list.Id, first.Id);
             await Provider.Lists.RemoveChannelAsync(list.Id, first.Id);
             Assert.Equal(
                 new[] { second.Id },
                 (await Provider.Lists.GetAsync(list.Id)).ChannelIds);
-            var removed = await Provider.Lists.GetChannelProjectionAsync(list);
-            Assert.Equal(second.Id, Assert.Single(removed.Channels).Id);
-        }
-
-        protected async Task ChannelAndVideoReadModelsContractAsync()
-        {
-            var list = await CreateListAsync(title: "Projected List", playbackRate: 1.5m);
-            var withVideos = await CreateChannelAsync(title: "With Videos");
-            var alsoWithVideos = await CreateChannelAsync(title: "Also With Videos");
-            var empty = await CreateChannelAsync(title: "Empty");
-            await AddChannelToListAsync(list.Id, withVideos.Id);
-            await AddChannelToListAsync(list.Id, alsoWithVideos.Id);
-            await AddChannelToListAsync(list.Id, empty.Id);
-            await SaveVideosAsync(
-                withVideos,
-                CreateVideo(withVideos.Id, "older", publishedAt: Clock.UtcNow.AddHours(-2)),
-                CreateVideo(withVideos.Id, "newest", publishedAt: Clock.UtcNow.AddMinutes(-30)));
-            await SaveVideosAsync(
-                alsoWithVideos,
-                CreateVideo(alsoWithVideos.Id, "middle", publishedAt: Clock.UtcNow.AddHours(-1)));
-
-            var channelProjection = await Provider.Lists.GetChannelProjectionAsync(list);
-            Assert.Equal(list.Id, channelProjection.List.Id);
-            Assert.Equal(
-                new[] { alsoWithVideos.Id, empty.Id, withVideos.Id },
-                channelProjection.Channels.Select(channel => channel.Id));
-
-            var videoProjection = await Provider.Lists.GetVideoProjectionAsync(list, 2);
-            Assert.Equal("Projected List", videoProjection.List.Title);
-            Assert.Equal(1.5m, videoProjection.List.PlaybackRate);
-            Assert.Equal(3, videoProjection.Channels.Count);
-            Assert.Empty(videoProjection.Channels.Single(channel => channel.Id == empty.Id).Videos);
-            var projectedVideoIds = videoProjection.Channels
-                .SelectMany(channel => channel.Videos)
-                .Select(video => video.VideoId)
-                .ToArray();
-            Assert.Equal(2, projectedVideoIds.Length);
-            Assert.Contains("newest", projectedVideoIds);
-            Assert.Contains("middle", projectedVideoIds);
-            Assert.DoesNotContain("older", projectedVideoIds);
         }
     }
 }

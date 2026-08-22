@@ -5,11 +5,13 @@ using System.Linq;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Azure.Cosmos;
 using Xunit;
 using Xunit.Abstractions;
 using youtubed.Domain;
 using youtubed.Persistence.Cosmos;
+using youtubed.Services;
 using youtubed.Tests.Infrastructure;
 
 namespace youtubed.Tests.Integration
@@ -82,11 +84,16 @@ namespace youtubed.Tests.Integration
         {
             var now = new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero);
             var clock = new FakeAppClock { UtcNow = now };
-            var listLogger = new CosmosRequestRecorder<CosmosListRepository>();
-            var channelLogger = new CosmosRequestRecorder<CosmosChannelRepository>();
+            var listLogger = new CosmosRequestRecorder<object>();
             var shareLogger = new CosmosRequestRecorder<CosmosShareLinkRepository>();
-            var lists = new CosmosListRepository(_fixture.Context, clock, listLogger);
-            var channels = new CosmosChannelRepository(_fixture.Context, channelLogger);
+            var repositoryClient = new CosmosRepositoryClient(_fixture.Context, listLogger);
+            var lists = new CosmosListRepository(repositoryClient, clock);
+            var channels = new CosmosChannelRepository(repositoryClient);
+            var service = new ListService(
+                lists,
+                channels,
+                clock,
+                new ChannelRefreshQueue());
             var shares = new CosmosShareLinkRepository(_fixture.Context, clock, shareLogger);
             var scope = Guid.NewGuid().ToString("N");
             var token = Enumerable.Range(1, 40).Select(value => (byte)value).ToArray();
@@ -125,36 +132,28 @@ namespace youtubed.Tests.Integration
                 var sameDayRender = await MeasureAsync(
                     "same-day render",
                     listLogger,
-                    () => lists.GetAuthenticatedVideoProjectionAsync(
+                    () => service.GetAuthenticatedListViewAsync(
                         list.Id,
-                        token,
-                        list.ExpiredAfter,
-                        list.ExpirationRenewedOn.Value,
-                        Constants.ListRenderMaxItems));
+                        WebEncoders.Base64UrlEncode(token)));
                 AssertRequestShape(sameDayRender, "pointRead", "readMany");
 
                 clock.UtcNow = now.AddDays(1);
-                var renewedOn = DateOnly.FromDateTime(clock.UtcNow.UtcDateTime);
                 var renewalRender = await MeasureAsync(
                     "renewal render",
                     listLogger,
-                    () => lists.GetAuthenticatedVideoProjectionAsync(
+                    () => service.GetAuthenticatedListViewAsync(
                         list.Id,
-                        token,
-                        clock.UtcNow.AddDays(45),
-                        renewedOn,
-                        Constants.ListRenderMaxItems));
+                        WebEncoders.Base64UrlEncode(token)));
                 AssertRequestShape(renewalRender, "pointRead", "replace", "readMany");
 
                 var spare = CreateChannel(scope, shape.ChannelCount, videoCount: 0, now);
                 await lists.RemoveChannelAsync(list.Id, channelIds[^1]);
                 listLogger.Clear();
-                channelLogger.Clear();
                 await channels.SaveDiscoveredChannelAsync(spare, spare.StaleAfter);
                 await lists.AddChannelAsync(list.Id, spare.Id);
                 var cacheMissAdd = new OperationMeasurement(
                     "cache-miss add",
-                    channelLogger.Records.Concat(listLogger.Records).ToArray());
+                    listLogger.Records.ToArray());
                 AssertRequestShape(
                     cacheMissAdd,
                     new[] { 404, 201, 200, 200 },
@@ -168,19 +167,18 @@ namespace youtubed.Tests.Integration
                     () => lists.RemoveChannelAsync(list.Id, spare.Id));
                 AssertRequestShape(remove, "pointRead", "replace");
                 listLogger.Clear();
-                channelLogger.Clear();
                 Assert.NotNull(await channels.GetByIdAsync(spare.Id));
                 await lists.AddChannelAsync(list.Id, spare.Id);
                 var cacheHitAdd = new OperationMeasurement(
                     "cache-hit add",
-                    channelLogger.Records.Concat(listLogger.Records).ToArray());
+                    listLogger.Records.ToArray());
                 AssertRequestShape(cacheHitAdd, "pointRead", "pointRead", "replace");
 
                 var refreshed = CreateChannel(scope, 0, shape.VideosPerChannel, now.AddMinutes(1));
                 refreshed.Title = "Refreshed channel";
                 var refresh = await MeasureAsync(
                     "channel refresh",
-                    channelLogger,
+                    listLogger,
                     () => channels.SaveRefreshResultAsync(
                         new ChannelRefreshResult
                         {

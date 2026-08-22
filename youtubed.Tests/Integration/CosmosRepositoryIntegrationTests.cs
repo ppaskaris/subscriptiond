@@ -5,10 +5,14 @@ using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Azure.Cosmos;
+using Moq;
 using Xunit;
 using youtubed.Domain;
+using youtubed.Persistence;
 using youtubed.Persistence.Cosmos;
+using youtubed.Services;
 using youtubed.Tests.Infrastructure;
 
 namespace youtubed.Tests.Integration
@@ -29,45 +33,148 @@ namespace youtubed.Tests.Integration
         {
             var now = new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero);
             var clock = new FakeAppClock { UtcNow = now };
-            var listLogger = new CosmosRequestRecorder<CosmosListRepository>();
-            var channelLogger = new CosmosRequestRecorder<CosmosChannelRepository>();
-            var lists = new CosmosListRepository(_fixture.Context, clock, listLogger);
-            var channels = new CosmosChannelRepository(_fixture.Context, channelLogger);
+            var requestLogger = new CosmosRequestRecorder<object>();
+            var repositoryClient = new CosmosRepositoryClient(_fixture.Context, requestLogger);
+            var lists = new CosmosListRepository(repositoryClient, clock);
+            var channels = new CosmosChannelRepository(repositoryClient);
+            var service = new ListService(
+                lists,
+                channels,
+                clock,
+                new ChannelRefreshQueue());
             var list = CreateList(now, DateOnly.FromDateTime(now.UtcDateTime));
             var channel = CreateChannel("UC-request-shape", "Request Shape", now);
             await lists.CreateAsync(list);
             await channels.SaveDiscoveredChannelAsync(channel, channel.StaleAfter);
             await lists.AddChannelAsync(list.Id, channel.Id);
             Assert.Equal(new[] { channel.Id }, (await lists.GetAsync(list.Id)).ChannelIds);
-            listLogger.Clear();
+            requestLogger.Clear();
 
-            var projection = await lists.GetAuthenticatedVideoProjectionAsync(
+            var view = await service.GetAuthenticatedListViewAsync(
                 list.Id,
-                list.Token,
-                now.AddDays(46),
-                DateOnly.FromDateTime(now.UtcDateTime),
-                100);
+                WebEncoders.Base64UrlEncode(list.Token));
 
-            Assert.NotNull(projection);
+            Assert.NotNull(view);
             Assert.Equal(
                 new[] { "pointRead", "readMany" },
-                listLogger.Records.Select(message => message.Operation));
-            Assert.All(listLogger.Records, message => Assert.Equal(1, message.RequestCount));
-            Assert.All(listLogger.Records, message => Assert.True(message.RequestCharge > 0));
-            Assert.DoesNotContain(listLogger.Records, message =>
+                requestLogger.Records.Select(message => message.Operation));
+            Assert.All(requestLogger.Records, message => Assert.Equal(1, message.RequestCount));
+            Assert.All(requestLogger.Records, message => Assert.True(message.RequestCharge > 0));
+            Assert.DoesNotContain(requestLogger.Records, message =>
                 message.Container != "lists" && message.Container != "channels");
 
             clock.UtcNow = now.AddDays(1);
-            listLogger.Clear();
-            await lists.GetAuthenticatedVideoProjectionAsync(
+            requestLogger.Clear();
+            await service.GetAuthenticatedListViewAsync(
                 list.Id,
-                list.Token,
-                clock.UtcNow.AddDays(46),
-                DateOnly.FromDateTime(clock.UtcNow.UtcDateTime),
-                100);
+                WebEncoders.Base64UrlEncode(list.Token));
             Assert.Equal(
                 new[] { "pointRead", "replace", "readMany" },
-                listLogger.Records.Select(message => message.Operation));
+                requestLogger.Records.Select(message => message.Operation));
+        }
+
+        [CosmosFact]
+        public async Task FailureAfterRenewalIsDurableAndAServiceRestartRecovers()
+        {
+            var now = new DateTimeOffset(2026, 8, 15, 12, 0, 0, TimeSpan.Zero);
+            var clock = new FakeAppClock
+            {
+                UtcNow = now,
+                RandomDelayValue = TimeSpan.FromDays(45)
+            };
+            var requestLogger = new CosmosRequestRecorder<object>();
+            var repositoryClient = new CosmosRepositoryClient(_fixture.Context, requestLogger);
+            var lists = new CosmosListRepository(repositoryClient, clock);
+            var list = CreateList(now, DateOnly.FromDateTime(now.UtcDateTime).AddDays(-1));
+            await lists.CreateAsync(list);
+            requestLogger.Clear();
+            var failingChannels = new Mock<IChannelRepository>(MockBehavior.Strict);
+            failingChannels.Setup(value => value.GetBatchAsync(
+                    It.IsAny<IReadOnlyCollection<string>>(),
+                    CancellationToken.None))
+                .ThrowsAsync(new InvalidOperationException("Injected batch failure."));
+            var firstService = new ListService(
+                lists,
+                failingChannels.Object,
+                clock,
+                new ChannelRefreshQueue());
+            var token = WebEncoders.Base64UrlEncode(list.Token);
+
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                firstService.GetAuthenticatedListViewAsync(list.Id, token));
+
+            Assert.Equal(
+                new[] { "pointRead", "replace" },
+                requestLogger.Records.Select(message => message.Operation));
+            requestLogger.Clear();
+            var restartedService = new ListService(
+                new CosmosListRepository(repositoryClient, clock),
+                new CosmosChannelRepository(repositoryClient),
+                clock,
+                new ChannelRefreshQueue());
+
+            var recovered = await restartedService.GetAuthenticatedListViewAsync(list.Id, token);
+
+            Assert.NotNull(recovered);
+            Assert.Equal(now.AddDays(45), recovered.ExpiredAfter);
+            Assert.Equal(
+                new[] { "pointRead" },
+                requestLogger.Records.Select(message => message.Operation));
+        }
+
+        [CosmosFact]
+        public async Task GenuineConcurrentDailyRenewalsUseOneConflictRetryAndOneWrite()
+        {
+            var now = new DateTimeOffset(2026, 8, 15, 12, 0, 0, TimeSpan.Zero);
+            var clock = new FakeAppClock
+            {
+                UtcNow = now,
+                RandomDelayValue = TimeSpan.FromDays(45)
+            };
+            var setupLists = new CosmosListRepository(
+                _fixture.Context,
+                clock,
+                new CosmosRequestRecorder<CosmosListRepository>());
+            var list = CreateList(now, DateOnly.FromDateTime(now.UtcDateTime).AddDays(-1));
+            await setupLists.CreateAsync(list);
+
+            var requestLogger = new CosmosRequestRecorder<object>();
+            var coordinatedClient = new CoordinatedCosmosRepositoryClient(
+                new CosmosRepositoryClient(_fixture.Context, requestLogger));
+            var first = new ListService(
+                new CosmosListRepository(coordinatedClient, clock),
+                new CosmosChannelRepository(coordinatedClient),
+                clock,
+                new ChannelRefreshQueue());
+            var second = new ListService(
+                new CosmosListRepository(coordinatedClient, clock),
+                new CosmosChannelRepository(coordinatedClient),
+                clock,
+                new ChannelRefreshQueue());
+            var token = WebEncoders.Base64UrlEncode(list.Token);
+
+            var views = await Task.WhenAll(
+                first.GetAuthenticatedListViewAsync(list.Id, token),
+                second.GetAuthenticatedListViewAsync(list.Id, token));
+
+            Assert.All(views, view => Assert.NotNull(view));
+            Assert.Single(requestLogger.Records, message =>
+                message.Container == "lists"
+                && message.Operation == "replace"
+                && message.Status == 412
+                && message.RetryCount == 0);
+            Assert.Single(requestLogger.Records, message =>
+                message.Container == "lists"
+                && message.Operation == "replace"
+                && message.Status == 200
+                && message.RetryCount == 0);
+            Assert.Single(requestLogger.Records, message =>
+                message.Container == "lists"
+                && message.Operation == "pointRead"
+                && message.RetryCount == 1);
+            var renewed = await setupLists.GetAsync(list.Id);
+            Assert.Equal(clock.UtcToday, renewed.ExpirationRenewedOn);
+            Assert.Equal(now.AddDays(45), renewed.ExpiredAfter);
         }
 
         [CosmosFact]
@@ -111,10 +218,11 @@ namespace youtubed.Tests.Integration
                 && message.Status == 200
                 && message.RetryCount == 1);
 
-            var membership = await firstLists.GetChannelProjectionAsync(list);
+            var membership = await firstLists.GetAsync(list.Id);
             Assert.Equal(new[] { "UC-concurrent-new" }, membership.ChannelIds);
-            var missing = Assert.Single(membership.Channels);
-            Assert.True(missing.IsMissing);
+            Assert.Empty(await firstChannels.GetBatchAsync(
+                membership.ChannelIds,
+                CancellationToken.None));
             requestLogger.Clear();
 
             var firstRefresh = CreateChannel(channel.Id, "First", now);

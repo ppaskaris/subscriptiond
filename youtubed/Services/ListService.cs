@@ -15,15 +15,18 @@ namespace youtubed.Services
     public class ListService : IListService
     {
         private readonly IListRepository _listRepository;
+        private readonly IChannelRepository _channelRepository;
         private readonly IAppClock _clock;
         private readonly IChannelRefreshQueue _refreshQueue;
 
         public ListService(
             IListRepository listRepository,
+            IChannelRepository channelRepository,
             IAppClock clock,
             IChannelRefreshQueue refreshQueue)
         {
             _listRepository = listRepository;
+            _channelRepository = channelRepository;
             _clock = clock;
             _refreshQueue = refreshQueue;
         }
@@ -51,42 +54,14 @@ namespace youtubed.Services
 
         public async Task<ListModel> GetAuthenticatedListAsync(Guid id, string token)
         {
-            var list = await GetListAsync(id);
-            if (list == null || TokenUtils.NotEqual(DecodeToken(token), list.Token))
-            {
-                return null;
-            }
-
-            var today = _clock.UtcToday;
-            if (list.ExpirationRenewedOn != today)
-            {
-                await _listRepository.RenewExpirationAsync(
-                    id,
-                    CreateExpiredAfter(_clock.UtcNow),
-                    today);
-            }
-
-            return list;
+            return ToListModel(await GetAuthenticatedDomainListAsync(id, token));
         }
 
         public async Task<ListViewModel> GetAuthenticatedListViewAsync(Guid id, string token)
         {
-            var decodedToken = DecodeToken(token);
-            if (decodedToken == null)
-            {
-                return null;
-            }
-
             var now = _clock.UtcNow;
-            var projection = await _listRepository.GetAuthenticatedVideoProjectionAsync(
-                id,
-                decodedToken,
-                CreateExpiredAfter(now),
-                DateOnly.FromDateTime(now.UtcDateTime),
-                Constants.ListRenderMaxItems + 1);
-            var view = CreateListView(projection, now);
-            QueueRefreshCandidates(projection?.ChannelIds, view?.Channels, now);
-            return view;
+            var list = await GetAuthenticatedDomainListAsync(id, token, now);
+            return await CreateListViewAsync(list, includeVideos: true, now);
         }
 
         public async Task<ListViewModel> GetListViewAsync(Guid id)
@@ -126,13 +101,7 @@ namespace youtubed.Services
                 return;
             }
 
-            var projection = await _listRepository.GetChannelProjectionAsync(ToDomainList(list));
-            if (projection == null)
-            {
-                return;
-            }
-
-            _refreshQueue.Enqueue(projection.ChannelIds
+            _refreshQueue.Enqueue(list.ChannelIds
                 .Select(channelId => new ChannelRefreshRequest(
                     channelId,
                     ChannelRefreshReason.Forced))
@@ -169,30 +138,117 @@ namespace youtubed.Services
             }
 
             var now = _clock.UtcNow;
-            var projection = await _listRepository.GetVideoProjectionAsync(
-                ToDomainList(list),
-                Constants.ListRenderMaxItems + 1);
-            if (projection == null)
+            return await CreateListViewAsync(ToDomainList(list), includeVideos: true, now);
+        }
+
+        private async Task<ListViewModel> CreateListViewAsync(
+            SubscriptionList list,
+            bool includeVideos,
+            DateTimeOffset now)
+        {
+            if (list == null)
             {
                 return null;
             }
 
-            var view = CreateListView(projection, now);
-            QueueRefreshCandidates(projection.ChannelIds, view.Channels, now);
+            var persistedChannels = await _channelRepository.GetBatchAsync(
+                list.ChannelIds,
+                CancellationToken.None);
+            var channels = ComposeChannels(list.ChannelIds, persistedChannels);
+            var videos = includeVideos
+                ? MapVideos(persistedChannels)
+                    .OrderByDescending(video => video.VideoPublishedAt)
+                    .ThenBy(video => video.VideoId, StringComparer.Ordinal)
+                    .Take(Constants.ListRenderMaxItems + 1)
+                    .ToList()
+                : new List<VideoViewModel>();
+
+            var view = CreateViewModel(
+                list,
+                channels,
+                videos.Take(Constants.ListRenderMaxItems),
+                videos.Count > Constants.ListRenderMaxItems,
+                now);
+            QueueRefreshCandidates(list.ChannelIds, channels, now);
             return view;
         }
 
-        private static ListViewModel CreateListView(
-            ListVideoProjection projection,
-            DateTimeOffset now)
+        private static IReadOnlyList<ChannelModel> ComposeChannels(
+            IReadOnlyList<string> channelIds,
+            IReadOnlyList<Channel> persistedChannels)
         {
-            if (projection == null)
+            var channelsById = persistedChannels.ToDictionary(
+                channel => channel.Id,
+                StringComparer.Ordinal);
+            return channelIds
+                .Select(channelId => channelsById.TryGetValue(channelId, out var channel)
+                    ? MapChannel(channel)
+                    : CreateMissingChannel(channelId))
+                .OrderBy(channel => channel.Title, StringComparer.Ordinal)
+                .ThenBy(channel => channel.Id, StringComparer.Ordinal)
+                .ToArray();
+        }
+
+        private static ChannelModel MapChannel(Channel channel)
+        {
+            return new ChannelModel
+            {
+                Id = channel.Id,
+                Url = channel.Url,
+                Title = channel.Title,
+                Thumbnail = channel.Thumbnail,
+                PlaylistId = channel.PlaylistId,
+                StaleAfter = channel.StaleAfter,
+                Status = channel.Status,
+                StatusReason = channel.StatusReason,
+                StatusUpdatedAt = channel.StatusUpdatedAt
+            };
+        }
+
+        private static ChannelModel CreateMissingChannel(string channelId)
+        {
+            return new ChannelModel
+            {
+                Id = channelId,
+                Url = string.Format(Constants.YoutubeChannelUrl, channelId),
+                Title = "Temporarily unavailable",
+                Status = ChannelStatus.Unavailable,
+                StatusReason = ChannelStatusReason.None,
+                IsMissing = true
+            };
+        }
+
+        private async Task<SubscriptionList> GetAuthenticatedDomainListAsync(
+            Guid id,
+            string token,
+            DateTimeOffset? nowOverride = null)
+        {
+            var decodedToken = DecodeToken(token);
+            if (decodedToken == null)
             {
                 return null;
             }
 
-            var videos = projection.Channels
-                .SelectMany(channel => channel.Videos.Select(video => new VideoViewModel
+            var list = await _listRepository.GetAsync(id);
+            if (list == null || TokenUtils.NotEqual(decodedToken, list.Token))
+            {
+                return null;
+            }
+
+            var now = nowOverride ?? _clock.UtcNow;
+            var today = DateOnly.FromDateTime(now.UtcDateTime);
+            if (list.ExpirationRenewedOn != today)
+            {
+                var expiredAfter = CreateExpiredAfter(now);
+                list = await _listRepository.RenewExpirationAsync(list, expiredAfter, today);
+            }
+
+            return list;
+        }
+
+        private static IEnumerable<VideoViewModel> MapVideos(IEnumerable<Channel> channels)
+        {
+            return channels.SelectMany(channel => channel.Videos.Select(video => new VideoViewModel
                 {
                     ChannelTitle = channel.Title,
                     ChannelUrl = channel.Url,
@@ -201,17 +257,7 @@ namespace youtubed.Services
                     VideoDuration = video.Duration,
                     VideoPublishedAt = video.PublishedAt,
                     VideoThumbnail = video.ThumbnailUrl
-                }))
-                .OrderByDescending(video => video.VideoPublishedAt)
-                .ThenBy(video => video.VideoId, StringComparer.Ordinal)
-                .ToList();
-
-            return CreateViewModel(
-                projection.List,
-                MapChannels(projection.Channels),
-                videos.Take(Constants.ListRenderMaxItems),
-                videos.Count > Constants.ListRenderMaxItems,
-                now);
+                }));
         }
 
         private async Task<ListViewModel> GetListChannelViewCoreAsync(ListModel list)
@@ -222,20 +268,7 @@ namespace youtubed.Services
             }
 
             var now = _clock.UtcNow;
-            var projection = await _listRepository.GetChannelProjectionAsync(ToDomainList(list));
-            if (projection == null)
-            {
-                return null;
-            }
-
-            var view = CreateViewModel(
-                projection.List,
-                MapChannels(projection.Channels),
-                Enumerable.Empty<VideoViewModel>(),
-                false,
-                now);
-            QueueRefreshCandidates(projection.ChannelIds, view.Channels, now);
-            return view;
+            return await CreateListViewAsync(ToDomainList(list), includeVideos: false, now);
         }
 
         private void QueueRefreshCandidates(
@@ -293,37 +326,6 @@ namespace youtubed.Services
                 Channels = channels,
                 MaxAge = list.ExpiredAfter.Subtract(now)
             };
-        }
-
-        private static IReadOnlyList<ChannelModel> MapChannels(IEnumerable<ListVideoProjection.Channel> channels)
-        {
-            return channels.Select(channel => new ChannelModel
-            {
-                Id = channel.Id,
-                Url = channel.Url,
-                Title = channel.Title,
-                Thumbnail = channel.Thumbnail,
-                StaleAfter = channel.StaleAfter,
-                Status = channel.Status,
-                StatusReason = channel.StatusReason,
-                StatusUpdatedAt = channel.StatusUpdatedAt
-            }).ToList();
-        }
-
-        private static IReadOnlyList<ChannelModel> MapChannels(IEnumerable<ListChannelProjection.Channel> channels)
-        {
-            return channels.Select(channel => new ChannelModel
-            {
-                Id = channel.Id,
-                Url = channel.Url,
-                Title = channel.Title,
-                Thumbnail = channel.Thumbnail,
-                StaleAfter = channel.StaleAfter,
-                Status = channel.Status,
-                StatusReason = channel.StatusReason,
-                StatusUpdatedAt = channel.StatusUpdatedAt,
-                IsMissing = channel.IsMissing
-            }).ToList();
         }
 
         private DateTimeOffset CreateExpiredAfter(DateTimeOffset now)

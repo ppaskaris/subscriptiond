@@ -22,8 +22,5 @@ namespace youtubed.Tests.ProviderContracts
 
         [CosmosFact]
         public Task ChannelMembership() => ChannelMembershipContractAsync();
-
-        [CosmosFact]
-        public Task ChannelAndVideoReadModels() => ChannelAndVideoReadModelsContractAsync();
     }
 }

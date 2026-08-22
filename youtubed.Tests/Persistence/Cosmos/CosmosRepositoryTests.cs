@@ -20,7 +20,7 @@ namespace youtubed.Tests.Persistence.Cosmos
             new(2026, 8, 14, 12, 0, 0, TimeSpan.Zero);
 
         [Fact]
-        public async Task AuthenticatedReadRejectsWrongTokenAndRenewsOnceBeforeOneReadMany()
+        public async Task LoadedAggregateRenewalUsesItsEtagWithoutAnotherPointRead()
         {
             var client = new FakeCosmosRepositoryClient();
             var clock = CreateClock();
@@ -28,35 +28,23 @@ namespace youtubed.Tests.Persistence.Cosmos
             var list = CreateList(expirationRenewedOn: clock.UtcToday.AddDays(-1));
             await repository.CreateAsync(list);
 
-            Assert.Null(await repository.GetAuthenticatedVideoProjectionAsync(
-                list.Id,
-                new byte[] { 9, 9, 9 },
+            var loaded = await repository.GetAsync(list.Id);
+            loaded = await repository.RenewExpirationAsync(
+                loaded,
                 Now.AddDays(46),
-                clock.UtcToday,
-                100));
-            Assert.Equal(0, client.ListReplaceCount);
-            Assert.Equal(0, client.ChannelReadManyCount);
+                clock.UtcToday);
 
-            var projection = await repository.GetAuthenticatedVideoProjectionAsync(
-                list.Id,
-                list.Token,
-                Now.AddDays(46),
-                clock.UtcToday,
-                100);
-
-            Assert.NotNull(projection);
-            Assert.Equal(Now.AddDays(46), projection.List.ExpiredAfter);
-            Assert.Equal(clock.UtcToday, projection.List.ExpirationRenewedOn);
+            Assert.Equal(Now.AddDays(46), client.GetList(list.Id).ExpiredAfter);
+            Assert.Equal(clock.UtcToday, client.GetList(list.Id).ExpirationRenewedOn);
             Assert.Equal(1, client.ListReplaceCount);
-            Assert.Equal(0, client.ChannelReadManyCount);
+            Assert.Equal(1, client.ListReadCount);
 
-            await repository.GetAuthenticatedVideoProjectionAsync(
-                list.Id,
-                list.Token,
+            await repository.RenewExpirationAsync(
+                loaded,
                 Now.AddDays(47),
-                clock.UtcToday,
-                100);
+                clock.UtcToday);
             Assert.Equal(1, client.ListReplaceCount);
+            Assert.Equal(1, client.ListReadCount);
         }
 
         [Fact]
@@ -125,7 +113,29 @@ namespace youtubed.Tests.Persistence.Cosmos
         }
 
         [Fact]
-        public async Task ReadModelsKeepMissingIdsAndBoundVideosDeterministically()
+        public async Task RenewalRetriesOneConflictAndLetsASecondConflictEscape()
+        {
+            var client = new FakeCosmosRepositoryClient();
+            var clock = CreateClock();
+            var repository = new CosmosListRepository(client, clock);
+            var list = CreateList(expirationRenewedOn: clock.UtcToday.AddDays(-1));
+            await repository.CreateAsync(list);
+            var loaded = await repository.GetAsync(list.Id);
+            client.ListReplaceConflictsRemaining = 2;
+
+            await Assert.ThrowsAsync<CosmosException>(() =>
+                repository.RenewExpirationAsync(
+                    loaded,
+                    Now.AddDays(46),
+                    clock.UtcToday));
+
+            Assert.Equal(2, client.ListReplaceAttemptCount);
+            Assert.Equal(2, client.ListReadCount);
+            Assert.NotEqual(clock.UtcToday, client.GetList(list.Id).ExpirationRenewedOn);
+        }
+
+        [Fact]
+        public async Task ListReadsReturnOnlyMembershipAndNeverReadChannelDocuments()
         {
             var client = new FakeCosmosRepositoryClient();
             var repository = new CosmosListRepository(client, CreateClock());
@@ -133,46 +143,10 @@ namespace youtubed.Tests.Persistence.Cosmos
             await repository.CreateAsync(list);
             await repository.AddChannelAsync(list.Id, "UC-present");
             await repository.AddChannelAsync(list.Id, "UC-missing");
-            client.PutChannel(CreateChannelDocument(
-                "UC-present",
-                Enumerable.Range(0, 101)
-                    .Select(index => new CosmosVideoDocument
-                    {
-                        Id = $"video-{index:D3}",
-                        Title = $"Video {index}",
-                        DurationTicks = TimeSpan.FromMinutes(1).Ticks,
-                        PublishedAt = Now.AddMinutes(-(index % 3)),
-                        Thumbnail = $"{index}.jpg"
-                    })
-                    .ToArray()));
+            var aggregate = await repository.GetAsync(list.Id);
 
-            var projection = await repository.GetVideoProjectionAsync(list, 100);
-
-            Assert.Equal(new[] { "UC-missing", "UC-present" }, projection.ChannelIds);
-            var channel = Assert.Single(projection.Channels);
-            Assert.Equal("UC-present", channel.Id);
-            Assert.Equal(100, channel.Videos.Count);
-            Assert.Equal(
-                channel.Videos
-                    .OrderByDescending(video => video.PublishedAt)
-                    .ThenBy(video => video.VideoId, StringComparer.Ordinal)
-                    .Select(video => video.VideoId),
-                channel.Videos.Select(video => video.VideoId));
-            Assert.Equal(1, client.ChannelReadManyCount);
-
-            var management = await repository.GetChannelProjectionAsync(list);
-            var missing = management.Channels.Single(value => value.Id == "UC-missing");
-            Assert.True(missing.IsMissing);
-            Assert.Equal("Temporarily unavailable", missing.Title);
-            Assert.Equal(ChannelStatus.Unavailable, missing.Status);
-            Assert.Equal(
-                "https://www.youtube.com/channel/UC-missing",
-                missing.Url);
-
-            await repository.RemoveChannelAsync(list.Id, missing.Id);
-            var afterRemoval = await repository.GetChannelProjectionAsync(list);
-            Assert.DoesNotContain("UC-missing", afterRemoval.ChannelIds);
-            Assert.DoesNotContain(afterRemoval.Channels, value => value.Id == "UC-missing");
+            Assert.Equal(new[] { "UC-missing", "UC-present" }, aggregate.ChannelIds);
+            Assert.Equal(0, client.ChannelReadManyCount);
         }
 
         [Fact]

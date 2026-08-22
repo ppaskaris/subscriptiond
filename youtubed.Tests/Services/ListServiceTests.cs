@@ -17,488 +17,289 @@ namespace youtubed.Tests.Services
     public sealed class ListServiceTests
     {
         [Fact]
-        public async Task GetAuthenticatedListViewAsync_UsesCombinedProjectionOperation()
+        public async Task GetAuthenticatedListViewAsync_ReadsListThenOneBoundedChannelBatch()
         {
-            var id = Guid.NewGuid();
-            var now = new DateTimeOffset(2026, 8, 1, 12, 0, 0, TimeSpan.Zero);
+            var now = new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero);
             var token = Enumerable.Repeat((byte)5, 40).ToArray();
-            var routeToken = WebEncoders.Base64UrlEncode(token);
-            var repository = new Mock<IListRepository>(MockBehavior.Strict);
-            repository
-                .Setup(value => value.GetAuthenticatedVideoProjectionAsync(
-                    id,
-                    It.Is<byte[]>(value => value.SequenceEqual(token)),
-                    now.Add(Constants.ListMaxAgeMin),
-                    DateOnly.FromDateTime(now.UtcDateTime),
-                    Constants.ListRenderMaxItems + 1))
-                .ReturnsAsync(new ListVideoProjection
-                {
-                    List = new SubscriptionList
-                    {
-                        Id = id,
-                        Token = token,
-                        Title = "Authenticated projection",
-                        ExpiredAfter = now.AddDays(45)
-                    },
-                    Channels = Array.Empty<ListVideoProjection.Channel>()
-                });
-            var service = new ListService(
-                repository.Object,
-                new FakeAppClock { UtcNow = now },
-                new ChannelRefreshQueue());
+            var list = CreateList(now, token, "UC-a", "UC-b");
+            list.ExpirationRenewedOn = DateOnly.FromDateTime(now.UtcDateTime);
+            var lists = new Mock<IListRepository>(MockBehavior.Strict);
+            lists.Setup(value => value.GetAsync(list.Id)).ReturnsAsync(list);
+            var channels = new Mock<IChannelRepository>(MockBehavior.Strict);
+            channels.Setup(value => value.GetBatchAsync(
+                    It.Is<IReadOnlyCollection<string>>(ids => ids.SequenceEqual(list.ChannelIds)),
+                    CancellationToken.None))
+                .ReturnsAsync(new[] { CreateChannel("UC-a", now.AddMinutes(1)) });
+            var service = CreateService(lists, channels, now);
 
-            var view = await service.GetAuthenticatedListViewAsync(id, routeToken);
+            var view = await service.GetAuthenticatedListViewAsync(
+                list.Id,
+                WebEncoders.Base64UrlEncode(token));
 
-            Assert.Equal(id, view.Id);
-            Assert.Equal("Authenticated projection", view.Title);
-            Assert.Equal(now, view.Now);
-            repository.Verify(value => value.GetAsync(It.IsAny<Guid>()), Times.Never);
-            repository.Verify(value => value.GetVideoProjectionAsync(
-                It.IsAny<SubscriptionList>(),
-                It.IsAny<int>()), Times.Never);
+            Assert.Equal(list.Id, view.Id);
+            Assert.Contains(view.Channels, channel => channel.Id == "UC-b" && channel.IsMissing);
+            lists.Verify(value => value.GetAsync(list.Id), Times.Once);
+            channels.Verify(value => value.GetBatchAsync(
+                It.IsAny<IReadOnlyCollection<string>>(),
+                CancellationToken.None), Times.Once);
         }
 
         [Fact]
-        public async Task GetListViewAsync_MapsVideoProjectionWithStableNowStaleCountAndVideoCap()
+        public async Task GetAuthenticatedListViewAsync_RenewsLoadedAggregateBeforeBatchRead()
         {
-            var id = Guid.NewGuid();
+            var now = new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero);
+            var token = Enumerable.Repeat((byte)9, 40).ToArray();
+            var list = CreateList(now, token);
+            list.ExpirationRenewedOn = DateOnly.FromDateTime(now.UtcDateTime).AddDays(-1);
+            var renewedAfter = now.Add(Constants.ListMaxAgeMin);
+            var lists = new Mock<IListRepository>(MockBehavior.Strict);
+            var sequence = new MockSequence();
+            lists.InSequence(sequence).Setup(value => value.GetAsync(list.Id)).ReturnsAsync(list);
+            lists.InSequence(sequence).Setup(value => value.RenewExpirationAsync(
+                    list,
+                    renewedAfter,
+                    DateOnly.FromDateTime(now.UtcDateTime)))
+                .ReturnsAsync(() =>
+                {
+                    list.ExpiredAfter = renewedAfter;
+                    list.ExpirationRenewedOn = DateOnly.FromDateTime(now.UtcDateTime);
+                    return list;
+                });
+            var channels = new Mock<IChannelRepository>(MockBehavior.Strict);
+            channels.Setup(value => value.GetBatchAsync(
+                    It.IsAny<IReadOnlyCollection<string>>(),
+                    CancellationToken.None))
+                .ReturnsAsync(Array.Empty<Channel>());
+            var service = CreateService(lists, channels, now);
+
+            var view = await service.GetAuthenticatedListViewAsync(
+                list.Id,
+                WebEncoders.Base64UrlEncode(token));
+
+            Assert.Equal(renewedAfter, view.ExpiredAfter);
+            Assert.Equal(Constants.ListMaxAgeMin, view.MaxAge);
+            lists.Verify(value => value.GetAsync(list.Id), Times.Once);
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("not-base64!")]
+        public async Task GetAuthenticatedListViewAsync_InvalidTokenDoesNotReadPersistence(string token)
+        {
+            var lists = new Mock<IListRepository>(MockBehavior.Strict);
+            var channels = new Mock<IChannelRepository>(MockBehavior.Strict);
+            var service = CreateService(lists, channels, DateTimeOffset.UtcNow);
+
+            Assert.Null(await service.GetAuthenticatedListViewAsync(Guid.NewGuid(), token));
+        }
+
+        [Fact]
+        public async Task GetAuthenticatedListAsync_TokenMismatchDoesNotRenewOrReadChannels()
+        {
+            var now = new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero);
+            var list = CreateList(now, Enumerable.Repeat((byte)1, 40).ToArray());
+            var lists = new Mock<IListRepository>(MockBehavior.Strict);
+            lists.Setup(value => value.GetAsync(list.Id)).ReturnsAsync(list);
+            var channels = new Mock<IChannelRepository>(MockBehavior.Strict);
+            var service = CreateService(lists, channels, now);
+
+            Assert.Null(await service.GetAuthenticatedListAsync(
+                list.Id,
+                WebEncoders.Base64UrlEncode(Enumerable.Repeat((byte)2, 40).ToArray())));
+        }
+
+        [Fact]
+        public async Task GetListViewAsync_ComposesVideosGloballyWithStableTieBreakAndCap()
+        {
             var now = new DateTimeOffset(2026, 5, 18, 12, 0, 0, TimeSpan.Zero);
-            var token = Enumerable.Range(1, 40).Select(value => (byte)value).ToArray();
             var list = new ListModel
             {
-                Id = id,
-                Token = token,
-                Title = "Projection List",
-                PlaybackRate = 1.50m,
+                Id = Guid.NewGuid(),
+                Token = Enumerable.Range(1, 40).Select(value => (byte)value).ToArray(),
+                Title = "Composed List",
+                PlaybackRate = 1.5m,
                 ExpiredAfter = now.Add(Constants.ListMaxAgeMin),
-                ChannelIds = new[] { "channel-fresh", "channel-stale" }
+                ChannelIds = new[] { "UC-b", "UC-a" }
             };
-            var staleChannel = new ListVideoProjection.Channel
+            var first = CreateChannel("UC-a", now.AddMinutes(1));
+            first.Title = "First";
+            first.Videos = CreateVideos(first.Id, "a", now, Constants.ListRenderMaxItems).ToArray();
+            var second = CreateChannel("UC-b", now.AddMinutes(1));
+            second.Title = "Second";
+            second.Videos = new[]
             {
-                Id = "channel-stale",
-                Url = "https://www.youtube.com/channel/channel-stale",
-                Title = "Stale",
-                Thumbnail = "stale.png",
-                StaleAfter = now.AddMinutes(-1),
-                Videos = CreateVideos("channel-stale", now).ToList()
+                CreateVideo(second.Id, "video-b", now),
+                CreateVideo(second.Id, "video-a", now)
             };
-            var freshChannel = new ListVideoProjection.Channel
-            {
-                Id = "channel-fresh",
-                Url = "https://www.youtube.com/channel/channel-fresh",
-                Title = "Fresh",
-                Thumbnail = "fresh.png",
-                StaleAfter = now.AddMinutes(1)
-            };
-            var unavailableChannel = new ListVideoProjection.Channel
-            {
-                Id = "channel-unavailable",
-                Url = "https://www.youtube.com/channel/channel-unavailable",
-                Title = "Unavailable",
-                Thumbnail = "unavailable.png",
-                StaleAfter = now.AddMinutes(-5),
-                Status = ChannelStatus.Unavailable,
-                StatusReason = ChannelStatusReason.NotFound
-            };
-            var repository = new Mock<IListRepository>(MockBehavior.Strict);
-            repository
-                .Setup(value => value.GetVideoProjectionAsync(
-                    It.Is<SubscriptionList>(actual =>
-                        actual.Id == id &&
-                        actual.Token.SequenceEqual(token) &&
-                        actual.Title == "Projection List" &&
-                        actual.PlaybackRate == 1.50m &&
-                        actual.ExpiredAfter == now.Add(Constants.ListMaxAgeMin) &&
-                        actual.ChannelIds.SequenceEqual(new[] { "channel-fresh", "channel-stale" })),
-                    Constants.ListRenderMaxItems + 1))
-                .ReturnsAsync(new ListVideoProjection
-                {
-                    List = new SubscriptionList
-                    {
-                        Id = list.Id,
-                        Token = list.Token,
-                        Title = list.Title,
-                        PlaybackRate = list.PlaybackRate,
-                        ExpiredAfter = list.ExpiredAfter
-                    },
-                    Channels = new[]
-                    {
-                        staleChannel,
-                        freshChannel,
-                        unavailableChannel
-                    }
-                });
-            var service = new ListService(
-                repository.Object,
-                new FakeAppClock { UtcNow = now },
-                new ChannelRefreshQueue());
+            var lists = new Mock<IListRepository>(MockBehavior.Strict);
+            var channels = new Mock<IChannelRepository>(MockBehavior.Strict);
+            channels.Setup(value => value.GetBatchAsync(
+                    It.Is<IReadOnlyCollection<string>>(ids => ids.SequenceEqual(list.ChannelIds)),
+                    CancellationToken.None))
+                .ReturnsAsync(new[] { second, first });
+            var service = CreateService(lists, channels, now);
 
             var view = await service.GetListViewAsync(list);
 
-            Assert.Equal(id, view.Id);
-            Assert.Equal(WebEncoders.Base64UrlEncode(token), view.Token);
-            Assert.Equal(now, view.Now);
-            Assert.Equal(Constants.ListMaxAgeMin, view.MaxAge);
-            Assert.Equal(1, view.StaleCount);
-            Assert.True(view.HasMoreVideos);
             Assert.Equal(Constants.ListRenderMaxItems, view.Videos.Count());
-            Assert.Equal(new[] { "video-a", "video-b" }, view.Videos.Take(2).Select(video => video.VideoId).ToArray());
-            Assert.Equal("Stale", view.Videos.First().ChannelTitle);
-            Assert.Equal(new[] { "Stale", "Fresh", "Unavailable" }, view.Channels.Select(channel => channel.Title).ToArray());
+            Assert.True(view.HasMoreVideos);
+            Assert.Equal(new[] { "video-a", "video-b" }, view.Videos.Take(2).Select(video => video.VideoId));
+            Assert.All(view.Videos.Take(2), video => Assert.Equal("Second", video.ChannelTitle));
+            Assert.Equal(WebEncoders.Base64UrlEncode(list.Token), view.Token);
+            lists.Verify(value => value.GetAsync(It.IsAny<Guid>()), Times.Never);
         }
 
         [Fact]
-        public async Task GetAuthenticatedListViewAsync_QueuesMissingAndActiveStaleChannels()
+        public async Task GetListChannelViewAsync_MapsMissingAndQueuesMissingAndActiveStaleChannels()
         {
-            var id = Guid.NewGuid();
             var now = new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero);
-            var token = Enumerable.Repeat((byte)9, 40).ToArray();
-            var repository = new Mock<IListRepository>(MockBehavior.Strict);
-            repository.Setup(value => value.GetAuthenticatedVideoProjectionAsync(
-                    id,
-                    It.IsAny<byte[]>(),
-                    It.IsAny<DateTimeOffset>(),
-                    It.IsAny<DateOnly>(),
-                    Constants.ListRenderMaxItems + 1))
-                .ReturnsAsync(new ListVideoProjection
-                {
-                    List = new SubscriptionList { Id = id, Token = token, ExpiredAfter = now.AddDays(1) },
-                    ChannelIds = new[] { "missing", "stale", "fresh", "unavailable" },
-                    Channels = new[]
-                    {
-                        new ListVideoProjection.Channel { Id = "stale", StaleAfter = now.AddMinutes(-1) },
-                        new ListVideoProjection.Channel { Id = "fresh", StaleAfter = now.AddMinutes(1) },
-                        new ListVideoProjection.Channel
-                        {
-                            Id = "unavailable",
-                            StaleAfter = now.AddMinutes(-1),
-                            Status = ChannelStatus.Unavailable
-                        }
-                    }
-                });
-            var queue = new Mock<IChannelRefreshQueue>(MockBehavior.Strict);
-            queue.Setup(value => value.Enqueue(It.IsAny<IReadOnlyCollection<ChannelRefreshRequest>>()))
-                .Returns(2);
-            var service = new ListService(repository.Object, new FakeAppClock { UtcNow = now }, queue.Object);
-
-            await service.GetAuthenticatedListViewAsync(id, WebEncoders.Base64UrlEncode(token));
-
-            queue.Verify(value => value.Enqueue(It.Is<IReadOnlyCollection<ChannelRefreshRequest>>(requests =>
-                requests.Count == 2
-                && requests.Any(request => request.ChannelId == "missing" && request.Reason == ChannelRefreshReason.Missing)
-                && requests.Any(request => request.ChannelId == "stale"
-                    && request.Reason == ChannelRefreshReason.Stale
-                    && request.StaleAfter == now.AddMinutes(-1)))), Times.Once);
-        }
-
-        [Fact]
-        public async Task GetListChannelViewAsync_MapsChannelProjectionWithoutVideos()
-        {
-            var id = Guid.NewGuid();
-            var now = new DateTimeOffset(2026, 5, 18, 12, 0, 0, TimeSpan.Zero);
-            var token = Enumerable.Repeat((byte)7, 40).ToArray();
             var list = new ListModel
             {
-                Id = id,
-                Token = token,
-                Title = "Channels",
-                ExpiredAfter = now.Add(Constants.ListMaxAgeMin)
+                Id = Guid.NewGuid(),
+                Token = Array.Empty<byte>(),
+                ExpiredAfter = now.AddDays(1),
+                ChannelIds = new[] { "missing", "stale", "fresh", "unavailable" }
             };
-            var repository = new Mock<IListRepository>(MockBehavior.Strict);
-            repository
-                .Setup(value => value.GetChannelProjectionAsync(
-                    It.Is<SubscriptionList>(actual =>
-                        actual.Id == id &&
-                        actual.Token.SequenceEqual(token) &&
-                        actual.Title == "Channels" &&
-                        actual.ExpiredAfter == now.Add(Constants.ListMaxAgeMin))))
-                .ReturnsAsync(new ListChannelProjection
-                {
-                    List = new SubscriptionList
-                    {
-                        Id = list.Id,
-                        Token = list.Token,
-                        Title = list.Title,
-                        PlaybackRate = list.PlaybackRate,
-                        ExpiredAfter = list.ExpiredAfter
-                    },
-                    Channels = new[]
-                    {
-                        new ListChannelProjection.Channel
-                        {
-                            Id = "channel-1",
-                            Url = "https://www.youtube.com/channel/channel-1",
-                            Title = "Channel",
-                            Thumbnail = "channel.png",
-                            StaleAfter = now.AddMinutes(-1)
-                        }
-                    }
-                });
-            var service = new ListService(
-                repository.Object,
-                new FakeAppClock { UtcNow = now },
-                new ChannelRefreshQueue());
-
-            var view = await service.GetListChannelViewAsync(list);
-
-            Assert.Equal("Channels", view.Title);
-            Assert.Empty(view.Videos);
-            var channel = Assert.Single(view.Channels);
-            Assert.Equal("channel-1", channel.Id);
-            Assert.Equal(now.AddMinutes(-1), channel.StaleAfter);
-        }
-
-        [Fact]
-        public async Task GetListViewAsync_ReturnsNullWhenListDisappearsBeforeProjectionRead()
-        {
-            var list = new ListModel { Id = Guid.NewGuid() };
-            var repository = new Mock<IListRepository>(MockBehavior.Strict);
-            repository
-                .Setup(value => value.GetVideoProjectionAsync(
-                    It.Is<SubscriptionList>(actual => actual.Id == list.Id),
-                    Constants.ListRenderMaxItems + 1))
-                .ReturnsAsync((ListVideoProjection)null);
-            var service = new ListService(repository.Object, new FakeAppClock(), new ChannelRefreshQueue());
-
-            Assert.Null(await service.GetListViewAsync(list));
-        }
-
-        [Fact]
-        public async Task GetListChannelViewAsync_ReturnsNullWhenListDisappearsBeforeProjectionRead()
-        {
-            var list = new ListModel { Id = Guid.NewGuid() };
-            var repository = new Mock<IListRepository>(MockBehavior.Strict);
-            repository
-                .Setup(value => value.GetChannelProjectionAsync(
-                    It.Is<SubscriptionList>(actual => actual.Id == list.Id)))
-                .ReturnsAsync((ListChannelProjection)null);
-            var service = new ListService(repository.Object, new FakeAppClock(), new ChannelRefreshQueue());
-
-            Assert.Null(await service.GetListChannelViewAsync(list));
-        }
-
-        [Fact]
-        public async Task GetAuthenticatedListAsync_UsesTokenUtilsAndRenewsForUtcToday()
-        {
-            var id = Guid.NewGuid();
-            var now = new DateTimeOffset(2026, 5, 18, 23, 30, 0, TimeSpan.Zero);
-            var token = Enumerable.Range(1, 40).Select(value => (byte)value).ToArray();
-            var tokenString = WebEncoders.Base64UrlEncode(token);
-            var expectedList = new SubscriptionList
+            var persisted = new[]
             {
-                Id = id,
-                Token = token,
-                Title = "Authenticated",
-                ExpiredAfter = now.AddDays(-1),
-                ChannelIds = new[] { "channel-a", "channel-b" }
+                CreateChannel("stale", now.AddMinutes(-1)),
+                CreateChannel("fresh", now.AddMinutes(1)),
+                CreateChannel("unavailable", now.AddMinutes(-1), ChannelStatus.Unavailable)
             };
-            var repository = new Mock<IListRepository>(MockBehavior.Strict);
-            repository
-                .Setup(value => value.GetAsync(id))
-                .ReturnsAsync(expectedList);
-            repository
-                .Setup(value => value.RenewExpirationAsync(
-                    id,
-                    now.Add(Constants.ListMaxAgeMin),
-                    DateOnly.FromDateTime(now.UtcDateTime)))
-                .Returns(Task.CompletedTask);
-            var service = new ListService(
-                repository.Object,
-                new FakeAppClock { UtcNow = now },
-                new ChannelRefreshQueue());
-
-            var list = await service.GetAuthenticatedListAsync(id, tokenString);
-
-            Assert.Equal(expectedList.Id, list.Id);
-            Assert.Equal(expectedList.Token, list.Token);
-            Assert.Equal(expectedList.ChannelIds, list.ChannelIds);
-        }
-
-        [Fact]
-        public async Task GetAuthenticatedListAsync_TokenMismatchReturnsNullWithoutRenewing()
-        {
-            var id = Guid.NewGuid();
-            var list = new SubscriptionList
-            {
-                Id = id,
-                Token = Enumerable.Repeat((byte)1, 40).ToArray(),
-                Title = "Authenticated"
-            };
-            var repository = new Mock<IListRepository>(MockBehavior.Strict);
-            repository
-                .Setup(value => value.GetAsync(id))
-                .ReturnsAsync(list);
-            var service = new ListService(repository.Object, new FakeAppClock(), new ChannelRefreshQueue());
-
-            var result = await service.GetAuthenticatedListAsync(id, "wrong");
-
-            Assert.Null(result);
-            repository.Verify(value => value.RenewExpirationAsync(
-                It.IsAny<Guid>(),
-                It.IsAny<DateTimeOffset>(),
-                It.IsAny<DateOnly>()), Times.Never);
-        }
-
-        [Fact]
-        public async Task GetAuthenticatedListAsync_DoesNotRenewWhenAlreadyRenewedToday()
-        {
-            var id = Guid.NewGuid();
-            var now = new DateTimeOffset(2026, 5, 18, 12, 0, 0, TimeSpan.Zero);
-            var token = Enumerable.Repeat((byte)4, 40).ToArray();
-            var list = new SubscriptionList
-            {
-                Id = id,
-                Token = token,
-                Title = "Authenticated",
-                ExpirationRenewedOn = DateOnly.FromDateTime(now.UtcDateTime)
-            };
-            var repository = new Mock<IListRepository>(MockBehavior.Strict);
-            repository
-                .Setup(value => value.GetAsync(id))
-                .ReturnsAsync(list);
-            var service = new ListService(
-                repository.Object,
-                new FakeAppClock { UtcNow = now },
-                new ChannelRefreshQueue());
-
-            var result = await service.GetAuthenticatedListAsync(id, WebEncoders.Base64UrlEncode(token));
-
-            Assert.Equal(list.Id, result.Id);
-            Assert.Equal(list.Token, result.Token);
-            repository.Verify(value => value.RenewExpirationAsync(
-                It.IsAny<Guid>(),
-                It.IsAny<DateTimeOffset>(),
-                It.IsAny<DateOnly>()), Times.Never);
-        }
-
-        [Fact]
-        public async Task AddChannelAsync_QueuesNewChannel()
-        {
-            var listId = Guid.NewGuid();
-            var repository = new Mock<IListRepository>(MockBehavior.Strict);
-            repository
-                .Setup(value => value.AddChannelAsync(listId, "channel-1"))
-                .Returns(Task.CompletedTask);
-            var queue = new Mock<IChannelRefreshQueue>(MockBehavior.Strict);
-            queue.Setup(value => value.TryEnqueue(It.Is<ChannelRefreshRequest>(request =>
-                request.ChannelId == "channel-1" && request.Reason == ChannelRefreshReason.Missing)))
-                .Returns(true);
-            var service = new ListService(
-                repository.Object,
-                new FakeAppClock(),
-                queue.Object);
-
-            await service.AddChannelAsync(listId, "channel-1");
-
-            repository.Verify(value => value.AddChannelAsync(listId, "channel-1"), Times.Once);
-            queue.Verify(value => value.TryEnqueue(It.Is<ChannelRefreshRequest>(request =>
-                request.ChannelId == "channel-1" && request.Reason == ChannelRefreshReason.Missing)), Times.Once);
-        }
-
-        [Fact]
-        public async Task GetListChannelViewAsync_QueuesOnlyMissingAndActiveStaleChannels()
-        {
-            var now = new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero);
-            var list = new ListModel { Id = Guid.NewGuid() };
-            var repository = new Mock<IListRepository>(MockBehavior.Strict);
-            repository.Setup(value => value.GetChannelProjectionAsync(It.IsAny<SubscriptionList>()))
-                .ReturnsAsync(new ListChannelProjection
-                {
-                    List = new SubscriptionList { Id = list.Id, Token = Array.Empty<byte>(), ExpiredAfter = now.AddDays(1) },
-                    ChannelIds = new[] { "missing", "stale", "fresh", "unavailable" },
-                    Channels = new[]
-                    {
-                        new ListChannelProjection.Channel
-                        {
-                            Id = "missing",
-                            Title = "Temporarily unavailable",
-                            Status = ChannelStatus.Unavailable,
-                            IsMissing = true
-                        },
-                        new ListChannelProjection.Channel { Id = "stale", StaleAfter = now.AddMinutes(-1) },
-                        new ListChannelProjection.Channel { Id = "fresh", StaleAfter = now.AddMinutes(1) },
-                        new ListChannelProjection.Channel
-                        {
-                            Id = "unavailable",
-                            StaleAfter = now.AddMinutes(-1),
-                            Status = ChannelStatus.Unavailable
-                        }
-                    }
-                });
+            var lists = new Mock<IListRepository>(MockBehavior.Strict);
+            var channels = new Mock<IChannelRepository>(MockBehavior.Strict);
+            channels.Setup(value => value.GetBatchAsync(
+                    It.IsAny<IReadOnlyCollection<string>>(),
+                    CancellationToken.None))
+                .ReturnsAsync(persisted);
             var queue = new Mock<IChannelRefreshQueue>(MockBehavior.Strict);
             queue.Setup(value => value.Enqueue(It.IsAny<IReadOnlyCollection<ChannelRefreshRequest>>()))
                 .Returns(2);
-            var service = new ListService(repository.Object, new FakeAppClock { UtcNow = now }, queue.Object);
+            var service = new ListService(lists.Object, channels.Object, new FakeAppClock { UtcNow = now }, queue.Object);
 
             var view = await service.GetListChannelViewAsync(list);
 
-            queue.Verify(value => value.Enqueue(It.Is<IReadOnlyCollection<ChannelRefreshRequest>>(requests =>
-                requests.Count == 2
-                && requests.Any(request => request.ChannelId == "missing" && request.Reason == ChannelRefreshReason.Missing)
-                && requests.Any(request => request.ChannelId == "stale"
-                    && request.Reason == ChannelRefreshReason.Stale
-                    && request.StaleAfter == now.AddMinutes(-1)))), Times.Once);
+            Assert.Empty(view.Videos);
             var missing = view.Channels.Single(channel => channel.Id == "missing");
             Assert.True(missing.IsMissing);
             Assert.Equal("Temporarily unavailable", missing.Title);
+            Assert.Equal("https://www.youtube.com/channel/missing", missing.Url);
+            queue.Verify(value => value.Enqueue(It.Is<IReadOnlyCollection<ChannelRefreshRequest>>(requests =>
+                requests.Count == 2
+                && requests.Any(request => request.ChannelId == "missing" && request.Reason == ChannelRefreshReason.Missing)
+                && requests.Any(request => request.ChannelId == "stale"
+                    && request.Reason == ChannelRefreshReason.Stale
+                    && request.StaleAfter == now.AddMinutes(-1)))), Times.Once);
         }
 
         [Fact]
-        public async Task ForceRefreshAsync_QueuesEveryListChannel()
+        public async Task ForceRefreshAsync_UsesLoadedMembershipWithoutPersistenceReads()
         {
-            var list = new ListModel { Id = Guid.NewGuid() };
-            var repository = new Mock<IListRepository>(MockBehavior.Strict);
-            repository.Setup(value => value.GetChannelProjectionAsync(It.IsAny<SubscriptionList>()))
-                .ReturnsAsync(new ListChannelProjection
-                {
-                    List = new SubscriptionList { Id = list.Id },
-                    ChannelIds = new[] { "channel-1", "channel-2" }
-                });
+            var list = new ListModel
+            {
+                Id = Guid.NewGuid(),
+                ChannelIds = new[] { "channel-1", "channel-2" }
+            };
+            var lists = new Mock<IListRepository>(MockBehavior.Strict);
+            var channels = new Mock<IChannelRepository>(MockBehavior.Strict);
             var queue = new Mock<IChannelRefreshQueue>(MockBehavior.Strict);
             queue.Setup(value => value.Enqueue(It.IsAny<IReadOnlyCollection<ChannelRefreshRequest>>()))
                 .Returns(2);
-            var service = new ListService(repository.Object, new FakeAppClock(), queue.Object);
+            var service = new ListService(lists.Object, channels.Object, new FakeAppClock(), queue.Object);
 
             await service.ForceRefreshAsync(list);
 
             queue.Verify(value => value.Enqueue(It.Is<IReadOnlyCollection<ChannelRefreshRequest>>(requests =>
-                requests.Select(request => request.ChannelId).SequenceEqual(new[] { "channel-1", "channel-2" })
+                requests.Select(request => request.ChannelId).SequenceEqual(list.ChannelIds)
                 && requests.All(request => request.Reason == ChannelRefreshReason.Forced))), Times.Once);
         }
 
-        private static IEnumerable<ChannelVideo> CreateVideos(string channelId, DateTimeOffset now)
+        [Fact]
+        public async Task AddChannelAsync_PersistsMembershipThenQueuesDiscovery()
         {
-            yield return new ChannelVideo
-            {
-                ChannelId = channelId,
-                VideoId = "video-b",
-                Title = "B",
-                Duration = TimeSpan.FromMinutes(5),
-                PublishedAt = now.AddMinutes(-1),
-                ThumbnailUrl = "b.png"
-            };
-            yield return new ChannelVideo
-            {
-                ChannelId = channelId,
-                VideoId = "video-a",
-                Title = "A",
-                Duration = TimeSpan.FromMinutes(5),
-                PublishedAt = now.AddMinutes(-1),
-                ThumbnailUrl = "a.png"
-            };
+            var id = Guid.NewGuid();
+            var lists = new Mock<IListRepository>(MockBehavior.Strict);
+            lists.Setup(value => value.AddChannelAsync(id, "UC-new")).Returns(Task.CompletedTask);
+            var channels = new Mock<IChannelRepository>(MockBehavior.Strict);
+            var queue = new Mock<IChannelRefreshQueue>(MockBehavior.Strict);
+            queue.Setup(value => value.TryEnqueue(It.IsAny<ChannelRefreshRequest>())).Returns(true);
+            var service = new ListService(lists.Object, channels.Object, new FakeAppClock(), queue.Object);
 
-            for (var index = 0; index < Constants.ListRenderMaxItems; index++)
+            await service.AddChannelAsync(id, "UC-new");
+
+            queue.Verify(value => value.TryEnqueue(It.Is<ChannelRefreshRequest>(request =>
+                request.ChannelId == "UC-new" && request.Reason == ChannelRefreshReason.Missing)), Times.Once);
+        }
+
+        private static ListService CreateService(
+            Mock<IListRepository> lists,
+            Mock<IChannelRepository> channels,
+            DateTimeOffset now)
+        {
+            return new ListService(
+                lists.Object,
+                channels.Object,
+                new FakeAppClock { UtcNow = now },
+                new ChannelRefreshQueue());
+        }
+
+        private static SubscriptionList CreateList(
+            DateTimeOffset now,
+            byte[] token,
+            params string[] channelIds)
+        {
+            return new SubscriptionList
             {
-                yield return new ChannelVideo
-                {
-                    ChannelId = channelId,
-                    VideoId = $"video-{index:D3}",
-                    Title = $"Video {index}",
-                    Duration = TimeSpan.FromMinutes(5),
-                    PublishedAt = now.AddMinutes(-2 - index),
-                    ThumbnailUrl = $"{index}.png"
-                };
-            }
+                Id = Guid.NewGuid(),
+                Token = token,
+                Title = "List",
+                PlaybackRate = 1.25m,
+                ExpiredAfter = now.AddDays(45),
+                ChannelIds = channelIds
+            };
+        }
+
+        private static Channel CreateChannel(
+            string id,
+            DateTimeOffset staleAfter,
+            ChannelStatus status = ChannelStatus.Active)
+        {
+            return new Channel
+            {
+                Id = id,
+                Url = $"https://www.youtube.com/channel/{id}",
+                Title = id,
+                Thumbnail = $"{id}.png",
+                PlaylistId = id,
+                StaleAfter = staleAfter,
+                Status = status
+            };
+        }
+
+        private static IEnumerable<ChannelVideo> CreateVideos(
+            string channelId,
+            string prefix,
+            DateTimeOffset now,
+            int count)
+        {
+            return Enumerable.Range(0, count).Select(index =>
+                CreateVideo(channelId, $"{prefix}-{index:D3}", now.AddMinutes(-1 - index)));
+        }
+
+        private static ChannelVideo CreateVideo(
+            string channelId,
+            string id,
+            DateTimeOffset publishedAt)
+        {
+            return new ChannelVideo
+            {
+                ChannelId = channelId,
+                VideoId = id,
+                Title = id,
+                Duration = TimeSpan.FromMinutes(5),
+                PublishedAt = publishedAt,
+                ThumbnailUrl = $"{id}.png"
+            };
         }
     }
 }

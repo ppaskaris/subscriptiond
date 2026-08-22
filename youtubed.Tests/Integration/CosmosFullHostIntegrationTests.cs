@@ -134,10 +134,10 @@ namespace youtubed.Tests.Integration
                 $"{listPath}/remove-channel",
                 Form(("ChannelId", channelId)));
             Assert.Equal(HttpStatusCode.Redirect, removeResponse.StatusCode);
-            var channelView = await factory.Services
+            var afterRemoval = await factory.Services
                 .GetRequiredService<IListRepository>()
-                .GetChannelProjectionAsync(persistedList);
-            Assert.Empty(channelView.ChannelIds);
+                .GetAsync(listId);
+            Assert.Empty(afterRemoval.ChannelIds);
 
             using var deleteResponse = await client.PostAsync(
                 $"{listPath}/delete",

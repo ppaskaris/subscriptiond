@@ -6,9 +6,9 @@ using youtubed.Domain;
 
 namespace youtubed.Tests.ProviderContracts
 {
-    public abstract class ChannelAndProjectionProviderContractTests : ProviderContractTestBase
+    public abstract class ChannelProviderContractTests : ProviderContractTestBase
     {
-        protected ChannelAndProjectionProviderContractTests(IProviderContractTestFixture fixture)
+        protected ChannelProviderContractTests(IProviderContractTestFixture fixture)
             : base(fixture)
         {
         }
@@ -41,11 +41,9 @@ namespace youtubed.Tests.ProviderContracts
             Assert.Single(Assert.Single(batch).Videos);
         }
 
-        protected async Task ProjectionUpdateContractAsync()
+        protected async Task BatchReadReflectsCanonicalUpdatesContractAsync()
         {
-            var list = await CreateListAsync();
-            var channel = await CreateChannelAsync("projected-channel", title: "Before");
-            await AddChannelToListAsync(list.Id, channel.Id);
+            var channel = await CreateChannelAsync("batch-channel", title: "Before");
             var refreshed = ToDomainChannel(channel, Array.Empty<ChannelVideo>());
             refreshed.Title = "After";
 
@@ -53,9 +51,10 @@ namespace youtubed.Tests.ProviderContracts
                 new ChannelRefreshResult { Channel = refreshed },
                 CancellationToken.None);
 
-            var projection = await Provider.Lists.GetChannelProjectionAsync(list);
-            Assert.Equal("After", Assert.Single(projection.Channels).Title);
-            Assert.Equal(channel.Id, Assert.Single(projection.ChannelIds));
+            var batch = await Provider.Channels.GetBatchAsync(
+                new[] { "missing-channel", channel.Id },
+                CancellationToken.None);
+            Assert.Equal("After", Assert.Single(batch).Title);
         }
     }
 }

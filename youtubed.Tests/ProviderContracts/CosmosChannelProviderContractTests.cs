@@ -6,7 +6,7 @@ namespace youtubed.Tests.ProviderContracts
 {
     [Collection(CosmosTestFixture.CollectionName)]
     [Trait("Category", "Cosmos")]
-    public sealed class CosmosChannelProviderContractTests : ChannelAndProjectionProviderContractTests
+    public sealed class CosmosChannelProviderContractTests : ChannelProviderContractTests
     {
         public CosmosChannelProviderContractTests(CosmosTestFixture fixture)
             : base(new CosmosProviderContractTestFixture(fixture))
@@ -18,6 +18,7 @@ namespace youtubed.Tests.ProviderContracts
             CanonicalChannelCreateReadUpdateContractAsync();
 
         [CosmosFact]
-        public Task ProjectionUpdate() => ProjectionUpdateContractAsync();
+        public Task BatchReadReflectsCanonicalUpdates() =>
+            BatchReadReflectsCanonicalUpdatesContractAsync();
     }
 }

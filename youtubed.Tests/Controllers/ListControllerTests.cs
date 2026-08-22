@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Options;
 using Moq;
 using Xunit;
 using youtubed.Controllers;
@@ -575,28 +574,6 @@ namespace youtubed.Tests.Controllers
         }
 
         [Fact]
-        public async Task CreateShareLinkPost_CreationDisabled_ReturnsServiceUnavailableWithoutCreating()
-        {
-            var id = Guid.NewGuid();
-            var list = CreateList(id);
-            var listService = CreateListServiceReturning(id, list);
-            var shareLinkService = new Mock<IShareLinkService>(MockBehavior.Strict);
-
-            var result = await CreateController(
-                    listService: listService,
-                    shareLinkService: shareLinkService,
-                    shareCreationEnabled: false)
-                .CreateShareLink(id, list.TokenString);
-
-            var status = Assert.IsType<ContentResult>(result);
-            Assert.Equal(503, status.StatusCode);
-            Assert.Contains("temporarily unavailable", status.Content, StringComparison.Ordinal);
-            shareLinkService.Verify(
-                service => service.CreateShareLinkAsync(It.IsAny<Guid>()),
-                Times.Never);
-        }
-
-        [Fact]
         public async Task DeleteAllShareLinksPost_GuardsAndRedirect()
         {
             Assert.IsType<BadRequestResult>(await CreateController().DeleteAllShareLinks(null, "token"));
@@ -674,18 +651,13 @@ namespace youtubed.Tests.Controllers
             Mock<IListService> listService = null,
             Mock<IChannelService> channelService = null,
             Mock<IShareLinkService> shareLinkService = null,
-            FakeAppClock clock = null,
-            bool shareCreationEnabled = true)
+            FakeAppClock clock = null)
         {
             return new ListController(
                 (listService ?? new Mock<IListService>(MockBehavior.Strict)).Object,
                 (channelService ?? new Mock<IChannelService>(MockBehavior.Strict)).Object,
                 (shareLinkService ?? new Mock<IShareLinkService>(MockBehavior.Strict)).Object,
-                clock ?? new FakeAppClock(),
-                Options.Create(new ShareLinkOptions
-                {
-                    CreationEnabled = shareCreationEnabled
-                }));
+                clock ?? new FakeAppClock());
         }
 
         private static Mock<IListService> CreateListServiceReturning(Guid id, ListModel list)

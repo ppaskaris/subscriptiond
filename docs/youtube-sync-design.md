@@ -13,7 +13,7 @@ and production runs one application instance.
 
 The current pipeline retained batching choices that were valuable when one channel refresh could
 fan out into many embedded list projections. That fan-out no longer exists. A refresh now updates
-one channel document or one normalized set of SQL channel rows, but it still:
+one channel document, but it still:
 
 - processes a FIFO batch in channel-ID insertion order, with no promotion for missing channels,
   explicit refreshes, or older stale data;
@@ -208,8 +208,7 @@ enum ChannelRefreshDisposition
 Persist a completed channel as soon as its required playlist and duration data are available.
 Repository persistence should be singular (`SaveRefreshResultAsync`) even when the YouTube work
 was batched. This matches Cosmos, where each channel is already a separate document, and prevents
-a later channel failure from wasting successful YouTube work. SQL may keep its provider-specific
-transaction around that one channel's metadata and video rows.
+a later channel failure from wasting successful YouTube work.
 
 On one optimistic-concurrency conflict, reread the current channel, reapply the metadata/video
 merge, and retry once as required by the repository policy. A second conflict fails that channel
@@ -295,10 +294,9 @@ Unit tests should prove:
 - rate-limit backoff and quota-exhaustion cooldown do not mark channels unavailable; and
 - a missing cache is created or negative-cached rather than silently completed.
 
-Provider contract tests should run the same incremental merge and singular-save scenarios against
-SQL and Cosmos. SQL changes require the LocalDB suite. Cosmos document, ETag, size, or request-shape
-changes require the opted-in emulator suite, including representative request charge and serialized
-item-size assertions.
+Persistence contract tests should cover incremental merge and singular-save scenarios. Cosmos
+document, ETag, size, or request-shape changes require the opted-in emulator suite, including
+representative request charge and serialized item-size assertions.
 
 Add an instrumented fake-YouTube throughput test for representative cohorts:
 
@@ -318,7 +316,7 @@ for the old and new pipelines. It should not assert wall-clock timing in the ord
 2. Replace the fixed delay with the global request gate and add error classification/telemetry.
 3. Introduce incremental playlist reconciliation and singular per-channel persistence behind one
    implementation switch for comparison.
-4. Run the required SQL and Cosmos provider suites, then compare call counts and elapsed time with
+4. Run the required Cosmos suite, then compare call counts and elapsed time with
    the instrumented scenarios.
 5. Enable the new path, observe queue age, channel latency, call counts, and throttle responses, and
    tune only the request rate or cohort size if needed.

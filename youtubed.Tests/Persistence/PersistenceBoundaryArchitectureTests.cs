@@ -44,12 +44,10 @@ namespace youtubed.Tests.Persistence
             Assert.Contains(cosmosTypes, type => typeof(IChannelRepository).IsAssignableFrom(type));
             Assert.Contains(cosmosTypes, type =>
                 typeof(IShareLinkRepository).IsAssignableFrom(type));
-            Assert.Contains(cosmosTypes, type =>
-                typeof(IExpirationPurger).IsAssignableFrom(type));
         }
 
         [Fact]
-        public void ObsoleteChannelVideoPortAndSqlRow_AreRemoved()
+        public void ObsoleteChannelVideoPortAndProviderRow_AreRemoved()
         {
             var assembly = typeof(IListRepository).Assembly;
 

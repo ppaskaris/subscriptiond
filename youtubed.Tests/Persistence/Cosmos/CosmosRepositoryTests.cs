@@ -227,18 +227,6 @@ namespace youtubed.Tests.Persistence.Cosmos
             Assert.DoesNotContain("dbs/", message, StringComparison.OrdinalIgnoreCase);
         }
 
-        [Fact]
-        public async Task ExpirationPurgerLeavesTtlAndChannelRetentionToCosmosPolicy()
-        {
-            var purger = new CosmosExpirationPurger();
-
-            Assert.Equal(0, await purger.PurgeExpiredListsAsync(CancellationToken.None));
-            Assert.Equal(0, await purger.PurgeExpiredShareLinksAsync(CancellationToken.None));
-            Assert.Equal(0, await purger.PurgeExpiredChannelsAsync(CancellationToken.None));
-            await Assert.ThrowsAsync<OperationCanceledException>(() =>
-                purger.PurgeExpiredListsAsync(new CancellationToken(canceled: true)));
-        }
-
         private static FakeAppClock CreateClock()
         {
             return new FakeAppClock { UtcNow = Now };

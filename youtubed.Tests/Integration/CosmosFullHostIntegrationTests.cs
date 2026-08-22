@@ -76,9 +76,6 @@ namespace youtubed.Tests.Integration
                 factory.Services.GetRequiredService<IChannelRepository>());
             Assert.IsType<CosmosShareLinkRepository>(
                 factory.Services.GetRequiredService<IShareLinkRepository>());
-            Assert.IsType<CosmosExpirationPurger>(
-                factory.Services.GetRequiredService<IExpirationPurger>());
-
             using var createResponse = await client.PostAsync(
                 "/create-list",
                 Form(("Title", "Cosmos Host List")));
@@ -157,7 +154,6 @@ namespace youtubed.Tests.Integration
                 Environments.Production,
                 new Dictionary<string, string>
                 {
-                    ["Persistence:Provider"] = PersistenceProvider.Cosmos.ToString(),
                     ["Cosmos:DatabaseName"] = databaseName,
                     ["Cosmos:ConnectionString"] = " "
                 });
@@ -233,7 +229,6 @@ namespace youtubed.Tests.Integration
                 Environments.Production,
                 new Dictionary<string, string>
                 {
-                    ["Persistence:Provider"] = PersistenceProvider.Cosmos.ToString(),
                     ["Cosmos:ConnectionString"] = connectionString,
                     ["Cosmos:DatabaseName"] = databaseName
                 });
@@ -317,7 +312,6 @@ namespace youtubed.Tests.Integration
                     Environments.Development,
                     new Dictionary<string, string>
                     {
-                        ["Persistence:Provider"] = PersistenceProvider.Cosmos.ToString(),
                         ["Cosmos:ConnectionString"] = connectionString,
                         ["Cosmos:DatabaseName"] = databaseName
                     })
@@ -333,15 +327,6 @@ namespace youtubed.Tests.Integration
                 {
                     services.RemoveAll<IYoutubeService>();
                     services.RemoveAll<IAppClock>();
-                    var maintenance = services
-                        .Where(service => service.ServiceType == typeof(IHostedService)
-                            && service.ImplementationType == typeof(MaintenanceHostedService))
-                        .ToArray();
-                    foreach (var registration in maintenance)
-                    {
-                        services.Remove(registration);
-                    }
-
                     services.PostConfigure<MvcOptions>(options =>
                     {
                         var antiforgery = options.Filters

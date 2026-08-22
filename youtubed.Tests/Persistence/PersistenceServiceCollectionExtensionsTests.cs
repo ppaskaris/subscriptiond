@@ -2,9 +2,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
 using Xunit;
-using youtubed.Data;
 using youtubed.Persistence;
 using youtubed.Persistence.Cosmos;
 
@@ -13,45 +11,16 @@ namespace youtubed.Tests.Persistence
     public sealed class PersistenceServiceCollectionExtensionsTests
     {
         [Fact]
-        public void AddPersistence_DefaultsToSqlServer()
+        public void AddPersistence_RegistersCosmosRepositories()
         {
             var services = new ServiceCollection();
-            var configuration = CreateConfiguration();
-
-            services.AddPersistence(configuration);
-
-            AssertSqlServerRegistrations(services);
-            using var provider = services.BuildServiceProvider();
-            Assert.Equal(
-                PersistenceProvider.SqlServer,
-                provider.GetRequiredService<IOptions<PersistenceOptions>>().Value.Provider);
-        }
-
-        [Fact]
-        public void AddPersistence_UsesConfiguredSqlServerProvider()
-        {
-            var services = new ServiceCollection();
-            var configuration = CreateConfiguration(PersistenceProvider.SqlServer.ToString());
-
-            services.AddPersistence(configuration);
-
-            AssertSqlServerRegistrations(services);
-        }
-
-        [Fact]
-        public void AddPersistence_RegistersCosmosProvider()
-        {
-            var services = new ServiceCollection();
-            var configuration = CreateConfiguration(
-                PersistenceProvider.Cosmos.ToString(),
-                includeCosmos: true);
+            var configuration = CreateConfiguration(includeCosmos: true);
 
             services.AddPersistence(configuration);
 
             AssertRegistration<IListRepository, CosmosListRepository>(services);
             AssertRegistration<IShareLinkRepository, CosmosShareLinkRepository>(services);
             AssertRegistration<IChannelRepository, CosmosChannelRepository>(services);
-            AssertRegistration<IExpirationPurger, CosmosExpirationPurger>(services);
         }
 
         [Fact]
@@ -62,7 +31,6 @@ namespace youtubed.Tests.Persistence
             var configuration = new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string>
                 {
-                    ["Persistence:Provider"] = PersistenceProvider.Cosmos.ToString(),
                     ["Cosmos:DatabaseName"] = secretName
                 })
                 .Build();
@@ -74,19 +42,9 @@ namespace youtubed.Tests.Persistence
             Assert.DoesNotContain(secretName, exception.Message);
         }
 
-        private static IConfiguration CreateConfiguration(
-            string provider = null,
-            bool includeCosmos = false)
+        private static IConfiguration CreateConfiguration(bool includeCosmos = false)
         {
-            var values = new Dictionary<string, string>
-            {
-                ["ConnectionStrings:Main"] = "Server=(localdb)\\MSSQLLocalDB;Database=youtubed_tests"
-            };
-
-            if (provider != null)
-            {
-                values["Persistence:Provider"] = provider;
-            }
+            var values = new Dictionary<string, string>();
 
             if (includeCosmos)
             {
@@ -98,15 +56,6 @@ namespace youtubed.Tests.Persistence
             return new ConfigurationBuilder()
                 .AddInMemoryCollection(values)
                 .Build();
-        }
-
-        private static void AssertSqlServerRegistrations(IServiceCollection services)
-        {
-            AssertRegistration<IConnectionFactory, ConnectionStringConnectionFactory>(services);
-            AssertRegistration<IListRepository, ListRepository>(services);
-            AssertRegistration<IShareLinkRepository, ShareLinkRepository>(services);
-            AssertRegistration<IChannelRepository, ChannelRepository>(services);
-            AssertRegistration<IExpirationPurger, SqlExpirationPurger>(services);
         }
 
         private static void AssertRegistration<TService, TImplementation>(IServiceCollection services)

@@ -25,7 +25,7 @@ remain at or below 700 RU/s, preserving the documented 30% reserve on the 1,000 
 database. These bounds describe the supported single-instance hobby deployment; they are not a
 general capacity claim.
 
-Run the emulator evidence after the build and the non-provider and LocalDB suites:
+Run the emulator evidence after the build and the non-Cosmos suite:
 
 ```powershell
 $env:YOUTUBED_RUN_COSMOS_TESTS = "true"

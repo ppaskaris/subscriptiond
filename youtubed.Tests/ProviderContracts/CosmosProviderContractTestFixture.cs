@@ -23,8 +23,6 @@ namespace youtubed.Tests.ProviderContracts
 
         public string ProviderName => "Cosmos";
 
-        public ExpirationPurgeBehavior PurgeBehavior => ExpirationPurgeBehavior.NoOp;
-
         public async Task ResetAsync()
         {
             await DeleteAllAsync<CosmosListDocument>(_fixture.Context.Lists);
@@ -48,8 +46,7 @@ namespace youtubed.Tests.ProviderContracts
             return new ProviderContractTestContext(
                 lists,
                 channels,
-                shareLinks,
-                new CosmosExpirationPurger());
+                shareLinks);
         }
 
         private static async Task DeleteAllAsync<T>(Container container)

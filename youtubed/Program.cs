@@ -4,19 +4,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using youtubed.DataTransfer;
 using youtubed.Persistence;
 using youtubed.Services;
-
-if (DataTransferCli.IsDataTransferCommand(args))
-{
-    return await DataTransferCli.RunAsync(args);
-}
-
-if (SqlToCosmosImportCli.IsCommand(args))
-{
-    return await SqlToCosmosImportCli.RunAsync(args);
-}
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -34,8 +23,6 @@ builder.Services.AddLogging(loggingBuilder =>
 
 builder.Services.Configure<YoutubeOptions>(builder.Configuration.GetSection("Youtube"));
 builder.Services.Configure<YoutubeSyncOptions>(builder.Configuration.GetSection(YoutubeSyncOptions.SectionName));
-builder.Services.Configure<ShareLinkOptions>(builder.Configuration.GetSection(ShareLinkOptions.SectionName));
-
 builder.Services.AddPersistence(builder.Configuration);
 builder.Services.AddSingleton<YoutubeHttpResponseObserver>();
 builder.Services.AddSingleton<IYoutubeRetryAfterProvider>(provider =>
@@ -52,8 +39,6 @@ builder.Services.AddSingleton<IListService, ListService>();
 builder.Services.AddSingleton<IShareLinkService, ShareLinkService>();
 
 builder.Services.AddSingleton<IHostedService, ChannelRefreshHostedService>();
-builder.Services.AddSingleton<IHostedService, MaintenanceHostedService>();
-
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())

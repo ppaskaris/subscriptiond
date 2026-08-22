@@ -7,13 +7,11 @@ namespace youtubed.Tests.ProviderContracts
         public ProviderContractTestContext(
             IListRepository lists,
             IChannelRepository channels,
-            IShareLinkRepository shareLinks,
-            IExpirationPurger expirationPurger)
+            IShareLinkRepository shareLinks)
         {
             Lists = lists;
             Channels = channels;
             ShareLinks = shareLinks;
-            ExpirationPurger = expirationPurger;
         }
 
         public IListRepository Lists { get; }
@@ -22,6 +20,5 @@ namespace youtubed.Tests.ProviderContracts
 
         public IShareLinkRepository ShareLinks { get; }
 
-        public IExpirationPurger ExpirationPurger { get; }
     }
 }

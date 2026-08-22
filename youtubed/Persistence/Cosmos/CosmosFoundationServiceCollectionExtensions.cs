@@ -29,13 +29,13 @@ namespace youtubed.Persistence.Cosmos
             if (string.IsNullOrWhiteSpace(options.ConnectionString))
             {
                 throw new InvalidOperationException(
-                    "Cosmos:ConnectionString is required when Persistence:Provider is Cosmos.");
+                    "Cosmos:ConnectionString is required.");
             }
 
             if (string.IsNullOrWhiteSpace(options.DatabaseName))
             {
                 throw new InvalidOperationException(
-                    "Cosmos:DatabaseName is required when Persistence:Provider is Cosmos.");
+                    "Cosmos:DatabaseName is required.");
             }
         }
     }

@@ -2,9 +2,8 @@
 
 ## Purpose
 
-The application supports SQL Server and Azure Cosmos DB for NoSQL while preserving its
-anonymous secret-link model. SQL remains normalized and uses joins. Cosmos uses small,
-directly addressable documents and accepts a bounded multi-read on list pages.
+The application uses Azure Cosmos DB for NoSQL while preserving its anonymous secret-link model.
+It uses small, directly addressable documents and accepts a bounded multi-read on list pages.
 
 The design targets a low-traffic, single-instance hobby deployment on the Azure Cosmos DB
 lifetime free tier. Simplicity, recoverability by repetition, and low operator burden matter
@@ -36,25 +35,22 @@ The implementation does not provide:
 - durable worker scheduling;
 - proactive refresh of lists nobody is viewing;
 - multi-instance suppression of duplicate YouTube work;
-- dual-write migration or zero-downtime cutover;
 - user accounts or authentication beyond existing secret URLs.
 
 These are deliberate product constraints, not deferred requirements. Reintroducing one requires
 evidence that the deployed workload needs it and a new design decision.
 
-## Reusable Work From The Current Branch
+## Core Application Structure
 
-Keep the work that improves the application independently of the discarded Cosmos design:
+The application retains:
 
 - storage-agnostic domain models and repository interfaces;
-- SQL normalization and Dapper persistence;
-- provider selection through configuration;
 - the application clock;
 - channel availability status;
 - bounded YouTube batching and cancellation-safe result finalization;
 - daily list-expiration renewal;
 - secret-safe token comparison;
-- provider contract-test infrastructure where the contracts still describe visible behavior;
+- persistence contract-test infrastructure where the contracts describe visible behavior;
 - the Cosmos emulator fixture and serializer where they remain useful.
 
 Remove the machinery whose only purpose is maintaining duplicated Cosmos state:
@@ -68,15 +64,11 @@ Remove the machinery whose only purpose is maintaining duplicated Cosmos state:
 - Cosmos recovery telemetry, logical admission budgets, and adversarial recovery tests;
 - durable worker state once the request-driven worker replaces it.
 
-## Storage-Agnostic Boundary
+## Persistence Boundary
 
 Controllers and services operate on domain objects and MVC view models. Repository interfaces
-must not expose Dapper rows, Cosmos documents, SDK response types, partition keys, or ETags.
-SQL rows remain inside the SQL persistence layer. Cosmos document types and mapping remain
-inside `Persistence/Cosmos`.
-
-The providers must agree on visible behavior, not storage mechanics. SQL may satisfy a read with
-a join; Cosmos may satisfy the same read with a list point read and channel `ReadMany`.
+must not expose Cosmos documents, SDK response types, partition keys, or ETags. Cosmos document
+types and mapping remain inside `Persistence/Cosmos`.
 
 ## Application Flows
 

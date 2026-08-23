@@ -215,6 +215,17 @@ namespace youtubed.Tests.Routing
         }
 
         [Fact]
+        public async Task EditListPage_SelectsSavedPlaybackRateRegardlessOfDecimalScale()
+        {
+            using var client = _factory.CreateClient();
+
+            var content = await client.GetStringAsync(
+                $"/{TestListService.ExistingList.TokenString()}/list/{TestListService.ExistingListId}/edit");
+
+            Assert.Contains("<option value=\"2.00\" selected>2x</option>", content);
+        }
+
+        [Fact]
         public async Task WatchRoute_WithTitleQuery_RendersDecodedDocumentTitle()
         {
             using var client = _factory.CreateClient();

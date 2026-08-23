@@ -22,7 +22,7 @@ namespace youtubed.Tests.Infrastructure
         {
             Id = ExistingListId,
             Title = "Existing List",
-            PlaybackRate = 2.00m,
+            PlaybackRate = 2m,
             Token = ExistingTokenBytes
         };
 

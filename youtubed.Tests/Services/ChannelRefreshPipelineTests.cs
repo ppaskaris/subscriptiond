@@ -432,28 +432,28 @@ namespace youtubed.Tests.Services
             string id,
             DateTimeOffset publishedAt,
             TimeSpan duration) => new()
-        {
-            ChannelId = channelId,
-            VideoId = id,
-            Title = id,
-            Duration = duration,
-            PublishedAt = publishedAt,
-            ThumbnailUrl = $"{id}.jpg"
-        };
+            {
+                ChannelId = channelId,
+                VideoId = id,
+                Title = id,
+                Duration = duration,
+                PublishedAt = publishedAt,
+                ThumbnailUrl = $"{id}.jpg"
+            };
 
         private static YoutubeVideo YoutubeVideo(
             string channelId,
             string id,
             DateTimeOffset publishedAt,
             TimeSpan duration) => new()
-        {
-            ChannelId = channelId,
-            Id = id,
-            Title = id,
-            Duration = duration,
-            PublishedAt = publishedAt,
-            Thumbnail = $"{id}.jpg"
-        };
+            {
+                ChannelId = channelId,
+                Id = id,
+                Title = id,
+                Duration = duration,
+                PublishedAt = publishedAt,
+                Thumbnail = $"{id}.jpg"
+            };
 
         private static IEnumerable<YoutubeVideo> Videos(string channelId, int start, int count) =>
             Enumerable.Range(start, count)
@@ -468,10 +468,10 @@ namespace youtubed.Tests.Services
             int start,
             int count,
             string nextPageToken) => new()
-        {
-            NextPageToken = nextPageToken,
-            Videos = Videos(channelId, start, count).ToList()
-        };
+            {
+                NextPageToken = nextPageToken,
+                Videos = Videos(channelId, start, count).ToList()
+            };
 
         private sealed class RecordingChannelRepository : IChannelRepository
         {

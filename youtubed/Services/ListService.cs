@@ -232,15 +232,15 @@ namespace youtubed.Services
         private static IEnumerable<VideoViewModel> MapVideos(IEnumerable<Channel> channels)
         {
             return channels.SelectMany(channel => channel.Videos.Select(video => new VideoViewModel
-                {
-                    ChannelTitle = channel.Title,
-                    ChannelUrl = channel.Url,
-                    VideoId = video.VideoId,
-                    VideoTitle = video.Title,
-                    VideoDuration = video.Duration,
-                    VideoPublishedAt = video.PublishedAt,
-                    VideoThumbnail = video.ThumbnailUrl
-                }));
+            {
+                ChannelTitle = channel.Title,
+                ChannelUrl = channel.Url,
+                VideoId = video.VideoId,
+                VideoTitle = video.Title,
+                VideoDuration = video.Duration,
+                VideoPublishedAt = video.PublishedAt,
+                VideoThumbnail = video.ThumbnailUrl
+            }));
         }
 
         private async Task<ListViewModel> GetListChannelViewCoreAsync(SubscriptionList list)

@@ -132,9 +132,17 @@ namespace youtubed.Persistence.Cosmos
                 });
         }
 
-        public Task DeleteAsync(Guid id)
+        public async Task DeleteAsync(Guid id)
         {
-            return _client.DeleteListAsync(id.ToString("D"), CancellationToken.None);
+            try
+            {
+                await _client.DeleteListAsync(id.ToString("D"), CancellationToken.None);
+            }
+            catch (CosmosException exception) when (
+                exception.StatusCode == HttpStatusCode.NotFound)
+            {
+                // List deletion is idempotent.
+            }
         }
 
         private Task<CosmosItem<CosmosListDocument>> ReadAsync(Guid id, int retryCount)

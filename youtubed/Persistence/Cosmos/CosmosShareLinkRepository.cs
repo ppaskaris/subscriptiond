@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Threading;
@@ -16,7 +15,7 @@ namespace youtubed.Persistence.Cosmos
     {
         private readonly CosmosPersistenceContext _context;
         private readonly IAppClock _clock;
-        private readonly ILogger<CosmosShareLinkRepository> _logger;
+        private readonly CosmosOperationExecutor _executor;
 
         public CosmosShareLinkRepository(
             CosmosPersistenceContext context,
@@ -25,7 +24,7 @@ namespace youtubed.Persistence.Cosmos
         {
             _context = context ?? throw new ArgumentNullException(nameof(context));
             _clock = clock ?? throw new ArgumentNullException(nameof(clock));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _executor = new CosmosOperationExecutor(logger);
         }
 
         public async Task<bool> TryCreateAsync(ShareLink shareLink)
@@ -34,12 +33,15 @@ namespace youtubed.Persistence.Cosmos
             var document = CosmosDocumentMapper.ToDocument(shareLink, _clock.UtcNow);
             try
             {
-                await ExecuteAsync(
+                await _executor.ExecuteItemAsync(
                     "create",
                     CosmosContainerNames.ShareLinks,
-                    () => _context.ShareLinks.CreateItemAsync(
+                    retryCount: 0,
+                    cancellationToken => _context.ShareLinks.CreateItemAsync(
                         document,
-                        new PartitionKey(document.Id)));
+                        new PartitionKey(document.Id),
+                        cancellationToken: cancellationToken),
+                    CancellationToken.None);
                 return true;
             }
             catch (CosmosException exception) when (exception.StatusCode == HttpStatusCode.Conflict)
@@ -59,10 +61,12 @@ namespace youtubed.Persistence.Cosmos
                 requestOptions: new QueryRequestOptions { MaxItemCount = 100 });
             while (iterator.HasMoreResults)
             {
-                var response = await ExecuteFeedAsync(
+                var response = await _executor.ExecuteFeedPageAsync(
                     "query",
                     CosmosContainerNames.ShareLinks,
-                    () => iterator.ReadNextAsync(CancellationToken.None));
+                    retryCount: 0,
+                    iterator.ReadNextAsync,
+                    CancellationToken.None);
                 documents.AddRange(response);
             }
 
@@ -76,7 +80,7 @@ namespace youtubed.Persistence.Cosmos
         public async Task<ShareLink> GetAsync(string password)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(password);
-            var item = await ReadShareAsync(password);
+            var item = await ReadShareAsync(password, retryCount: 0);
             return item == null
                 ? null
                 : CosmosDocumentMapper.ToShareLink(item.Resource);
@@ -87,7 +91,7 @@ namespace youtubed.Persistence.Cosmos
             ArgumentException.ThrowIfNullOrWhiteSpace(password);
             for (var attempt = 0; attempt <= 1; attempt++)
             {
-                var current = await ReadShareAsync(password);
+                var current = await ReadShareAsync(password, retryCount: attempt);
                 if (current == null
                     || !string.Equals(
                         current.Resource.ListId,
@@ -99,7 +103,7 @@ namespace youtubed.Persistence.Cosmos
 
                 try
                 {
-                    await DeleteShareAsync(password, current.ETag);
+                    await DeleteShareAsync(password, current.ETag, retryCount: attempt);
                     return;
                 }
                 catch (CosmosException exception) when (
@@ -126,7 +130,7 @@ namespace youtubed.Persistence.Cosmos
             DateTimeOffset usedAt)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(password);
-            var share = await ReadShareAsync(password);
+            var share = await ReadShareAsync(password, retryCount: 0);
             if (share == null
                 || share.Resource.UsedAt.HasValue
                 || share.Resource.ExpiresAfter <= usedAt
@@ -144,14 +148,17 @@ namespace youtubed.Persistence.Cosmos
                 _clock.UtcNow);
             try
             {
-                await ExecuteAsync(
+                await _executor.ExecuteItemAsync(
                     "replace",
                     CosmosContainerNames.ShareLinks,
-                    () => _context.ShareLinks.ReplaceItemAsync(
+                    retryCount: 0,
+                    cancellationToken => _context.ShareLinks.ReplaceItemAsync(
                         share.Resource,
                         share.Resource.Id,
                         new PartitionKey(share.Resource.Id),
-                        new ItemRequestOptions { IfMatchEtag = share.ETag }));
+                        new ItemRequestOptions { IfMatchEtag = share.ETag },
+                        cancellationToken),
+                    CancellationToken.None);
             }
             catch (CosmosException exception) when (
                 exception.StatusCode == HttpStatusCode.Conflict
@@ -164,96 +171,45 @@ namespace youtubed.Persistence.Cosmos
             return true;
         }
 
-        private async Task<CosmosItem<CosmosShareLinkDocument>> ReadShareAsync(string password)
+        private async Task<CosmosItem<CosmosShareLinkDocument>> ReadShareAsync(
+            string password,
+            int retryCount)
         {
-            try
-            {
-                var response = await ExecuteAsync(
-                    "pointRead",
-                    CosmosContainerNames.ShareLinks,
-                    () => _context.ShareLinks.ReadItemAsync<CosmosShareLinkDocument>(
-                        password,
-                        new PartitionKey(password)));
-                return new CosmosItem<CosmosShareLinkDocument>(response.Resource, response.ETag);
-            }
-            catch (CosmosException exception) when (exception.StatusCode == HttpStatusCode.NotFound)
-            {
-                return null;
-            }
+            var response = await _executor.ExecuteItemAsync(
+                "pointRead",
+                CosmosContainerNames.ShareLinks,
+                retryCount,
+                cancellationToken => _context.ShareLinks.ReadItemAsync<CosmosShareLinkDocument>(
+                    password,
+                    new PartitionKey(password),
+                    cancellationToken: cancellationToken),
+                CancellationToken.None,
+                returnNullOnNotFound: true);
+            return response == null
+                ? null
+                : new CosmosItem<CosmosShareLinkDocument>(response.Resource, response.ETag);
         }
 
-        private async Task DeleteShareAsync(string password, string etag)
+        private async Task DeleteShareAsync(string password, string etag, int retryCount)
         {
             try
             {
-                await ExecuteAsync(
+                await _executor.ExecuteItemAsync(
                     "delete",
                     CosmosContainerNames.ShareLinks,
-                    () => _context.ShareLinks.DeleteItemAsync<CosmosShareLinkDocument>(
+                    retryCount,
+                    cancellationToken => _context.ShareLinks.DeleteItemAsync<CosmosShareLinkDocument>(
                         password,
                         new PartitionKey(password),
-                        new ItemRequestOptions { IfMatchEtag = etag }));
+                        new ItemRequestOptions { IfMatchEtag = etag },
+                        cancellationToken),
+                    CancellationToken.None);
             }
             catch (CosmosException exception) when (
                 exception.StatusCode == HttpStatusCode.NotFound)
             {
                 // Deletion is idempotent.
             }
-        }
-
-        private async Task<ItemResponse<T>> ExecuteAsync<T>(
-            string operation,
-            string container,
-            Func<Task<ItemResponse<T>>> action)
-        {
-            var stopwatch = Stopwatch.StartNew();
-            try
-            {
-                var response = await action();
-                LogRequest(operation, container, response.StatusCode, response.RequestCharge, stopwatch.Elapsed);
-                return response;
-            }
-            catch (CosmosException exception)
-            {
-                LogRequest(operation, container, exception.StatusCode, exception.RequestCharge, stopwatch.Elapsed);
-                throw;
-            }
-        }
-
-        private async Task<FeedResponse<T>> ExecuteFeedAsync<T>(
-            string operation,
-            string container,
-            Func<Task<FeedResponse<T>>> action)
-        {
-            var stopwatch = Stopwatch.StartNew();
-            try
-            {
-                var response = await action();
-                LogRequest(operation, container, response.StatusCode, response.RequestCharge, stopwatch.Elapsed);
-                return response;
-            }
-            catch (CosmosException exception)
-            {
-                LogRequest(operation, container, exception.StatusCode, exception.RequestCharge, stopwatch.Elapsed);
-                throw;
-            }
-        }
-
-        private void LogRequest(
-            string operation,
-            string container,
-            HttpStatusCode status,
-            double requestCharge,
-            TimeSpan elapsed)
-        {
-            CosmosRepositoryClient.WriteTelemetry(
-                _logger,
-                operation,
-                container,
-                status,
-                requestCharge,
-                elapsed,
-                retryCount: 0);
         }
     }
 }

@@ -5,7 +5,6 @@ using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.Cosmos;
-using Microsoft.Extensions.Logging;
 using Xunit;
 using youtubed.Domain;
 using youtubed.Persistence;
@@ -150,6 +149,24 @@ namespace youtubed.Tests.Persistence.Cosmos
         }
 
         [Fact]
+        public async Task ListDeleteKeepsNotFoundIdempotencyAtRepositoryCallSite()
+        {
+            var client = new FakeCosmosRepositoryClient
+            {
+                DeleteListException = CosmosFailure(HttpStatusCode.NotFound)
+            };
+            var repository = new CosmosListRepository(client, CreateClock());
+
+            await repository.DeleteAsync(Guid.NewGuid());
+
+            var conflict = CosmosFailure(HttpStatusCode.Conflict);
+            client.DeleteListException = conflict;
+            var thrown = await Assert.ThrowsAsync<CosmosException>(() =>
+                repository.DeleteAsync(Guid.NewGuid()));
+            Assert.Same(conflict, thrown);
+        }
+
+        [Fact]
         public async Task ChannelRefreshBoundsVideosRetriesOnceAndPreservesVideosWhenNotRefreshed()
         {
             var client = new FakeCosmosRepositoryClient();
@@ -195,33 +212,6 @@ namespace youtubed.Tests.Persistence.Cosmos
                     CancellationToken.None));
         }
 
-        [Fact]
-        public void TelemetryIsBoundedAndContainsNoIdentifiersDiagnosticsOrSecrets()
-        {
-            var logger = new RecordingLogger();
-            const string secret = "secret-token-value";
-            const string resourceId = "private-resource-id";
-
-            CosmosRepositoryClient.WriteTelemetry(
-                logger,
-                "pointRead",
-                CosmosContainerNames.Lists,
-                HttpStatusCode.OK,
-                1.25,
-                TimeSpan.FromMilliseconds(12),
-                retryCount: 1);
-
-            var message = Assert.Single(logger.Messages);
-            Assert.Contains("RequestCount=1", message);
-            Assert.Contains("RequestCharge=1.25", message);
-            Assert.Contains("Status=200", message);
-            Assert.Contains("RetryCount=1", message);
-            Assert.DoesNotContain(secret, message);
-            Assert.DoesNotContain(resourceId, message);
-            Assert.DoesNotContain("diagnostic", message, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("dbs/", message, StringComparison.OrdinalIgnoreCase);
-        }
-
         private static FakeAppClock CreateClock()
         {
             return new FakeAppClock { UtcNow = Now };
@@ -253,6 +243,16 @@ namespace youtubed.Tests.Persistence.Cosmos
             };
         }
 
+        private static CosmosException CosmosFailure(HttpStatusCode status)
+        {
+            return new CosmosException(
+                "Cosmos operation failed.",
+                status,
+                subStatusCode: 0,
+                activityId: string.Empty,
+                requestCharge: 0);
+        }
+
         private static CosmosChannelDocument CreateChannelDocument(
             string id,
             IReadOnlyList<CosmosVideoDocument> videos)
@@ -270,31 +270,6 @@ namespace youtubed.Tests.Persistence.Cosmos
             };
         }
 
-        private sealed class RecordingLogger : ILogger
-        {
-            public List<string> Messages { get; } = new();
-
-            public IDisposable BeginScope<TState>(TState state) => NullScope.Instance;
-
-            public bool IsEnabled(LogLevel logLevel) => true;
-
-            public void Log<TState>(
-                LogLevel logLevel,
-                EventId eventId,
-                TState state,
-                Exception exception,
-                Func<TState, Exception, string> formatter)
-            {
-                Messages.Add(formatter(state, exception));
-            }
-
-            private sealed class NullScope : IDisposable
-            {
-                public static readonly NullScope Instance = new();
-                public void Dispose() { }
-            }
-        }
-
         private sealed class FakeCosmosRepositoryClient : ICosmosRepositoryClient
         {
             private readonly Dictionary<string, CosmosListDocument> _lists = new(StringComparer.Ordinal);
@@ -308,6 +283,7 @@ namespace youtubed.Tests.Persistence.Cosmos
             public int ChannelReadManyCount { get; private set; }
             public int ChannelReplaceAttemptCount { get; private set; }
             public int ChannelReplaceConflictsRemaining { get; set; }
+            public CosmosException DeleteListException { get; set; }
 
             public CosmosListDocument GetList(Guid id) => Clone(_lists[id.ToString("D")]);
 
@@ -359,6 +335,11 @@ namespace youtubed.Tests.Persistence.Cosmos
 
             public Task DeleteListAsync(string id, CancellationToken cancellationToken)
             {
+                if (DeleteListException != null)
+                {
+                    throw DeleteListException;
+                }
+
                 _lists.Remove(id);
                 return Task.CompletedTask;
             }

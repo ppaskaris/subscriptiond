@@ -63,7 +63,7 @@ namespace youtubed.Tests.Routing
 
             Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
             Assert.Equal(
-                $"/{TestListService.CreatedList.TokenString}/list/{TestListService.CreatedList.Id}",
+                $"/{TestListService.CreatedList.TokenString()}/list/{TestListService.CreatedList.Id}",
                 response.Headers.Location?.OriginalString);
         }
 
@@ -73,7 +73,7 @@ namespace youtubed.Tests.Routing
             using var client = _factory.CreateClient();
 
             var response = await client.GetAsync(
-                $"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}/add-channel");
+                $"/{TestListService.ExistingList.TokenString()}/list/{TestListService.ExistingListId}/add-channel");
 
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
@@ -84,7 +84,7 @@ namespace youtubed.Tests.Routing
             using var client = _factory.CreateClient();
 
             var response = await client.GetAsync(
-                $"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}/channels");
+                $"/{TestListService.ExistingList.TokenString()}/list/{TestListService.ExistingListId}/channels");
 
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
@@ -106,10 +106,10 @@ namespace youtubed.Tests.Routing
             using var client = _factory.CreateClient();
 
             var content = await client.GetStringAsync(
-                $"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}");
+                $"/{TestListService.ExistingList.TokenString()}/list/{TestListService.ExistingListId}");
 
             var expectedBasePath =
-                $"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}";
+                $"/{TestListService.ExistingList.TokenString()}/list/{TestListService.ExistingListId}";
 
             Assert.Contains($"href=\"{expectedBasePath}\"", content);
             Assert.Contains($"href=\"{expectedBasePath}/channels\"", content);
@@ -124,10 +124,10 @@ namespace youtubed.Tests.Routing
             using var client = _factory.CreateClient();
 
             var content = await client.GetStringAsync(
-                $"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}/channels");
+                $"/{TestListService.ExistingList.TokenString()}/list/{TestListService.ExistingListId}/channels");
 
             var expectedBasePath =
-                $"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}";
+                $"/{TestListService.ExistingList.TokenString()}/list/{TestListService.ExistingListId}";
 
             Assert.Contains($"href=\"{expectedBasePath}\"", content);
             Assert.Contains($"href=\"{expectedBasePath}/add-channel\"", content);
@@ -163,7 +163,7 @@ namespace youtubed.Tests.Routing
 
             Assert.Equal(HttpStatusCode.Redirect, response.StatusCode);
             Assert.Equal(
-                $"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}",
+                $"/{TestListService.ExistingList.TokenString()}/list/{TestListService.ExistingListId}",
                 response.Headers.Location?.OriginalString);
         }
 
@@ -187,7 +187,7 @@ namespace youtubed.Tests.Routing
             using var client = _factory.CreateClient();
 
             var content = await client.GetStringAsync(
-                $"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}");
+                $"/{TestListService.ExistingList.TokenString()}/list/{TestListService.ExistingListId}");
 
             Assert.Contains("<ol class=\"list-unstyled video-list\">", content);
             Assert.Contains("<li class=\"video-item\">", content);
@@ -204,7 +204,7 @@ namespace youtubed.Tests.Routing
             using var client = _factory.CreateClient();
 
             var content = await client.GetStringAsync(
-                $"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}");
+                $"/{TestListService.ExistingList.TokenString()}/list/{TestListService.ExistingListId}");
 
             Assert.Contains("class=\"video-link\"", content);
             Assert.Contains("href=\"/watch/video-1?title=", content);
@@ -245,11 +245,11 @@ namespace youtubed.Tests.Routing
             yield return new object[] { "/create-list" };
             yield return new object[]
             {
-                $"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}/add-channel"
+                $"/{TestListService.ExistingList.TokenString()}/list/{TestListService.ExistingListId}/add-channel"
             };
             yield return new object[]
             {
-                $"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}/edit"
+                $"/{TestListService.ExistingList.TokenString()}/list/{TestListService.ExistingListId}/edit"
             };
         }
 
@@ -257,7 +257,7 @@ namespace youtubed.Tests.Routing
         public Task ShareManagementRoute_RemainsReachable()
         {
             return PublicGetRoutes_ReturnSuccess(
-                $"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}/share");
+                $"/{TestListService.ExistingList.TokenString()}/list/{TestListService.ExistingListId}/share");
         }
 
         [Fact]
@@ -266,11 +266,11 @@ namespace youtubed.Tests.Routing
             using var client = _factory.CreateClient();
 
             var content = await client.GetStringAsync(
-                $"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}/share");
+                $"/{TestListService.ExistingList.TokenString()}/list/{TestListService.ExistingListId}/share");
 
             Assert.Contains("value=\"Delete\"", content);
             Assert.Contains("name=\"password\"", content);
-            Assert.Contains($"/{TestListService.ExistingList.TokenString}/list/{TestListService.ExistingListId}/share/delete", content);
+            Assert.Contains($"/{TestListService.ExistingList.TokenString()}/list/{TestListService.ExistingListId}/share/delete", content);
         }
     }
 }

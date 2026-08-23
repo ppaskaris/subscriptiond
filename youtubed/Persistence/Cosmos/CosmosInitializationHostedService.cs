@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 
 namespace youtubed.Persistence.Cosmos
 {
@@ -15,12 +16,12 @@ namespace youtubed.Persistence.Cosmos
 
         public CosmosInitializationHostedService(
             CosmosClient client,
-            CosmosOptions options,
+            IOptions<CosmosOptions> options,
             CosmosContainerInitializer initializer,
             IHostEnvironment environment)
         {
             _client = client ?? throw new ArgumentNullException(nameof(client));
-            _options = options ?? throw new ArgumentNullException(nameof(options));
+            _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
             _initializer = initializer ?? throw new ArgumentNullException(nameof(initializer));
             _environment = environment ?? throw new ArgumentNullException(nameof(environment));
         }

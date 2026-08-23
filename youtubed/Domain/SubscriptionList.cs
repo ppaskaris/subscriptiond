@@ -5,8 +5,16 @@ namespace youtubed.Domain
 {
     public class SubscriptionList
     {
+        private byte[] _token = Array.Empty<byte>();
+
         public Guid Id { get; set; }
-        public byte[] Token { get; set; } = Array.Empty<byte>();
+        public byte[] Token
+        {
+            get => (byte[])_token.Clone();
+            set => _token = value == null
+                ? Array.Empty<byte>()
+                : (byte[])value.Clone();
+        }
         public string Title { get; set; }
         public decimal PlaybackRate { get; set; } = Constants.DefaultListPlaybackRate;
         public DateTimeOffset ExpiredAfter { get; set; }

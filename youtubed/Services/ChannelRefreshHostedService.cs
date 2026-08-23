@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Hosting;
 using System;
 using System.Linq;
 using System.Threading;
@@ -7,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace youtubed.Services
 {
-    public sealed class ChannelRefreshHostedService : HostedService
+    public sealed class ChannelRefreshHostedService : BackgroundService
     {
         private static readonly TimeSpan ErrorDelay = TimeSpan.FromSeconds(30);
         private readonly IChannelRefreshQueue _queue;

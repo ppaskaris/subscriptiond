@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Xunit;
 using youtubed.Persistence;
 using youtubed.Persistence.Cosmos;
@@ -35,8 +36,10 @@ namespace youtubed.Tests.Persistence
                 })
                 .Build();
 
-            var exception = Assert.Throws<InvalidOperationException>(() =>
-                services.AddPersistence(configuration));
+            services.AddPersistence(configuration);
+            using var provider = services.BuildServiceProvider();
+            var exception = Assert.Throws<OptionsValidationException>(() =>
+                provider.GetRequiredService<Microsoft.Azure.Cosmos.CosmosClient>());
 
             Assert.Contains("Cosmos:ConnectionString", exception.Message);
             Assert.DoesNotContain(secretName, exception.Message);

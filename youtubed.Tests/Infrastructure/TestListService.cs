@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Humanizer;
 using youtubed;
+using youtubed.Domain;
 using youtubed.Models;
 using youtubed.Services;
 
@@ -17,7 +18,7 @@ namespace youtubed.Tests.Infrastructure
             9, 10, 11, 12, 13, 14, 15, 16
         };
 
-        public static readonly ListModel ExistingList = new ListModel
+        public static readonly SubscriptionList ExistingList = new SubscriptionList
         {
             Id = ExistingListId,
             Title = "Existing List",
@@ -25,7 +26,7 @@ namespace youtubed.Tests.Infrastructure
             Token = ExistingTokenBytes
         };
 
-        public static readonly ListModel CreatedList = new ListModel
+        public static readonly SubscriptionList CreatedList = new SubscriptionList
         {
             Id = Guid.Parse("22222222-2222-2222-2222-222222222222"),
             Title = "Created List",
@@ -37,9 +38,9 @@ namespace youtubed.Tests.Infrastructure
             }
         };
 
-        public Task<ListModel> CreateListAsync(string title)
+        public Task<SubscriptionList> CreateListAsync(string title)
         {
-            return Task.FromResult(new ListModel
+            return Task.FromResult(new SubscriptionList
             {
                 Id = CreatedList.Id,
                 Title = title,
@@ -48,30 +49,20 @@ namespace youtubed.Tests.Infrastructure
             });
         }
 
-        public Task<ListModel> GetListAsync(Guid id)
+        public Task<SubscriptionList> GetAuthenticatedListAsync(Guid id, string token)
         {
-            return Task.FromResult(id == ExistingListId ? ExistingList : null);
-        }
-
-        public Task<ListModel> GetAuthenticatedListAsync(Guid id, string token)
-        {
-            return Task.FromResult(id == ExistingListId && token == ExistingList.TokenString ? ExistingList : null);
+            return Task.FromResult(id == ExistingListId && token == ExistingList.TokenString() ? ExistingList : null);
         }
 
         public Task<ListViewModel> GetAuthenticatedListViewAsync(Guid id, string token)
         {
-            return GetListViewAsync(
-                id == ExistingListId && token == ExistingList.TokenString
+            return CreateListView(
+                id == ExistingListId && token == ExistingList.TokenString()
                     ? ExistingList
                     : null);
         }
 
-        public Task<ListViewModel> GetListViewAsync(Guid id)
-        {
-            return GetListViewAsync(id == ExistingListId ? ExistingList : null);
-        }
-
-        public Task<ListViewModel> GetListViewAsync(ListModel list)
+        private static Task<ListViewModel> CreateListView(SubscriptionList list)
         {
             return Task.FromResult(list != null
                 ? new ListViewModel
@@ -79,7 +70,7 @@ namespace youtubed.Tests.Infrastructure
                     Id = list.Id,
                     Title = list.Title,
                     PlaybackRate = list.PlaybackRate,
-                    Token = list.TokenString,
+                    Token = list.TokenString(),
                     Videos = new[]
                     {
                         new VideoViewModel
@@ -99,12 +90,7 @@ namespace youtubed.Tests.Infrastructure
                 : null);
         }
 
-        public Task<ListViewModel> GetListChannelViewAsync(Guid id)
-        {
-            return GetListChannelViewAsync(id == ExistingListId ? ExistingList : null);
-        }
-
-        public Task<ListViewModel> GetListChannelViewAsync(ListModel list)
+        public Task<ListViewModel> GetListChannelViewAsync(SubscriptionList list)
         {
             return Task.FromResult(list != null
                 ? new ListViewModel
@@ -112,7 +98,7 @@ namespace youtubed.Tests.Infrastructure
                     Id = list.Id,
                     Title = list.Title,
                     PlaybackRate = list.PlaybackRate,
-                    Token = list.TokenString,
+                    Token = list.TokenString(),
                     Channels = Array.Empty<ChannelModel>(),
                     ExpiredAfter = DateTimeOffset.UtcNow.AddDays(7)
                 }
@@ -121,7 +107,7 @@ namespace youtubed.Tests.Infrastructure
 
         public Task AddChannelAsync(Guid listId, string channelId) => Task.CompletedTask;
 
-        public Task ForceRefreshAsync(ListModel list) => Task.CompletedTask;
+        public Task ForceRefreshAsync(SubscriptionList list) => Task.CompletedTask;
 
         public Task RemoveChannelAsync(Guid listId, string channelId) => Task.CompletedTask;
 

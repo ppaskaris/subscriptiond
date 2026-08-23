@@ -1,22 +1,17 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
+using youtubed.Domain;
 using youtubed.Models;
 
 namespace youtubed.Services
 {
     public interface IListService
     {
-        Task<ListModel> CreateListAsync(string title);
-        Task<ListModel> GetListAsync(Guid id);
-        Task<ListModel> GetAuthenticatedListAsync(Guid id, string token);
+        Task<SubscriptionList> CreateListAsync(string title);
+        Task<SubscriptionList> GetAuthenticatedListAsync(Guid id, string token);
         Task<ListViewModel> GetAuthenticatedListViewAsync(Guid id, string token);
-        Task<ListViewModel> GetListViewAsync(Guid id);
-        Task<ListViewModel> GetListViewAsync(ListModel list);
-        Task<ListViewModel> GetListChannelViewAsync(Guid id);
-        Task<ListViewModel> GetListChannelViewAsync(ListModel list);
-        Task ForceRefreshAsync(ListModel list);
+        Task<ListViewModel> GetListChannelViewAsync(SubscriptionList list);
+        Task ForceRefreshAsync(SubscriptionList list);
 
         Task AddChannelAsync(Guid listId, string channelId);
         Task RemoveChannelAsync(Guid listId, string channelId);

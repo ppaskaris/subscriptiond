@@ -131,6 +131,65 @@ namespace youtubed.Tests.Services
             Assert.Equal(1, queue.Count);
         }
 
+        [Fact]
+        public async Task RefreshService_StopCancelsBlockedDequeueAndCompletes()
+        {
+            using var queue = new ChannelRefreshQueue(2);
+            var service = CreateHostedService(queue, new SelectivePipeline());
+            await service.StartAsync(CancellationToken.None);
+            await Task.Yield();
+            using var shutdown = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+            await service.StopAsync(shutdown.Token);
+
+            Assert.True(service.ExecuteTask.IsCompleted);
+        }
+
+        [Fact]
+        public async Task RefreshService_StopDuringPipelineRequeuesInFlightWork()
+        {
+            using var queue = new ChannelRefreshQueue(2);
+            queue.TryEnqueue(Request("channel-1", ChannelRefreshReason.Stale));
+            var pipeline = new BlockingPipeline();
+            var service = CreateHostedService(queue, pipeline);
+            await service.StartAsync(CancellationToken.None);
+            await pipeline.Entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            using var shutdown = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+            await service.StopAsync(shutdown.Token);
+
+            Assert.Equal("channel-1", Assert.Single(
+                await queue.DequeueBatchAsync(2, CancellationToken.None)).ChannelId);
+        }
+
+        [Fact]
+        public async Task RefreshService_StopCancelsErrorDelayAndKeepsFailedWorkQueued()
+        {
+            using var queue = new ChannelRefreshQueue(2);
+            queue.TryEnqueue(Request("channel-1", ChannelRefreshReason.Stale));
+            var pipeline = new FailingPipeline();
+            var service = CreateHostedService(queue, pipeline);
+            await service.StartAsync(CancellationToken.None);
+            await pipeline.Invoked.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            using var shutdown = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+            await service.StopAsync(shutdown.Token);
+
+            Assert.Equal("channel-1", Assert.Single(
+                await queue.DequeueBatchAsync(2, CancellationToken.None)).ChannelId);
+        }
+
+        private static ChannelRefreshHostedService CreateHostedService(
+            IChannelRefreshQueue queue,
+            IChannelRefreshPipeline pipeline)
+        {
+            return new ChannelRefreshHostedService(
+                queue,
+                pipeline,
+                Options.Create(new YoutubeSyncOptions { CohortSize = 2 }),
+                NullLogger<ChannelRefreshHostedService>.Instance);
+        }
+
         private static ChannelRefreshRequest Request(
             string id,
             ChannelRefreshReason reason,
@@ -152,6 +211,35 @@ namespace youtubed.Tests.Services
                         0,
                         0)).ToList()
                 });
+            }
+        }
+
+        private sealed class BlockingPipeline : IChannelRefreshPipeline
+        {
+            public TaskCompletionSource Entered { get; } = new(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
+            public async Task<ChannelRefreshPipelineResult> RefreshAsync(
+                IReadOnlyCollection<ChannelRefreshRequest> requests,
+                CancellationToken cancellationToken)
+            {
+                Entered.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                throw new InvalidOperationException("Unreachable.");
+            }
+        }
+
+        private sealed class FailingPipeline : IChannelRefreshPipeline
+        {
+            public TaskCompletionSource Invoked { get; } = new(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
+            public Task<ChannelRefreshPipelineResult> RefreshAsync(
+                IReadOnlyCollection<ChannelRefreshRequest> requests,
+                CancellationToken cancellationToken)
+            {
+                Invoked.TrySetResult();
+                throw new InvalidOperationException("Injected refresh failure.");
             }
         }
     }

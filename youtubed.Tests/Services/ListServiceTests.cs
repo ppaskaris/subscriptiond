@@ -17,6 +17,18 @@ namespace youtubed.Tests.Services
     public sealed class ListServiceTests
     {
         [Fact]
+        public void SubscriptionListTokenDoesNotExposeItsMutableBuffer()
+        {
+            var source = new byte[] { 1, 2, 3 };
+            var list = new SubscriptionList { Token = source };
+            source[0] = 9;
+            var exposed = list.Token;
+            exposed[1] = 9;
+
+            Assert.Equal(new byte[] { 1, 2, 3 }, list.Token);
+        }
+
+        [Fact]
         public async Task GetAuthenticatedListViewAsync_ReadsListThenOneBoundedChannelBatch()
         {
             var now = new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero);
@@ -112,7 +124,7 @@ namespace youtubed.Tests.Services
         public async Task GetListViewAsync_ComposesVideosGloballyWithStableTieBreakAndCap()
         {
             var now = new DateTimeOffset(2026, 5, 18, 12, 0, 0, TimeSpan.Zero);
-            var list = new ListModel
+            var list = new SubscriptionList
             {
                 Id = Guid.NewGuid(),
                 Token = Enumerable.Range(1, 40).Select(value => (byte)value).ToArray(),
@@ -153,7 +165,7 @@ namespace youtubed.Tests.Services
         public async Task GetListChannelViewAsync_MapsMissingAndQueuesMissingAndActiveStaleChannels()
         {
             var now = new DateTimeOffset(2026, 8, 14, 12, 0, 0, TimeSpan.Zero);
-            var list = new ListModel
+            var list = new SubscriptionList
             {
                 Id = Guid.NewGuid(),
                 Token = Array.Empty<byte>(),
@@ -195,7 +207,7 @@ namespace youtubed.Tests.Services
         [Fact]
         public async Task ForceRefreshAsync_UsesLoadedMembershipWithoutPersistenceReads()
         {
-            var list = new ListModel
+            var list = new SubscriptionList
             {
                 Id = Guid.NewGuid(),
                 ChannelIds = new[] { "channel-1", "channel-2" }

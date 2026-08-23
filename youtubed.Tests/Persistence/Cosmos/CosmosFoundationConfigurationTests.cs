@@ -3,8 +3,10 @@ using System.Linq;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Xunit;
 using youtubed.Persistence.Cosmos;
+using youtubed.Tests.Infrastructure;
 
 namespace youtubed.Tests.Persistence.Cosmos
 {
@@ -17,14 +19,17 @@ namespace youtubed.Tests.Persistence.Cosmos
                 .AddInMemoryCollection(new Dictionary<string, string>
                 {
                     ["Cosmos:ConnectionString"] =
-                        "AccountEndpoint=https://localhost:8081/;" +
-                        "AccountKey=C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==;",
+                        CosmosEmulatorOptions.DefaultConnectionString,
                     ["Cosmos:DatabaseName"] = "configuration-test"
                 })
                 .Build();
             var services = new ServiceCollection();
 
             services.AddCosmosFoundation(configuration);
+
+            Assert.DoesNotContain(
+                services,
+                descriptor => descriptor.ServiceType == typeof(CosmosOptions));
 
             var clientRegistration = Assert.Single(
                 services,
@@ -78,8 +83,11 @@ namespace youtubed.Tests.Persistence.Cosmos
                 })
                 .Build();
 
-            var exception = Assert.Throws<System.InvalidOperationException>(() =>
-                new ServiceCollection().AddCosmosFoundation(configuration));
+            var services = new ServiceCollection();
+            services.AddCosmosFoundation(configuration);
+            using var provider = services.BuildServiceProvider();
+            var exception = Assert.Throws<OptionsValidationException>(() =>
+                provider.GetRequiredService<CosmosClient>());
 
             Assert.Contains("Cosmos:DatabaseName", exception.Message);
             Assert.DoesNotContain(secret, exception.Message);
@@ -96,11 +104,40 @@ namespace youtubed.Tests.Persistence.Cosmos
                 })
                 .Build();
 
-            var exception = Assert.Throws<System.InvalidOperationException>(() =>
-                new ServiceCollection().AddCosmosFoundation(configuration));
+            var services = new ServiceCollection();
+            services.AddCosmosFoundation(configuration);
+            using var provider = services.BuildServiceProvider();
+            var exception = Assert.Throws<OptionsValidationException>(() =>
+                provider.GetRequiredService<CosmosClient>());
 
             Assert.Contains("Cosmos:DatabaseName", exception.Message);
             Assert.DoesNotContain(secret, exception.Message);
+        }
+
+        [Fact]
+        public void FoundationSupportsStandardPostConfigureTestOverrides()
+        {
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string>
+                {
+                    ["Cosmos:ConnectionString"] =
+                        CosmosEmulatorOptions.DefaultConnectionString,
+                    ["Cosmos:DatabaseName"] = "configured-name"
+                })
+                .Build();
+            var services = new ServiceCollection();
+            services.AddCosmosFoundation(configuration);
+            services.PostConfigure<CosmosOptions>(options =>
+                options.DatabaseName = "overridden-name");
+
+            using var provider = services.BuildServiceProvider();
+
+            Assert.Equal(
+                "overridden-name",
+                provider.GetRequiredService<IOptions<CosmosOptions>>().Value.DatabaseName);
+            Assert.Equal(
+                "overridden-name",
+                provider.GetRequiredService<CosmosPersistenceContext>().Database.Id);
         }
     }
 }

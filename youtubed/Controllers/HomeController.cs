@@ -43,7 +43,7 @@ namespace youtubed.Controllers
             return RedirectToAction("Index", "List", new
             {
                 id = list.Id,
-                token = list.TokenString
+                token = ListRouteToken.Encode(list)
             });
         }
 

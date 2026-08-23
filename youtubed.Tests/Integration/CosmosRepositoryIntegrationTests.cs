@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Azure.Cosmos;
+using Microsoft.Extensions.Options;
 using Moq;
 using Xunit;
 using youtubed.Domain;
@@ -290,7 +291,7 @@ namespace youtubed.Tests.Integration
             using var client = new CosmosClient(emulator.ConnectionString, clientOptions);
             var context = new CosmosPersistenceContext(
                 client,
-                new CosmosOptions { DatabaseName = _fixture.DatabaseName });
+                Options.Create(new CosmosOptions { DatabaseName = _fixture.DatabaseName }));
             var logger = new CosmosRequestRecorder<CosmosListRepository>();
             var repository = new CosmosListRepository(context, clock, logger);
 

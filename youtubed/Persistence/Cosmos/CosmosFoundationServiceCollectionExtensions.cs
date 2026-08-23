@@ -2,6 +2,7 @@ using System;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 
 namespace youtubed.Persistence.Cosmos
 {
@@ -12,31 +13,22 @@ namespace youtubed.Persistence.Cosmos
             IConfiguration configuration)
         {
             var section = configuration.GetSection(CosmosOptions.SectionName);
-            var options = section.Get<CosmosOptions>() ?? new CosmosOptions();
-            ValidateOptions(options);
-            services.Configure<CosmosOptions>(section);
-            services.AddSingleton(options);
+            services.AddOptions<CosmosOptions>()
+                .Bind(section)
+                .Validate(
+                    options => !string.IsNullOrWhiteSpace(options.ConnectionString),
+                    "Cosmos:ConnectionString is required.")
+                .Validate(
+                    options => !string.IsNullOrWhiteSpace(options.DatabaseName),
+                    "Cosmos:DatabaseName is required.")
+                .ValidateOnStart();
             services.AddSingleton(serviceProvider => CosmosClientFactory.Create(
-                serviceProvider.GetRequiredService<CosmosOptions>()));
+                serviceProvider.GetRequiredService<IOptions<CosmosOptions>>().Value));
             services.AddSingleton<CosmosPersistenceContext>();
             services.AddSingleton<CosmosContainerInitializer>();
             services.AddSingleton<IHostedService, CosmosInitializationHostedService>();
             return services;
         }
 
-        internal static void ValidateOptions(CosmosOptions options)
-        {
-            if (string.IsNullOrWhiteSpace(options.ConnectionString))
-            {
-                throw new InvalidOperationException(
-                    "Cosmos:ConnectionString is required.");
-            }
-
-            if (string.IsNullOrWhiteSpace(options.DatabaseName))
-            {
-                throw new InvalidOperationException(
-                    "Cosmos:DatabaseName is required.");
-            }
-        }
     }
 }

@@ -4,8 +4,10 @@ using Microsoft.AspNetCore.Mvc;
 using Moq;
 using Xunit;
 using youtubed.Controllers;
+using youtubed.Domain;
 using youtubed.Models;
 using youtubed.Services;
+using youtubed.Tests.Infrastructure;
 
 namespace youtubed.Tests.Controllers
 {
@@ -43,7 +45,7 @@ namespace youtubed.Tests.Controllers
         [Fact]
         public async Task CreateListPost_ValidModel_CreatesListAndRedirectsToSecretRoute()
         {
-            var list = new ListModel
+            var list = new SubscriptionList
             {
                 Id = Guid.NewGuid(),
                 Token = new byte[]
@@ -68,7 +70,7 @@ namespace youtubed.Tests.Controllers
             Assert.Equal("Index", redirect.ActionName);
             Assert.Equal("List", redirect.ControllerName);
             Assert.Equal(list.Id, redirect.RouteValues["id"]);
-            Assert.Equal(list.TokenString, redirect.RouteValues["token"]);
+            Assert.Equal(list.TokenString(), redirect.RouteValues["token"]);
             listService.Verify(service => service.CreateListAsync("My List"), Times.Once);
         }
 

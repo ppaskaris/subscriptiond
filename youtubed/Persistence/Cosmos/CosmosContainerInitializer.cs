@@ -5,6 +5,7 @@ using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Azure.Cosmos;
+using Microsoft.Extensions.Options;
 
 namespace youtubed.Persistence.Cosmos
 {
@@ -33,7 +34,7 @@ namespace youtubed.Persistence.Cosmos
             }
 
             await ValidateAsync(response.Database, cancellationToken);
-            return new CosmosPersistenceContext(client, options);
+            return new CosmosPersistenceContext(client, Options.Create(options));
         }
 
         public async Task<CosmosPersistenceContext> InitializeProductionAsync(
@@ -56,7 +57,7 @@ namespace youtubed.Persistence.Cosmos
             }
 
             await ValidateAsync(database, cancellationToken);
-            return new CosmosPersistenceContext(client, options);
+            return new CosmosPersistenceContext(client, Options.Create(options));
         }
 
         public static IReadOnlyList<ContainerProperties> GetContainerProperties()

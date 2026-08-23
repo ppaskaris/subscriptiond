@@ -31,7 +31,7 @@ namespace youtubed.Services
             _refreshQueue = refreshQueue;
         }
 
-        public async Task<ListModel> CreateListAsync(string title)
+        public async Task<SubscriptionList> CreateListAsync(string title)
         {
             var now = _clock.UtcNow;
             var list = new SubscriptionList
@@ -44,17 +44,12 @@ namespace youtubed.Services
             };
 
             await _listRepository.CreateAsync(list);
-            return ToListModel(list);
+            return list;
         }
 
-        public async Task<ListModel> GetListAsync(Guid id)
+        public Task<SubscriptionList> GetAuthenticatedListAsync(Guid id, string token)
         {
-            return ToListModel(await _listRepository.GetAsync(id));
-        }
-
-        public async Task<ListModel> GetAuthenticatedListAsync(Guid id, string token)
-        {
-            return ToListModel(await GetAuthenticatedDomainListAsync(id, token));
+            return GetAuthenticatedDomainListAsync(id, token);
         }
 
         public async Task<ListViewModel> GetAuthenticatedListViewAsync(Guid id, string token)
@@ -64,24 +59,12 @@ namespace youtubed.Services
             return await CreateListViewAsync(list, includeVideos: true, now);
         }
 
-        public async Task<ListViewModel> GetListViewAsync(Guid id)
-        {
-            var list = await GetListAsync(id);
-            return await GetListViewAsync(list);
-        }
-
-        public Task<ListViewModel> GetListViewAsync(ListModel list)
+        public Task<ListViewModel> GetListViewAsync(SubscriptionList list)
         {
             return GetListViewCoreAsync(list);
         }
 
-        public async Task<ListViewModel> GetListChannelViewAsync(Guid id)
-        {
-            var list = await GetListAsync(id);
-            return await GetListChannelViewAsync(list);
-        }
-
-        public Task<ListViewModel> GetListChannelViewAsync(ListModel list)
+        public Task<ListViewModel> GetListChannelViewAsync(SubscriptionList list)
         {
             return GetListChannelViewCoreAsync(list);
         }
@@ -94,7 +77,7 @@ namespace youtubed.Services
                 ChannelRefreshReason.Missing));
         }
 
-        public async Task ForceRefreshAsync(ListModel list)
+        public async Task ForceRefreshAsync(SubscriptionList list)
         {
             if (list == null)
             {
@@ -130,7 +113,7 @@ namespace youtubed.Services
             return token;
         }
 
-        private async Task<ListViewModel> GetListViewCoreAsync(ListModel list)
+        private async Task<ListViewModel> GetListViewCoreAsync(SubscriptionList list)
         {
             if (list == null)
             {
@@ -138,7 +121,7 @@ namespace youtubed.Services
             }
 
             var now = _clock.UtcNow;
-            return await CreateListViewAsync(ToDomainList(list), includeVideos: true, now);
+            return await CreateListViewAsync(list, includeVideos: true, now);
         }
 
         private async Task<ListViewModel> CreateListViewAsync(
@@ -260,7 +243,7 @@ namespace youtubed.Services
                 }));
         }
 
-        private async Task<ListViewModel> GetListChannelViewCoreAsync(ListModel list)
+        private async Task<ListViewModel> GetListChannelViewCoreAsync(SubscriptionList list)
         {
             if (list == null)
             {
@@ -268,7 +251,7 @@ namespace youtubed.Services
             }
 
             var now = _clock.UtcNow;
-            return await CreateListViewAsync(ToDomainList(list), includeVideos: false, now);
+            return await CreateListViewAsync(list, includeVideos: false, now);
         }
 
         private void QueueRefreshCandidates(
@@ -333,39 +316,6 @@ namespace youtubed.Services
             return now.Add(_clock.RandomDelay(
                 Constants.ListMaxAgeMin,
                 Constants.ListMaxAgeMax));
-        }
-
-        private static ListModel ToListModel(SubscriptionList list)
-        {
-            if (list == null)
-            {
-                return null;
-            }
-
-            return new ListModel
-            {
-                Id = list.Id,
-                Token = list.Token,
-                Title = list.Title,
-                PlaybackRate = list.PlaybackRate,
-                ExpiredAfter = list.ExpiredAfter,
-                ExpirationRenewedOn = list.ExpirationRenewedOn,
-                ChannelIds = list.ChannelIds
-            };
-        }
-
-        private static SubscriptionList ToDomainList(ListModel list)
-        {
-            return new SubscriptionList
-            {
-                Id = list.Id,
-                Token = list.Token,
-                Title = list.Title,
-                PlaybackRate = list.PlaybackRate,
-                ExpiredAfter = list.ExpiredAfter,
-                ExpirationRenewedOn = list.ExpirationRenewedOn,
-                ChannelIds = list.ChannelIds
-            };
         }
 
         private static byte[] DecodeToken(string token)

@@ -47,7 +47,7 @@ duration calls before any channel is saved.
 
 - Durable scheduling, global stale-channel scans, leases, or multi-instance coordination.
 - Embedded list projections or reverse channel-to-list references.
-- Parallel refresh workers in the first implementation.
+- Multi-instance request coordination or guarantees about exact task-start interleavings.
 - Perfect immediate detection of a recently deleted or privatized cached video.
 - A locally reconstructed copy of Google's quota accounting.
 
@@ -98,20 +98,22 @@ For each cohort:
 
 1. Bulk-read the current channel caches.
 2. Fetch channel metadata for all IDs with one `channels.list` call.
-3. Reconcile playlist items for each channel in priority order.
-4. Fetch durations for newly discovered video IDs in `videos.list` chunks of 50, sharing each
-   chunk across channels where possible.
-5. Merge and save each completed channel independently.
+3. Reconcile playlist items concurrently across channels, while traversing each channel's pages
+   sequentially.
+4. Fetch durations concurrently in deterministic `videos.list` chunks of 50, sharing each chunk
+   across channels where possible.
+5. At each stage barrier, merge and save every channel whose required work completed.
 6. Complete successful or permanently unavailable IDs and requeue only transiently failed IDs.
 
 Retain a cohort size of 10 initially because it bounds head-of-line delay while still amortizing
 metadata and duration calls. The YouTube API permits up to 50 channel IDs in `channels.list`; the
 cohort can be increased from measurements without changing the design.
 
-Do not introduce concurrent playlist fetches initially. One consumer and one in-flight YouTube
-request make ordering, rate control, shutdown, and failure behavior predictable. Bounded
-concurrency can be considered later only if request latency, rather than pacing, is proven to be
-the throughput constraint.
+`YoutubePlaylistScanner` and `YoutubeDurationFetcher` each use bounded
+`Parallel.ForEachAsync` work. A transient or quota failure cancels pending sibling work for that
+stage, while completed indexed results remain available. Permanent failures remain isolated to
+the affected channel or duration-chunk dependents. The pipeline itself only coordinates the
+stages and preserves selected-channel output order.
 
 ### 3. Reconcile uploads incrementally
 
@@ -152,25 +154,34 @@ All YouTube read methods used by the sync (`channels.list`, `playlistItems.list`
 `videos.list`) currently cost one quota unit per request. Batching IDs and avoiding unnecessary
 pages reduce quota; sleeping between the same number of requests does not.
 
-Replace `IYoutubeCallDelay` with one request gate used by every YouTube API call, including channel
-discovery outside the background worker. The gate should:
+Use one singleton `IYoutubeCallInvoker` for every YouTube API call, including channel discovery
+outside the background worker. The invoker composes a concurrency limiter followed by a one-token
+token bucket with `RateLimiter.CreateChained`, so a caller cannot collect a pacing token while
+waiting for concurrency. It should:
 
-- allow one in-flight request initially;
-- enforce a configurable start rate, initially two requests per second with no burst;
+- allow four in-flight requests initially;
+- enforce a configurable start rate, initially ten requests per second with no accumulated burst;
 - honor `Retry-After` when supplied;
 - apply bounded exponential backoff with jitter for rate-limit responses and transient 5xx
   responses; and
-- expose request, retry, throttle, and cooldown counts.
+- emit request, retry, rejection, active-attempt, wait, cooldown, and duration telemetry at the
+  corresponding control-flow points.
 
 The Google client has its own retries disabled. An unsuccessful-response handler captures the real
-HTTP `Retry-After` header for the global gate, and the gate emits actual request-attempt and control
-counts through the `youtubed.youtube` meter. Foreground discovery fails fast during an active
-cooldown; background sync calls wait so their queued work remains pending.
+HTTP `Retry-After` header in an `AsyncLocal` per-attempt observation, retaining delta or absolute
+date data until the invoker converts it with the injected `TimeProvider`. Concurrent, nested, and
+header-free attempts cannot consume one another's response metadata. Foreground discovery fails
+fast during an active cooldown; background sync calls wait so their queued work remains pending.
 
-Two requests per second is a conservative deployment starting point, not a documented YouTube
-guarantee. It is four times the current delayed pipeline's maximum steady call rate while avoiding
-bursts. Tune it from production throttle telemetry and the API Console rather than embedding more
-scheduler state.
+Cooldown state is checked only before limiter acquisition. An acquired lease may run even if a
+sibling publishes a cooldown while it is waiting or admitted. Each transport retry acquires a
+fresh lease, and retry or cooldown delays hold no lease. A failed limiter lease is an immediate
+retryable overload result; it does not invoke the transport, consume the retry budget, or publish
+a server cooldown.
+
+Ten requests per second is a deployment starting point, not a documented YouTube guarantee. Tune
+it from production throttle telemetry and the API Console rather than embedding more scheduler
+state.
 
 Treat rate limiting and daily quota exhaustion differently:
 
@@ -205,10 +216,11 @@ enum ChannelRefreshDisposition
 }
 ```
 
-Persist a completed channel as soon as its required playlist and duration data are available.
-Repository persistence should be singular (`SaveRefreshResultAsync`) even when the YouTube work
-was batched. This matches Cosmos, where each channel is already a separate document, and prevents
-a later channel failure from wasting successful YouTube work.
+Persist every completed channel when its bounded stage returns. Repository persistence remains
+singular (`SaveRefreshResultAsync`) even when the YouTube work was batched. A playlist result with
+no new IDs is complete at the playlist barrier; a result with new IDs is complete only when all of
+its duration-chunk dependencies succeeded. Completed peers are persisted before unfinished work
+is marked retryable, so a sibling failure does not waste useful work.
 
 On one optimistic-concurrency conflict, reread the current channel, reapply the metadata/video
 merge, and retry once as required by the repository policy. A second conflict fails that channel
@@ -235,10 +247,11 @@ flowchart LR
     A[List read] -->|missing / forced / stale candidates| B[Priority queue]
     B -->|up to 10| C[Bulk cache read]
     C --> D[One metadata request]
-    D --> E[Incremental playlist scans in priority order]
-    E --> F[Bulk durations for new IDs]
-    F --> G[Save each channel independently]
-    G -->|transient failures only| B
+    D --> E[Bounded concurrent playlist scans]
+    E --> F[Persist playlist-complete channels]
+    F --> G[Bounded concurrent duration chunks]
+    G --> H[Merge and persist duration-complete channels]
+    H -->|transient failures only| B
 ```
 
 The list response never waits for this flow. A subsequent refresh or browser reload observes each
@@ -252,8 +265,8 @@ cohort.
 | Queue capacity | 1,000 distinct IDs | Preserve the existing memory bound |
 | Cohort size | 10 channels | Bound latency while amortizing metadata/durations |
 | Coalescing window | 100 ms | Let one list access form a useful cohort |
-| YouTube concurrency | 1 | Predictable ordering and backpressure |
-| YouTube start rate | 2 requests/second | Conservative initial throughput increase |
+| YouTube concurrency | 4 | Bound process-wide delegates and stage workers |
+| YouTube start rate | 10 requests/second | One-token bucket pacing without idle burst credit |
 | Duration ID chunk | 50 | API maximum used by the current client |
 | Retained videos | 100/channel | Existing Cosmos document bound |
 | Video retention | 30 days | Existing user-visible window |
@@ -286,11 +299,14 @@ Unit tests should prove:
   wake-up, cancellation, and selective requeue;
 - a list submits missing channels before forced channels before stale channels, with stale channels
   oldest first;
-- metadata is called once per cohort and durations are requested only for uncached IDs in chunks
-  of at most 50;
+- metadata is called once per cohort, playlist stages are bounded across channels, and durations
+  are requested only for uncached IDs in deterministic chunks of at most 50;
 - playlist paging stops on cached-ID overlap only after inspecting the complete page;
 - merge/deduplication, 30-day pruning, and the 100-video bound are deterministic;
-- one channel failure does not discard or requeue completed peers;
+- stage cancellation returns partial indexed results, and one channel failure does not discard or
+  requeue completed peers;
+- limiter overload does not invoke or retry the transport, concurrent `Retry-After` observations
+  remain isolated, and idle time cannot accumulate a multi-request token burst;
 - rate-limit backoff and quota-exhaustion cooldown do not mark channels unavailable; and
 - a missing cache is created or negative-cached rather than silently completed.
 
@@ -314,14 +330,11 @@ for the old and new pipelines. It should not assert wall-clock timing in the ord
 1. Introduce typed queue requests and priority/promotion behavior while retaining the current
    refresh implementation.
 2. Replace the fixed delay with the global request gate and add error classification/telemetry.
-3. Introduce incremental playlist reconciliation and singular per-channel persistence behind one
-   implementation switch for comparison.
-4. Run the required Cosmos suite, then compare call counts and elapsed time with
-   the instrumented scenarios.
-5. Enable the new path, observe queue age, channel latency, call counts, and throttle responses, and
-   tune only the request rate or cohort size if needed.
-6. Remove the old full-window batch path, `IYoutubeCallDelay`, and obsolete batch-wide result
-   bookkeeping after the comparison period.
+3. Introduce incremental playlist reconciliation and singular per-channel persistence.
+4. Replace hand-written scheduling and admission state with bounded application stages and the
+   chained BCL limiter.
+5. Run the required provider suites, then observe queue age, channel latency, call counts, and
+   throttle responses; tune only request rate, concurrency, or cohort size from measurements.
 
 This rollout does not require a schema migration, a durable worker-state resurrection, or a change
 to list documents, channel documents, routes, or the anonymous secret-link model.

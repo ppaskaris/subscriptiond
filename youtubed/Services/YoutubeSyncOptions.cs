@@ -9,7 +9,8 @@ namespace youtubed.Services
         public int QueueCapacity { get; set; } = Constants.ChannelRefreshQueueCapacity;
         public int CohortSize { get; set; } = Constants.ChannelRefreshBatchSize;
         public TimeSpan CoalescingWindow { get; set; } = TimeSpan.FromMilliseconds(100);
-        public double RequestsPerSecond { get; set; } = 2;
+        public int MaximumConcurrentRequests { get; set; } = 4;
+        public double RequestsPerSecond { get; set; } = 10;
         public int MaximumPlaylistPages { get; set; } = 4;
         public int MaximumVideosPerChannel { get; set; } = Constants.ListRenderMaxItems;
         public int TransientRetryCount { get; set; } = 2;

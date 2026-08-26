@@ -1,6 +1,7 @@
 using Google.Apis.Http;
 using System;
 using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace youtubed.Services
@@ -10,8 +11,7 @@ namespace youtubed.Services
         IHttpUnsuccessfulResponseHandler,
         IYoutubeRetryAfterProvider
     {
-        private readonly object _sync = new object();
-        private TimeSpan? _retryAfter;
+        private readonly AsyncLocal<Observation> _current = new();
 
         public void Initialize(ConfigurableHttpClient httpClient)
         {
@@ -26,29 +26,65 @@ namespace youtubed.Services
             return Task.FromResult(false);
         }
 
-        public TimeSpan? ConsumeRetryAfter()
+        public IYoutubeRetryAfterObservation BeginObservation()
         {
-            lock (_sync)
-            {
-                var value = _retryAfter;
-                _retryAfter = null;
-                return value;
-            }
+            var observation = new Observation(this, _current.Value);
+            _current.Value = observation;
+            return observation;
         }
 
         internal void Capture(HttpResponseMessage response)
         {
-            var retry = response?.Headers?.RetryAfter;
-            var value = retry?.Delta;
-            if (!value.HasValue && retry?.Date != null)
+            var retryAfter = response?.Headers?.RetryAfter;
+            _current.Value?.Capture(retryAfter?.Delta, retryAfter?.Date);
+        }
+
+        private sealed class Observation : IYoutubeRetryAfterObservation
+        {
+            private readonly YoutubeHttpResponseObserver _owner;
+            private readonly Observation _previous;
+            private TimeSpan? _delta;
+            private DateTimeOffset? _date;
+            private bool _disposed;
+
+            public Observation(YoutubeHttpResponseObserver owner, Observation previous)
             {
-                var delay = retry.Date.Value - DateTimeOffset.UtcNow;
-                value = delay > TimeSpan.Zero ? delay : TimeSpan.Zero;
+                _owner = owner;
+                _previous = previous;
             }
 
-            lock (_sync)
+            public void Capture(TimeSpan? delta, DateTimeOffset? date)
             {
-                _retryAfter = value;
+                _delta = delta;
+                _date = date;
+            }
+
+            public TimeSpan? GetDelay(TimeProvider timeProvider)
+            {
+                ArgumentNullException.ThrowIfNull(timeProvider);
+                if (_delta.HasValue)
+                {
+                    return _delta.Value > TimeSpan.Zero ? _delta.Value : TimeSpan.Zero;
+                }
+                if (_date.HasValue)
+                {
+                    var delay = _date.Value - timeProvider.GetUtcNow();
+                    return delay > TimeSpan.Zero ? delay : TimeSpan.Zero;
+                }
+                return null;
+            }
+
+            public void Dispose()
+            {
+                if (_disposed)
+                {
+                    return;
+                }
+                _disposed = true;
+                if (ReferenceEquals(_owner._current.Value, this))
+                {
+                    _owner._current.Value = _previous;
+                }
             }
         }
     }

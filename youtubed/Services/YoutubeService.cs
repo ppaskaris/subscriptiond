@@ -13,17 +13,17 @@ namespace youtubed.Services
     public class YoutubeService : IYoutubeService
     {
         private readonly YoutubeOptions _options;
-        private readonly IYoutubeRequestGate _requestGate;
+        private readonly IYoutubeCallInvoker _callInvoker;
         private readonly YoutubeHttpResponseObserver _responseObserver;
         private readonly Lazy<YouTubeService> _service;
 
         public YoutubeService(
             IOptions<YoutubeOptions> options,
-            IYoutubeRequestGate requestGate,
+            IYoutubeCallInvoker callInvoker,
             YoutubeHttpResponseObserver responseObserver)
         {
             _options = options.Value;
-            _requestGate = requestGate ?? throw new ArgumentNullException(nameof(requestGate));
+            _callInvoker = callInvoker ?? throw new ArgumentNullException(nameof(callInvoker));
             _responseObserver = responseObserver ?? throw new ArgumentNullException(nameof(responseObserver));
             _service = new Lazy<YouTubeService>(CreateService);
         }
@@ -72,9 +72,9 @@ namespace youtubed.Services
             request.Fields = "items(id,snippet(title,thumbnails(medium,default)),contentDetails(relatedPlaylists(uploads)))";
             request.Id = string.Join(",", normalizedIds);
 
-            var response = await _requestGate.ExecuteAsync(
+            var response = await _callInvoker.InvokeAsync(
                 token => request.ExecuteAsync(token),
-                waitForCooldown: true,
+                YoutubeCallPolicy.Refresh,
                 cancellationToken);
             return response.Items.ToDictionary(
                 item => item.Id,
@@ -106,9 +106,9 @@ namespace youtubed.Services
                     throw new ArgumentException("url", "Invalid format.");
             }
 
-            var response = await _requestGate.ExecuteAsync(
+            var response = await _callInvoker.InvokeAsync(
                 token => request.ExecuteAsync(token),
-                waitForCooldown: false,
+                YoutubeCallPolicy.Foreground,
                 CancellationToken.None);
             var item = response.Items.FirstOrDefault();
             if (item == null)
@@ -140,9 +140,9 @@ namespace youtubed.Services
             request.Fields = "items(snippet(channelId))";
             request.Id = identifier;
 
-            var response = await _requestGate.ExecuteAsync(
+            var response = await _callInvoker.InvokeAsync(
                 token => request.ExecuteAsync(token),
-                waitForCooldown: false,
+                YoutubeCallPolicy.Foreground,
                 CancellationToken.None);
             var item = response.Items.FirstOrDefault();
             if (item == null)
@@ -167,9 +167,9 @@ namespace youtubed.Services
                 request.PageToken = pageToken;
             }
 
-            var response = await _requestGate.ExecuteAsync(
+            var response = await _callInvoker.InvokeAsync(
                 token => request.ExecuteAsync(token),
-                waitForCooldown: true,
+                YoutubeCallPolicy.Refresh,
                 cancellationToken);
             var nextPageToken = response.NextPageToken;
             var videos = new List<YoutubeVideo>();
@@ -233,9 +233,9 @@ namespace youtubed.Services
             request.Fields = "items(id,contentDetails(duration))";
             request.Id = string.Join(",", normalizedIds);
 
-            var response = await _requestGate.ExecuteAsync(
+            var response = await _callInvoker.InvokeAsync(
                 token => request.ExecuteAsync(token),
-                waitForCooldown: true,
+                YoutubeCallPolicy.Refresh,
                 cancellationToken);
             return YoutubeVideoDurationParser.ParseById(
                 response.Items.Select(item => new KeyValuePair<string, string>(

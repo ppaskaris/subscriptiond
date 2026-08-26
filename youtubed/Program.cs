@@ -4,6 +4,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System;
 using youtubed.Persistence;
 using youtubed.Services;
 
@@ -27,13 +28,17 @@ builder.Services.AddPersistence(builder.Configuration);
 builder.Services.AddSingleton<YoutubeHttpResponseObserver>();
 builder.Services.AddSingleton<IYoutubeRetryAfterProvider>(provider =>
     provider.GetRequiredService<YoutubeHttpResponseObserver>());
-builder.Services.AddSingleton<IYoutubeRequestGate, YoutubeRequestGate>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<IYoutubeCallInvoker, YoutubeCallInvoker>();
 builder.Services.AddSingleton<IYoutubeService, YoutubeService>();
 
 builder.Services.AddSingleton<IAppClock, AppClock>();
 builder.Services.AddSingleton<IChannelRefreshQueue, ChannelRefreshQueue>();
 builder.Services.AddSingleton<IChannelUrlLookupCache, ChannelUrlLookupCache>();
 builder.Services.AddSingleton<IChannelService, ChannelService>();
+builder.Services.AddSingleton<YoutubePlaylistScanner>();
+builder.Services.AddSingleton<YoutubeDurationFetcher>();
+builder.Services.AddSingleton<ChannelRefreshMerger>();
 builder.Services.AddSingleton<IChannelRefreshPipeline, ChannelRefreshPipeline>();
 builder.Services.AddSingleton<IListService, ListService>();
 builder.Services.AddSingleton<IShareLinkService, ShareLinkService>();
